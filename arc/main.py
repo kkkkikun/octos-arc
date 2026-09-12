@@ -30,7 +30,7 @@ Environment (all optional):
     OCTOS_NODE_TIME_BUDGET    cap per node incl. repairs (default 1500)
     OCTOS_REPAIR_ROUNDS       K, acceptance repair rounds per node (default 5)
     OCTOS_DESIGN_TURN         "0" disables the design turn
-    OCTOS_SESSION_PER_TURN    "0" reuses one long octos session (default: fresh)
+    OCTOS_SESSION_SCOPE       node (default) | turn | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
     OCTOS_PERF_CONTRACT       "0" drops the performance rules from prompts
@@ -413,7 +413,11 @@ class OctosDriver:
     def __init__(self, octos_bin: str, cwd: Path, env: dict, data_dir: Path,
                  max_iterations: int, events_log: Path) -> None:
         self.mode = os.environ.get("OCTOS_DRIVER", "stdio")
-        self.fresh_session = os.environ.get("OCTOS_SESSION_PER_TURN", "1") != "0"
+        # "turn": new session every turn; "node": one session per requirement
+        # node (design -> implement -> repairs share context); "run": one session.
+        self.session_scope = os.environ.get("OCTOS_SESSION_SCOPE", "node")
+        if os.environ.get("OCTOS_SESSION_PER_TURN") == "0" and "OCTOS_SESSION_SCOPE" not in os.environ:
+            self.session_scope = "run"
         self.octos_bin = octos_bin
         self.cwd = cwd
         self.env = env
@@ -462,7 +466,7 @@ class OctosDriver:
             ok, text = self._run_with_heartbeat(lambda: self._run_with_retries(fn))
         finally:
             self.monitor = None
-            if self.fresh_session:
+            if self.session_scope == "turn":
                 self.close()
         if monitor is not None:
             monitor.finish(text)
@@ -493,6 +497,8 @@ class OctosDriver:
     @staticmethod
     def _transient(text: str) -> bool:
         lowered = text.lower()
+        if "octos turn timed out" in lowered or "octos timed out after" in lowered:
+            return False  # our own wall-clock cap, not a provider hiccup: never replay the turn
         return any(k in lowered for k in (
             "temporarily unavailable", "503", "502", "429", "rate limit", "timeout", "timed out",
             "connection reset", "overloaded", "failed to send", "streaming request",
@@ -520,6 +526,12 @@ class OctosDriver:
             if chat_ok:
                 return True, chat_text
             return False, f"stdio driver error: {exc}; chat fallback: {chat_text}"[:1000]
+
+    def end_scope(self, scope: str) -> None:
+        """Called by the flow at node boundaries; closes the session when the
+        configured scope ends."""
+        if scope == self.session_scope or self.session_scope == "turn":
+            self.close()
 
     def close(self) -> None:
         if self._session is not None:
@@ -715,6 +727,8 @@ class Flow:
         self.node_budget_cap = int(os.environ.get("OCTOS_NODE_TIME_BUDGET", "1500"))
         self.repair_rounds = int(os.environ.get("OCTOS_REPAIR_ROUNDS", "5"))
         self.design_enabled = os.environ.get("OCTOS_DESIGN_TURN", "1") != "0"
+        self.design_min_nodes = int(os.environ.get("OCTOS_DESIGN_MIN_NODES", "2"))
+        self.implement_fraction = float(os.environ.get("OCTOS_IMPLEMENT_FRACTION", "0.6"))
         self.alias_states = os.environ.get("OCTOS_ARC_ALIAS_SPEC_IDS", "1") != "0"
         self.perf_contract = os.environ.get("OCTOS_PERF_CONTRACT", "1") != "0"
         self.guard_enabled = os.environ.get("OCTOS_GUARD", "1") != "0"
@@ -963,7 +977,7 @@ class Flow:
 
         self.mark("design_started", node_id)
         design = None
-        if self.design_enabled:
+        if self.design_enabled and total >= self.design_min_nodes:
             design = self.design(node, ordered, deadline)
         if design:
             self.designs[node_id] = design
@@ -982,12 +996,20 @@ class Flow:
                                     tests=self.tests_prompt_for(node_id), smoke=self.smoke_port, port=self.web_port,
                                     performance=self.perf_text())
         prompt = self.corrections_text() + prompt
-        ok, text = self.turn(prompt, min(self.node_timeout, deadline - time.time()), f"{node_id} implement")
-        if not ok:
+        implement_timeout = min(self.node_timeout, self.implement_fraction * node_budget, deadline - time.time())
+        ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
+        timed_out = (not ok) and "timed out" in text.lower()
+        if not ok and not timed_out:
             self.mark("implementation_failed", node_id, text[-500:])
             self.impl_failed.append(node_id)
             return
-        self.mark("implementation_done", node_id, text[-500:] or None)
+        if timed_out:
+            # The files written so far stay on disk; let the acceptance loop judge them.
+            log(f"[flow] {node_id}: implement turn hit its {implement_timeout:.0f}s cap; testing what exists")
+            self.driver.close()
+            self.pending_corrections.append(
+                "Your implementation turn ran out of time; work in smaller steps and verify with curl early.")
+        self.mark("implementation_done", node_id, (text[-500:] or None) if ok else "implement turn timed out; partial code")
         self.commit(f"{node_id} (implement): {node.get('name', '')}")
 
         verdict = self.acceptance_loop(node_id, specs, deadline)
@@ -1124,6 +1146,7 @@ class Flow:
             try:
                 if not self.evolution:
                     self.skeleton(tree)
+                    self.driver.end_scope("node")
                 for index, node in enumerate(ordered, 1):
                     node_id = str(node.get("id"))
                     if self.time_up():
@@ -1136,6 +1159,7 @@ class Flow:
                         self.regression_cycle(node)
                     else:
                         self.node_cycle(node, ordered, index, len(ordered))
+                    self.driver.end_scope("node")
 
                 undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]
                 final_ok = None

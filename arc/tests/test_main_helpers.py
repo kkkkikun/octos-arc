@@ -1,6 +1,6 @@
 import unittest
 
-from main import describe_node, unchanged_node_ids
+from main import OctosDriver, describe_node, unchanged_node_ids
 
 
 def node(node_id, description, deps=()):
@@ -33,3 +33,13 @@ class DescribeNodeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TransientTests(unittest.TestCase):
+    def test_should_not_retry_own_turn_timeouts(self):
+        self.assertFalse(OctosDriver._transient("octos turn timed out"))
+        self.assertFalse(OctosDriver._transient("octos timed out after 900s"))
+
+    def test_should_retry_provider_errors(self):
+        self.assertTrue(OctosDriver._transient("HTTP 503 Service Temporarily Unavailable"))
+        self.assertTrue(OctosDriver._transient("failed to send streaming request"))
