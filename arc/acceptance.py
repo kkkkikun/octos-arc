@@ -269,6 +269,32 @@ def free_port(port: int) -> None:
             pass
 
 
+def free_owned_ports(ports: list[int], root: Path) -> None:
+    """Kill listeners on `ports` that were started from inside `root` (our own
+    leftovers), leaving foreign processes alone. Works on macOS and Linux."""
+    for port in ports:
+        try:
+            pids = subprocess.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True, timeout=15).stdout.split()
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        for pid in pids:
+            cwd = ""
+            try:
+                cwd = os.readlink(f"/proc/{pid}/cwd")
+            except OSError:
+                try:
+                    out = subprocess.run(["lsof", "-a", "-p", pid, "-d", "cwd", "-Fn"], capture_output=True,
+                                         text=True, timeout=15).stdout
+                    cwd = next((l[1:] for l in out.splitlines() if l.startswith("n/")), "")
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+            if cwd.startswith(str(root)):
+                try:
+                    os.kill(int(pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, ValueError):
+                    pass
+
+
 def port_open(port: int) -> bool:
     with socket.socket() as s:
         s.settimeout(1)
@@ -291,11 +317,17 @@ def restore_worktree(git_run: Callable[[list[str]], object], parts: tuple[str, .
 class AppServer:
     """Build the frontend once and run the backend on the smoke port."""
 
-    def __init__(self, project: Path, port: int, log: Callable[[str], None], env_extra: dict | None = None):
+    def __init__(self, project: Path, port: int, log: Callable[[str], None], env_extra: dict | None = None,
+                 grader_like: bool = False, extra_ports: list[int] | None = None):
+        """`grader_like=True` starts the backend exactly as the platform does:
+        only PORT is set, so any extra spec ports (e.g. 3301) get bound too.
+        Per-node runs pass False (ARC_EXTRA_PORTS=0) to stay off shared ports."""
         self.project = project
         self.port = port
         self.log = log
         self.env_extra = env_extra or {}
+        self.grader_like = grader_like
+        self.extra_ports = extra_ports or []
         self.proc: subprocess.Popen | None = None
         self.log_file: Path | None = None
 
@@ -330,8 +362,13 @@ class AppServer:
 
     def start(self, wait_seconds: int = 45) -> str | None:
         free_port(self.port)
+        if self.grader_like:
+            free_owned_ports(self.extra_ports, self.project)
         self.log_file = Path(tempfile.mkstemp(prefix="octos-app-", suffix=".log")[1])
-        env = dict(os.environ, PORT=str(self.port), ARC_EXTRA_PORTS="0", **self.env_extra)
+        env = dict(os.environ, PORT=str(self.port), **self.env_extra)
+        env.pop("ARC_EXTRA_PORTS", None)
+        if not self.grader_like:
+            env["ARC_EXTRA_PORTS"] = "0"
         try:
             fh = open(self.log_file, "w")
             self.proc = subprocess.Popen(["npm", "start"], cwd=self.project / "backend", env=env,
@@ -364,6 +401,8 @@ class AppServer:
                 pass
             self.proc = None
         free_port(self.port)
+        if self.grader_like:
+            free_owned_ports(self.extra_ports, self.project)
         if self.log_file:
             try:
                 self.log_file.unlink()

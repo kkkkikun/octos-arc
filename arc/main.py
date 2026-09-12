@@ -713,8 +713,10 @@ def acceptance_tests_prompt(tests_dir: Path | None, web_port: int, smoke_port: i
         ports = ", ".join(map(str, extra))
         text += (f"PORT CONTRACT (mandatory): the specs default to port(s) {ports} while the grader starts the "
                  f"backend with PORT={web_port}. Serve the identical app on BOTH the PORT value and port(s) {ports}: "
-                 f"call server.listen() once per port with the same handler, binding the extra port(s) only when "
-                 f"process.env.ARC_EXTRA_PORTS is not '0'.\n")
+                 f"create a SEPARATE http.createServer(handler) for each port (one Server can listen only once — "
+                 f"calling listen() twice throws ERR_SERVER_ALREADY_LISTEN and the process dies), binding the extra "
+                 f"port(s) only when process.env.ARC_EXTRA_PORTS is not '0'. The grader sets ONLY PORT, so the "
+                 f"extra port(s) ARE bound during grading.\n")
     return text
 
 
@@ -857,12 +859,17 @@ class Flow:
                                        workers=int(os.environ.get("OCTOS_ARC_TEST_WORKERS", "2")))
         log(f"[acceptance] using Playwright at {root}")
 
-    def run_specs(self, specs: list[str], workers: int | None = None) -> RunSummary:
+    def app_server(self, grader_like: bool) -> AppServer:
+        return AppServer(self.output_dir, self.smoke_port, log, grader_like=grader_like,
+                         extra_ports=[p for p in spec_base_ports(self.tests_dir) if p != self.web_port])
+
+    def run_specs(self, specs: list[str], workers: int | None = None, grader_like: bool = False) -> RunSummary:
         """Build, start, run the specs, then undo whatever the test run mutated
-        (a persisted counter at -1 would otherwise be committed as the seed)."""
+        (a persisted counter at -1 would otherwise be committed as the seed).
+        `grader_like` starts the backend with only PORT set, as the platform does."""
         git_run = lambda args: self.runtime.git.run(args, check=False)  # noqa: E731
         snapshot_worktree(git_run)
-        server = AppServer(self.output_dir, self.smoke_port, log)
+        server = self.app_server(grader_like)
         try:
             err = server.build()
             if err is None:
@@ -1079,15 +1086,24 @@ class Flow:
         rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "3"))
         workers = int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4"))
         for attempt in range(rounds + 1):
-            summary = self.run_specs(all_specs, workers=workers)
+            summary = self.run_specs(all_specs, workers=workers, grader_like=True)
             if summary.error:
-                log(f"[acceptance] full suite infrastructure error: {summary.error[:300]}")
-                return
-            grouped = nodes_for_failures(summary.results, self.spec_map)
+                # The app does not even start the way the grader starts it: every node fails.
+                log(f"[acceptance] full suite (grader-like start) failed: {summary.error[:300]}")
+                for node_id in self.spec_map:
+                    if node_id:
+                        self.test_verdict[node_id] = False
+                grouped = {None: []}
+                failures = (f"- Feature: application startup exactly as the grader runs it (only PORT set)\n"
+                            f"  Failed at: npm start\n  Observation: {summary.error[:700]}\n  Steps: npm run build -> npm start")
+                summary = RunSummary(passed=0, total=len(all_specs))
+            else:
+                grouped = nodes_for_failures(summary.results, self.spec_map)
+                failures = failure_summaries(RunSummary(results=[r for rs in grouped.values() for r in rs]))
             log(f"[acceptance] full suite round {attempt}: {summary.passed}/{summary.total}; failing nodes "
-                f"{sorted(k for k in grouped if k)}")
+                f"{sorted(k for k in grouped if k) or ('all' if None in grouped and not summary.results else [])}")
             for node_id, specs in self.spec_map.items():
-                if node_id and specs:
+                if node_id and specs and summary.results:
                     self.record_tests(node_id, specs, RunSummary(results=[r for r in summary.results
                                       if Path(r.file or "").name in {Path(p).name for p in specs}]))
                     self.test_verdict[node_id] = node_id not in grouped
@@ -1096,8 +1112,7 @@ class Flow:
                 return
             if attempt == rounds or self.remaining() < 240:
                 break
-            failing = sorted(k for k in grouped if k) or ["(unmapped specs)"]
-            failures = failure_summaries(RunSummary(results=[r for rs in grouped.values() for r in rs]))
+            failing = sorted(k for k in grouped if k) or ["all nodes"]
             prompt = REPAIR_PROMPT.format(
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
                 corrections=self.corrections_text() + "The grader runs all spec files IN PARALLEL against one "
@@ -1137,8 +1152,8 @@ class Flow:
     # -- final ------------------------------------------------------------
     def rehearsal(self) -> bool:
         for attempt in range(1, 4):
-            log(f"[rehearsal] startup rehearsal {attempt}/3 (smoke port {self.smoke_port})")
-            server = AppServer(self.output_dir, self.smoke_port, log)
+            log(f"[rehearsal] startup rehearsal {attempt}/3 (smoke port {self.smoke_port}, grader-like env)")
+            server = self.app_server(grader_like=True)
             err = server.build() or server.start()
             server.stop()
             if err is None:
