@@ -26,6 +26,7 @@ class OctosStdioSession:
     def __init__(self, octos_bin: str, cwd: Path, env: dict, data_dir: Path,
                  on_event: Callable[[str, dict], None] | None = None) -> None:
         self.cwd = str(cwd)
+        self.data_dir = Path(data_dir)
         self.on_event = on_event or (lambda method, params: None)
         cmd = [octos_bin, "serve", "--stdio", "--solo", "--data-dir", str(data_dir)]
         if env.get("OCTOS_DANGER_FULL_ACCESS") == "1":
@@ -113,7 +114,8 @@ class OctosStdioSession:
     # ------------------------------------------------------------ protocol
 
     def bootstrap_profile(self, provider: str, model: str, base_url: str | None,
-                          api_key_env: str | None, timeout: float = 60.0) -> None:
+                          api_key_env: str | None, timeout: float = 60.0,
+                          hooks: list | None = None) -> None:
         """Create a solo profile and select its LLM (serve mode has no config-
         file default profile like `octos chat` does, so we onboard one).
 
@@ -133,6 +135,12 @@ class OctosStdioSession:
         self.profile_id = res.get("profile_id") if isinstance(res, dict) else None
         if not self.profile_id:
             raise OctosProtocolError(f"profile/local/create gave no profile_id: {res}")
+        if hooks:
+            # The solo ProfileRuntime builds its HookExecutor from the profile's
+            # own config (config_from_profile), not from the host config.json or
+            # profile-defaults.json — verified with real stdio turns. Patch the
+            # registry file before the LLM upsert re-reads and re-saves it.
+            self._patch_profile_config({"hooks": hooks})
         api_type = "anthropic" if provider == "anthropic" else "openai"
         route: dict = {"api_type": api_type}
         if base_url:
@@ -148,6 +156,23 @@ class OctosStdioSession:
                 "route": route,
             },
         }, want_response=True, timeout=timeout)
+
+    def _patch_profile_config(self, fields: dict) -> None:
+        import json as _json
+        from pathlib import Path as _Path
+        for root in (self.data_dir, self.data_dir / "profiles"):
+            path = _Path(root) / "profiles" / f"{self.profile_id}.json" if root == self.data_dir \
+                else _Path(root) / f"{self.profile_id}.json"
+            if not path.is_file():
+                continue
+            try:
+                data = _json.loads(path.read_text(encoding="utf-8"))
+                data.setdefault("config", {}).update(fields)
+                path.write_text(_json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+                return
+            except (OSError, ValueError) as exc:
+                raise OctosProtocolError(f"could not patch profile config at {path}: {exc}") from exc
+        raise OctosProtocolError(f"profile registry file for {self.profile_id} not found under {self.data_dir}")
 
     def open(self, timeout: float = 120.0) -> None:
         params = {"session_id": self.session_id, "cwd": self.cwd}

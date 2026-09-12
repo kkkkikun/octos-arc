@@ -384,6 +384,37 @@ def find_octos() -> str:
     return _download_octos(cache_dir)
 
 
+def protected_hooks(protected_dirs: list[Path] | None) -> list[dict]:
+    """before_tool_call hook denying file writes into the official tests /
+    requirements directories (exit 1 = deny). Shell commands are redacted by
+    the kernel and cannot be checked here; the harness restores the trees
+    after every turn as the second layer."""
+    hook_script = BUNDLE_DIR / "hooks" / "deny_protected.py"
+    if not protected_dirs or not hook_script.is_file():
+        return []
+    return [{
+        "event": "before_tool_call",
+        "command": [sys.executable, str(hook_script), *[str(p) for p in protected_dirs]],
+        "timeout_ms": 4000,
+        "tool_filter": ["write_file", "edit_file", "diff_edit", "apply_patch", "create_file", "append_file"],
+    }]
+
+
+def write_profile_defaults(data_dir: Path, config_dir: Path, hooks: list[dict]) -> None:
+    """Belt and braces: the solo ProfileRuntime builds its HookExecutor from
+    the profile's own config (the stdio driver patches `hooks` into the
+    profile registry file — the mechanism verified to deny with a real turn);
+    a `profile-defaults.json` covers code paths that merge store defaults."""
+    if not hooks:
+        return
+    for root in (data_dir, config_dir):
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            (root / "profile-defaults.json").write_text(json.dumps({"hooks": hooks}, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+
 def build_octos_env(config_dir: Path, protected_dirs: list[Path] | None = None) -> dict:
     """Prepare env + minimal config.json for non-interactive octos.
 
@@ -419,14 +450,9 @@ def build_octos_env(config_dir: Path, protected_dirs: list[Path] | None = None) 
         config["base_url"] = base_url
     if provider == "deepseek":
         config["gateway"]["reasoning_effort"] = "low"
-    hook_script = BUNDLE_DIR / "hooks" / "deny_protected.py"
-    if protected_dirs and hook_script.is_file():
-        config["hooks"] = [{
-            "event": "before_tool_call",
-            "command": [sys.executable, str(hook_script), *[str(p) for p in protected_dirs]],
-            "timeout_ms": 4000,
-            "tool_filter": ["write_file", "edit_file", "diff_edit", "apply_patch", "create_file", "append_file"],
-        }]
+    hooks = protected_hooks(protected_dirs)
+    if hooks:
+        config["hooks"] = hooks
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     env["OCTOS_CONFIG_DIR"] = str(config_dir)
@@ -520,6 +546,7 @@ class OctosDriver:
         self.events_log = events_log
         self._session = None
         self.monitor: TurnMonitor | None = None
+        self.hooks: list = []  # profile hooks (protected-directory deny), set by the flow
 
     def _log_event(self, method: str, params: dict) -> None:
         if method == "core/marker":
@@ -545,6 +572,7 @@ class OctosDriver:
                 model=self.env.get("_ARC_MODEL", ""),
                 base_url=self.env.get("_ARC_BASE_URL") or None,
                 api_key_env=self.env.get("_ARC_KEY_ENV") or None,
+                hooks=self.hooks,
             )
             self._session.open()
         return self._session
@@ -1397,12 +1425,15 @@ class Flow:
             log(f"[octos] binary {octos_bin}")
             data_dir = Path(tempfile.mkdtemp(prefix="octos-data-"))
             protected = [p for p in (self.tests_dir, self.req_dir) if p and p.is_dir()]
-            env = build_octos_env(Path(tempfile.mkdtemp(prefix="octos-config-")), protected)
+            config_dir = Path(tempfile.mkdtemp(prefix="octos-config-"))
+            env = build_octos_env(config_dir, protected)
+            write_profile_defaults(data_dir, config_dir, protected_hooks(protected))
             self.snapshot_protected()
             env["PORT"] = str(self.smoke_port)  # a bare `npm start` inside a turn must not hit the grading port
             self.driver = OctosDriver(octos_bin, self.output_dir, env, data_dir,
                                       int(os.environ.get("OCTOS_MAX_ITERATIONS", "500")),
                                       events_log=self.output_dir / ".arc" / "octos-events.jsonl")
+            self.driver.hooks = protected_hooks(protected)
             threading.Thread(target=_port_watchdog, args=(self.web_port, self.output_dir, watchdog_stop),
                              daemon=True).start()
             try:
