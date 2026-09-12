@@ -60,10 +60,12 @@ jobs:
           set -euo pipefail
           ./scripts/bundle-release.sh "octos-bundle-x86_64-unknown-linux-gnu.tar.gz"
           sha256sum "octos-bundle-x86_64-unknown-linux-gnu.tar.gz" | tee bundle.sha256
+          sha256sum target/release/octos | tee octos.sha256
           {
             echo "source_commit=$SOURCE_COMMIT"
             echo "rustc=$RUSTC_VERSION"
             echo "archive_sha256=$(cut -d ' ' -f 1 bundle.sha256)"
+            echo "binary_sha256=$(cut -d ' ' -f 1 octos.sha256)"
             echo "binary_version=$(target/release/octos --version)"
           } | tee release-metadata.txt
 
@@ -76,6 +78,7 @@ jobs:
           gh release create "$RELEASE_TAG" \
             "octos-bundle-x86_64-unknown-linux-gnu.tar.gz" \
             "bundle.sha256" \
+            "octos.sha256" \
             "release-metadata.txt" \
             --repo "${{ github.repository }}" \
             --target "$SOURCE_COMMIT" \
