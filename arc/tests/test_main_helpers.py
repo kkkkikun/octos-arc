@@ -51,3 +51,38 @@ class FolderDescendantTests(unittest.TestCase):
             {"id": "F-1", "type": "FOLDER", "children": [node("REQ-1", "a"), node("REQ-2", "b")]},
             node("REQ-3", "c")]}
         self.assertEqual(folder_descendants(tree), {"F-1": ["REQ-1", "REQ-2"], "ROOT": ["REQ-1", "REQ-2", "REQ-3"]})
+
+
+class SetupPlaywrightTests(unittest.TestCase):
+    """Regression for cloud run d116ad5e3aa0: the private-install branch of
+    setup_playwright must unpack (root, env_extra) and expose cleanup."""
+
+    def test_should_use_private_install_tuple_and_clean_it_up(self):
+        import argparse, tempfile
+        from pathlib import Path
+        import main as m
+        with tempfile.TemporaryDirectory() as tmp:
+            tests = Path(tmp) / "tests"; tests.mkdir(); (tests / "REQ-1.spec.ts").write_text("x")
+            fake_root = Path(tmp) / "pw"; (fake_root / "node_modules" / "@playwright" / "test").mkdir(parents=True)
+            flow = m.Flow(argparse.Namespace(web_port=3000), Path(tmp) / "out", Path(tmp) / "req")
+            flow.tests_dir = tests
+            calls = {}
+            def fake_ensure(install_root, log, timeout=540, version="1.63.0"):
+                calls["version"] = version
+                return fake_root, {"PLAYWRIGHT_BROWSERS_PATH": str(install_root / "browsers")}
+            saved = (m.find_playwright_root, m.find_playwright_by_search, m.ensure_playwright)
+            m.find_playwright_root = lambda cands: fake_root if cands == [fake_root] else None
+            m.find_playwright_by_search = lambda log: None
+            m.ensure_playwright = fake_ensure
+            try:
+                flow.setup_playwright()
+            finally:
+                m.find_playwright_root, m.find_playwright_by_search, m.ensure_playwright = saved
+            self.assertEqual(calls["version"], "1.63.0")
+            self.assertIsNotNone(flow.runner)
+            self.assertEqual(flow.runner.root, fake_root)
+            self.assertIn("PLAYWRIGHT_BROWSERS_PATH", flow.runner.env_extra)
+            private = flow.private_playwright
+            self.assertTrue(private.exists())
+            flow.cleanup_playwright()
+            self.assertFalse(private.exists())

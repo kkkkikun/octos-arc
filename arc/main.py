@@ -888,19 +888,39 @@ class Flow:
 
     # -- acceptance -------------------------------------------------------
     def setup_playwright(self) -> None:
+        """Prefer the Playwright already on the machine (the runner image ships
+        one). A private install is the last resort and never touches shared
+        state: own npm cache, own browser dir, pinned version, removed at exit.
+        Run da9a64b32c09: an unisolated install made the platform's own
+        `npx playwright test` resolve a different version whose chromium build
+        was missing, and every graded test failed."""
         if not self.tests_dir:
             return
+        env_extra: dict = {}
         root = find_playwright_root(playwright_candidates(BUNDLE_DIR, self.tests_dir, self.output_dir))
+        if root is None:
+            root = find_playwright_by_search(log)
         if root is None and os.environ.get("OCTOS_ARC_INSTALL_PLAYWRIGHT", "1") != "0":
-            log("[acceptance] no Playwright install found; trying to install one (bounded)")
-            root = ensure_playwright(Path(tempfile.gettempdir()) / "octos-arc-playwright", log)
+            version = playwright_version_hint(self.tests_dir)
+            log(f"[acceptance] no preinstalled Playwright found; private install of @playwright/test@{version}")
+            self.private_playwright = Path(tempfile.mkdtemp(prefix="octos-arc-playwright-"))
+            installed = ensure_playwright(self.private_playwright, log, version=version)
+            if installed:
+                root, env_extra = installed
         if root is None:
             log("[acceptance] Playwright unavailable; nodes will be judged by the final check only")
             return
         self.runner = AcceptanceRunner(root, self.tests_dir, acceptance_work_dir(root), log,
                                        timeout_ms=int(os.environ.get("OCTOS_ARC_TEST_TIMEOUT_MS", "10000")),
-                                       workers=int(os.environ.get("OCTOS_ARC_TEST_WORKERS", "2")))
+                                       workers=int(os.environ.get("OCTOS_ARC_TEST_WORKERS", "2")),
+                                       env_extra=env_extra)
         log(f"[acceptance] using Playwright at {root}")
+
+    def cleanup_playwright(self) -> None:
+        private = getattr(self, "private_playwright", None)
+        if private and Path(private).exists():
+            shutil.rmtree(private, ignore_errors=True)
+            log(f"[acceptance] removed private Playwright install {private}")
 
     def app_server(self, grader_like: bool) -> AppServer:
         return AppServer(self.output_dir, self.smoke_port, log, grader_like=grader_like,
