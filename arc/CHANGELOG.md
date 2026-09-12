@@ -133,3 +133,12 @@ C 用旧 main（`82e3bef3`）适配包在 `arc-bench-web--keep` 本机跑到 26/
 3. **整体预算按节点数放大**：未显式设 `OCTOS_TIME_BUDGET` 时取 max(3600, 480 × ATOMIC 节点数)（`OCTOS_SECONDS_PER_NODE`），keep 为 15,360 s；节点预算仍是 min(1500, 剩余/剩余节点)。
 
 C 的其余发现与本分支已有改动的对应：轮超时被当瞬时错误重放 → `d5f9dccb` 已修；骨架超时但盘上已有 frontend/backend 则继续 → `skeleton()` 已按盘上状态判定；单会话累积上下文（keep 云端 8,256 万 token、¥17.94）→ 默认按节点新开 session；云端评测阶段 Playwright 用 4 workers 1 秒后被 SIGKILL 是平台侧问题，适配层无法影响；Evolution 在平台上 `ARCBENCH_TEMPLATE_DIR` 未设置而模板在 `/workspace/template`，本分支按输出目录里是否已有 frontend/backend 判定，与 C 观察到的 2/2 一致。
+
+## 紧急修正 · 云端 Smoke Evolution 0/2（C 回流，运行 da9a64b32c09 / 16ea5178359a）
+
+**现象**：main@40a629a8 的适配包在生成阶段 `[acceptance]` 自跑 2/2，但平台评测阶段 `npx playwright test` 报 `browserType.launch: Executable doesn't exist at /ms-playwright/chromium-1200/...`，2 条全失败；同题旧适配包 2/2。日志顺序是 `no Playwright install found; trying to install one` → `playwright installed into /tmp/octos-arc-playwright`。即镜像里其实有预装的 Playwright 但我们没找到，随后未隔离的安装改变了平台自己 `npx playwright` 的解析结果。
+
+**改法**（`acceptance.py` / `main.py`）：
+1. 先找预装：候选路径加上 `npm root -g` 的上级、/workspace、/workspace/tests、/app、/runner、/opt/playwright、/usr/local/lib、/usr/lib、$HOME；再做一次 25 s 内的 `find / -maxdepth 6 -path '*/node_modules/@playwright/test'`（排除 /proc /sys /tmp）。
+2. 真要自装时完全隔离：版本钉死（tests 目录的 package-lock/package.json 声明的版本，否则 1.63.0；绝不 latest），`npm_config_cache` 与 `PLAYWRIGHT_BROWSERS_PATH` 都指向本次运行的私有临时目录，浏览器用 `node_modules/.bin/playwright install` 而不是 `npx`，所有验收运行带同一 `PLAYWRIGHT_BROWSERS_PATH`，运行结束（含异常路径）删除整个私有目录。
+3. 本机验证：私有安装 24 s 完成，chromium-1243 落在私有目录，登录节点 4/4；安装前后 `~/Library/Caches/ms-playwright` 与 `~/.npm` 均未变化，私有目录已删除。**云端未评测**，请 C 用本分支打包跑一次 smoke-evolution 再合入。

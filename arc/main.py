@@ -60,8 +60,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arcbench_agent_runtime import AgentRuntime  # noqa: E402
 from acceptance import (  # noqa: E402
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, ensure_playwright,
-    failure_summaries, find_playwright_root, map_specs_to_nodes, nodes_for_failures,
-    playwright_candidates, restore_worktree, snapshot_worktree,
+    failure_summaries, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
+    nodes_for_failures, playwright_candidates, playwright_version_hint, restore_worktree,
+    snapshot_worktree,
 )
 from guard import TurnMonitor  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, topo_order  # noqa: E402
@@ -1319,6 +1320,7 @@ class Flow:
                 watchdog_stop.set()
                 if self.driver:
                     self.driver.close()
+                self.cleanup_playwright()
             for node_id in node_ids:  # final per-node verdicts (full-suite run may have changed them)
                 if self.test_verdict.get(node_id) is True:
                     self.mark("test_passed", node_id, "acceptance specs pass (node run and full parallel suite)")
@@ -1340,6 +1342,7 @@ class Flow:
             watchdog_stop.set()
             if self.driver:
                 self.driver.close()
+            self.cleanup_playwright()
             for node in ordered:
                 node_id = str(node.get("id"))
                 if node_id not in self.test_verdict:

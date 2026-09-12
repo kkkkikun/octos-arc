@@ -217,6 +217,10 @@ def acceptance_work_dir(root: Path) -> Path:
 
 
 def playwright_candidates(bundle_dir: Path, tests_dir: Path | None, output_dir: Path) -> list[Path]:
+    """Places an existing @playwright/test may live, most specific first. The
+    runner image ships one ("Using preinstalled Playwright package from runner
+    image"); finding it matters because installing our own must never change
+    what the platform's own `npx playwright test` resolves later."""
     cands: list[Path] = []
     env_root = os.environ.get("OCTOS_ARC_PLAYWRIGHT_ROOT")
     if env_root:
@@ -224,21 +228,84 @@ def playwright_candidates(bundle_dir: Path, tests_dir: Path | None, output_dir: 
     cands.append(bundle_dir / "local-grader")
     if tests_dir:
         cands.extend([tests_dir, *tests_dir.parents][:4])
-    cands.extend([output_dir, Path("/workspace"), Path.home() / ".octos-arc-playwright"])
+    cands.extend([output_dir, Path("/workspace"), Path("/workspace/tests"), Path("/app"), Path("/runner"),
+                  Path("/opt/playwright"), Path("/ms-playwright"), Path.home()])
+    try:  # global npm root: /usr/local/lib/node_modules -> parent holds node_modules/
+        root = subprocess.run(["npm", "root", "-g"], capture_output=True, text=True, timeout=20).stdout.strip()
+        if root:
+            cands.append(Path(root).parent)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    cands.extend([Path("/usr/local/lib"), Path("/usr/lib"), Path("/usr/local"), Path("/opt")])
     return cands
 
 
-def ensure_playwright(install_root: Path, log: Callable[[str], None], timeout: int = 540) -> Path | None:
-    """Best-effort install of @playwright/test + chromium via the China mirrors."""
+def find_playwright_by_search(log: Callable[[str], None], max_depth: int = 6, timeout: int = 25) -> Path | None:
+    """Bounded filesystem search for a preinstalled @playwright/test package."""
+    cmd = ["find", "/", "-maxdepth", str(max_depth), "-type", "d", "-path", "*/node_modules/@playwright/test",
+           "-not", "-path", "/proc/*", "-not", "-path", "/sys/*", "-not", "-path", "/tmp/*"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout.split()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for hit in sorted(out, key=len):
+        root = Path(hit).parents[2]  # <root>/node_modules/@playwright/test
+        if (root / "node_modules" / "@playwright" / "test" / "package.json").is_file():
+            log(f"[acceptance] found preinstalled Playwright at {root}")
+            return root
+    return None
+
+
+def playwright_version_hint(tests_dir: Path | None, fallback: str = "1.63.0") -> str:
+    """Version to install when we must: the one the tests declare, else a pin.
+    Never `latest` — an unpinned install is what broke cloud grading."""
+    for base in ([tests_dir, *tests_dir.parents][:3] if tests_dir else []):
+        for name in ("package-lock.json", "package.json"):
+            path = base / name
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            pkg = (data.get("packages") or {}).get("node_modules/@playwright/test") or {}
+            version = pkg.get("version")
+            if not version:
+                for section in ("devDependencies", "dependencies"):
+                    version = (data.get(section) or {}).get("@playwright/test")
+                    if version:
+                        break
+            if version:
+                return str(version).lstrip("^~=v")
+    return fallback
+
+
+def isolated_install_env(private_root: Path) -> dict:
+    """Environment for a self-contained Playwright install: private npm cache
+    and browser directory, mirrors for the runner network. Nothing outside
+    `private_root` is written, so the platform's own Playwright is untouched."""
+    env = dict(os.environ)
+    env.update(
+        npm_config_registry="https://registry.npmmirror.com",
+        npm_config_cache=str(private_root / "npm-cache"),
+        NPM_CONFIG_CACHE=str(private_root / "npm-cache"),
+        npm_config_update_notifier="false",
+        PLAYWRIGHT_DOWNLOAD_HOST="https://npmmirror.com/mirrors/playwright",
+        PLAYWRIGHT_BROWSERS_PATH=str(private_root / "browsers"),
+    )
+    return env
+
+
+def ensure_playwright(install_root: Path, log: Callable[[str], None], timeout: int = 540,
+                      version: str = "1.63.0") -> tuple[Path, dict] | None:
+    """Self-contained install of @playwright/test@<version> + chromium under
+    `install_root`. Returns (root, env_extra) — env_extra must be passed to
+    every run that uses this install (private PLAYWRIGHT_BROWSERS_PATH)."""
     install_root.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ,
-               npm_config_registry="https://registry.npmmirror.com",
-               PLAYWRIGHT_DOWNLOAD_HOST="https://npmmirror.com/mirrors/playwright")
+    env = isolated_install_env(install_root)
+    (install_root / "package.json").write_text(json.dumps({"name": "octos-arc-acceptance", "private": True}))
     t0 = time.time()
     steps = [
-        ["npm", "init", "-y"],
-        ["npm", "install", "--no-audit", "--no-fund", "@playwright/test"],
-        ["npx", "playwright", "install", "chromium"],
+        ["npm", "install", "--no-audit", "--no-fund", "--no-package-lock", f"@playwright/test@{version}"],
+        [str(install_root / "node_modules" / ".bin" / "playwright"), "install", "chromium"],
     ]
     for cmd in steps:
         remaining = timeout - (time.time() - t0)
@@ -248,13 +315,18 @@ def ensure_playwright(install_root: Path, log: Callable[[str], None], timeout: i
         try:
             r = subprocess.run(cmd, cwd=install_root, env=env, capture_output=True, text=True, timeout=remaining)
         except (subprocess.TimeoutExpired, OSError) as exc:
-            log(f"[acceptance] playwright install step {cmd[:2]} failed: {exc}")
+            log(f"[acceptance] playwright install step {Path(cmd[0]).name} {cmd[1]} failed: {exc}")
             return None
         if r.returncode != 0:
-            log(f"[acceptance] playwright install step {cmd[:2]} rc={r.returncode}: {(r.stderr or r.stdout)[-300:]}")
+            log(f"[acceptance] playwright install step {Path(cmd[0]).name} {cmd[1]} rc={r.returncode}: "
+                f"{(r.stderr or r.stdout)[-300:]}")
             return None
-    log(f"[acceptance] playwright installed into {install_root} in {time.time()-t0:.0f}s")
-    return find_playwright_root([install_root])
+    root = find_playwright_root([install_root])
+    if root is None:
+        return None
+    log(f"[acceptance] playwright {version} installed privately into {install_root} in {time.time()-t0:.0f}s "
+        f"(browsers under {env['PLAYWRIGHT_BROWSERS_PATH']})")
+    return root, {"PLAYWRIGHT_BROWSERS_PATH": env["PLAYWRIGHT_BROWSERS_PATH"]}
 
 
 def free_port(port: int) -> None:
@@ -416,8 +488,9 @@ class AcceptanceRunner:
     """Run selected spec files from `tests_dir` with the Playwright install at `root`."""
 
     def __init__(self, root: Path, tests_dir: Path, work_dir: Path, log: Callable[[str], None],
-                 timeout_ms: int = 10000, workers: int = 2):
+                 timeout_ms: int = 10000, workers: int = 2, env_extra: dict | None = None):
         self.root = root
+        self.env_extra = env_extra or {}
         self.tests_dir = tests_dir
         self.work_dir = work_dir
         self.log = log
@@ -451,7 +524,7 @@ class AcceptanceRunner:
         cmd = [str(self.root / "node_modules" / ".bin" / "playwright"), "test", "-c", str(config)]
         cmd += [str(self.work_dir / "tests" / p) for p in spec_rel_paths]
         env = dict(os.environ, E2E_BASE_URL=base_url, CI="1",
-                   NODE_PATH=str(self.root / "node_modules"))
+                   NODE_PATH=str(self.root / "node_modules"), **self.env_extra)
         env.pop("FORCE_COLOR", None)
         t0 = time.time()
         try:

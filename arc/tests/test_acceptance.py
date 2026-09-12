@@ -5,7 +5,9 @@ from pathlib import Path
 
 from acceptance import (
     failure_summaries,
+    isolated_install_env,
     map_specs_to_nodes,
+    playwright_version_hint,
     nodes_for_failures,
     restore_worktree,
     snapshot_worktree,
@@ -134,3 +136,21 @@ class FailureGroupingTests(unittest.TestCase):
         ]})
         grouped = nodes_for_failures(summary.results, {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": ["sub/REQ-2.spec.ts"], None: []})
         self.assertEqual({k: [r.title for r in v] for k, v in grouped.items()}, {"REQ-1": ["one"], "REQ-2": ["three"]})
+
+
+class PrivateInstallTests(unittest.TestCase):
+    def test_should_pin_version_from_tests_package_lock_or_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tests = Path(tmp) / "tests"; tests.mkdir()
+            self.assertEqual(playwright_version_hint(tests, fallback="1.63.0"), "1.63.0")
+            (Path(tmp) / "package-lock.json").write_text(
+                '{"packages": {"node_modules/@playwright/test": {"version": "1.55.1"}}}')
+            self.assertEqual(playwright_version_hint(tests), "1.55.1")
+            (tests / "package.json").write_text('{"devDependencies": {"@playwright/test": "^1.52.0"}}')
+            self.assertEqual(playwright_version_hint(tests), "1.52.0")
+
+    def test_should_keep_every_write_inside_the_private_root(self):
+        env = isolated_install_env(Path("/private/x"))
+        for key in ("npm_config_cache", "NPM_CONFIG_CACHE", "PLAYWRIGHT_BROWSERS_PATH"):
+            self.assertTrue(env[key].startswith("/private/x"), key)
+        self.assertIn("npmmirror", env["PLAYWRIGHT_DOWNLOAD_HOST"])
