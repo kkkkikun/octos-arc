@@ -600,7 +600,7 @@ Read the acceptance spec files for this node in full and the existing code they 
  "data_model": {{"collection": {{"field": "type"}}}},
  "files": ["backend/server.js", "frontend/src/..."],
  "notes": "validation rules, session handling, seed data, performance decisions"}}
-Copy every accessible name verbatim from the specs. Do not create or modify any other file in this turn.\
+Copy every accessible name verbatim from the specs. This is a reading turn: use only file reading, listing and grep — no builds, servers, curl or other shell commands — and do not create or modify any other file.\
 """
 
 NODE_PROMPT = """\
