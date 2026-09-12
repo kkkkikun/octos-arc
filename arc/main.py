@@ -59,6 +59,7 @@ from arcbench_agent_runtime import AgentRuntime  # noqa: E402
 from acceptance import (  # noqa: E402
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, ensure_playwright,
     failure_summaries, find_playwright_root, map_specs_to_nodes, playwright_candidates,
+    restore_worktree, snapshot_worktree,
 )
 from guard import TurnMonitor  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, topo_order  # noqa: E402
@@ -581,13 +582,13 @@ Design — do NOT implement yet — requirement node {node_id} of the web applic
 {node_spec}
 {ancestors}
 {tests}
-Read the acceptance spec files for this node in full and the existing code they will exercise. Then reply with exactly ONE JSON object inside a ```json fence and nothing else, at most 80 lines:
+Read the acceptance spec files for this node in full and the existing code they will exercise. Then write ONE JSON object (at most 80 lines) to the file .arc/design/{node_id}.json AND repeat it in your reply inside a ```json fence. Shape:
 {{"routes": [{{"method": "POST", "path": "/api/...", "request": {{}}, "response": {{}}, "errors": []}}],
  "pages": [{{"path": "/...", "elements": [{{"role": "textbox|button|link|combobox|checkbox|radio|alert", "name": "exact accessible name", "notes": ""}}]}}],
  "data_model": {{"collection": {{"field": "type"}}}},
  "files": ["backend/server.js", "frontend/src/..."],
  "notes": "validation rules, session handling, seed data, performance decisions"}}
-Copy every accessible name verbatim from the specs. Do not modify any file in this turn.\
+Copy every accessible name verbatim from the specs. Do not create or modify any other file in this turn.\
 """
 
 NODE_PROMPT = """\
@@ -759,8 +760,8 @@ class Flow:
         self.pending_corrections = []
         return text
 
-    def turn(self, prompt: str, timeout: int, label: str) -> tuple[bool, str]:
-        monitor = TurnMonitor(self.protected_prefixes())
+    def turn(self, prompt: str, timeout: int, label: str, expect_verification: bool = True) -> tuple[bool, str]:
+        monitor = TurnMonitor(self.protected_prefixes(), expect_verification=expect_verification)
         t0 = time.time()
         ok, text = self.driver.run(prompt, max(60, int(timeout)), monitor)
         log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {time.time()-t0:.0f}s "
@@ -834,17 +835,21 @@ class Flow:
         log(f"[acceptance] using Playwright at {root}")
 
     def run_specs(self, specs: list[str]) -> RunSummary:
+        """Build, start, run the specs, then undo whatever the test run mutated
+        (a persisted counter at -1 would otherwise be committed as the seed)."""
+        git_run = lambda args: self.runtime.git.run(args, check=False)  # noqa: E731
+        snapshot_worktree(git_run)
         server = AppServer(self.output_dir, self.smoke_port, log)
-        err = server.build()
-        if err is None:
-            err = server.start()
-        if err is not None:
-            server.stop()
-            return RunSummary(error=err)
         try:
+            err = server.build()
+            if err is None:
+                err = server.start()
+            if err is not None:
+                return RunSummary(error=err)
             return self.runner.run(specs, f"http://127.0.0.1:{self.smoke_port}")
         finally:
             server.stop()
+            restore_worktree(git_run)
 
     def record_tests(self, node_id: str, specs: list[str], summary: RunSummary) -> None:
         try:
@@ -911,7 +916,8 @@ class Flow:
         prompt = DESIGN_PROMPT.format(node_id=node_id, node_spec=describe_node(node),
                                       ancestors=self.ancestors_text(node_id, ordered),
                                       tests=self.tests_prompt_for(node_id))
-        ok, text = self.turn(prompt, min(self.design_timeout, deadline - time.time()), f"{node_id} design")
+        ok, text = self.turn(prompt, min(self.design_timeout, deadline - time.time()), f"{node_id} design",
+                             expect_verification=False)
         design = None
         m = re.search(r"```json\s*(\{.*?\})\s*```", text, re.S) or re.search(r"(\{.*\})", text, re.S)
         if ok and m:
@@ -919,6 +925,14 @@ class Flow:
                 design = json.loads(m.group(1))
             except json.JSONDecodeError:
                 design = None
+        if not isinstance(design, dict):
+            written = self.output_dir / ".arc" / "design" / f"{node_id}.json"
+            if written.is_file():
+                try:
+                    design = json.loads(written.read_text(encoding="utf-8"))
+                    log(f"[flow] {node_id}: design read from {written.relative_to(self.output_dir)}")
+                except (OSError, json.JSONDecodeError):
+                    design = None
         if not isinstance(design, dict):
             log(f"[flow] {node_id}: design turn produced no JSON; continuing with prose design")
             return {"notes": text.strip()[-1500:]} if text.strip() else None

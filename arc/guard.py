@@ -17,9 +17,11 @@ _REDIRECT = re.compile(r"(?:>>?|tee\s+(?:-a\s+)?|cp\s+\S+\s+|mv\s+\S+\s+|sed\s+-
 
 
 class TurnMonitor:
-    def __init__(self, protected_prefixes: list[str], repeat_threshold: int = 3) -> None:
+    def __init__(self, protected_prefixes: list[str], repeat_threshold: int = 3,
+                 expect_verification: bool = True) -> None:
         self.protected = [p for p in protected_prefixes if p]
         self.repeat_threshold = repeat_threshold
+        self.expect_verification = expect_verification
         self.wrote_files = False
         self.verified = False
         self.tool_calls = 0
@@ -79,7 +81,7 @@ class TurnMonitor:
     # -- verdicts ---------------------------------------------------------
     def corrections(self) -> list[str]:
         out: list[str] = []
-        if self.wrote_files and not self.verified and _CLAIM.search(self._final_text):
+        if self.expect_verification and self.wrote_files and not self.verified and _CLAIM.search(self._final_text):
             out.append("Your previous turn claimed completion without running any build, start or "
                        "request command. Never declare a step done before executing `npm run build`, "
                        "starting the backend on the smoke port and exercising the endpoint with curl.")

@@ -260,6 +260,19 @@ def port_open(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def snapshot_worktree(git_run: Callable[[list[str]], object]) -> None:
+    """Stage everything so `restore_worktree` can undo what a test run mutates
+    (persisted JSON stores, uploaded files) without losing the model's edits."""
+    git_run(["add", "-A"])
+
+
+def restore_worktree(git_run: Callable[[list[str]], object], parts: tuple[str, ...] = ("frontend", "backend")) -> None:
+    """Return tracked files to the staged snapshot and drop files a test run
+    created; ignored build outputs (node_modules, dist) are left alone."""
+    git_run(["checkout", "--", "."])
+    git_run(["clean", "-fdq", "-e", "node_modules", "-e", "dist", "--", *parts])
+
+
 class AppServer:
     """Build the frontend once and run the backend on the smoke port."""
 

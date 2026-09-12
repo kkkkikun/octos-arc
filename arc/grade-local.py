@@ -28,7 +28,7 @@ for _ in range(60):
     time.sleep(0.5)
 else:
     print("[grade] backend never bound", port); os.killpg(srv.pid, signal.SIGTERM); sys.exit(3)
-work = grader / "run" / req
+work = grader / "run" / f"{req}-{out.name}"
 if work.exists(): shutil.rmtree(work)
 shutil.copytree(specs, work / "tests")
 (work / "playwright.config.ts").write_text(
@@ -48,5 +48,8 @@ res = list(walk(rep.get("suites", [])))
 passed = sum(1 for _, ok in res if ok)
 for title, ok in res: print(f"  {'PASS' if ok else 'FAIL'}  {title}")
 print(f"[grade] {req}: {passed}/{len(res)} passed in {time.time()-t0:.0f}s  score={100*passed/len(res) if res else 0:.0f}")
+(out / ".arc").mkdir(exist_ok=True)
+(out / ".arc" / "local-grade.json").write_text(json.dumps({"requirement": req, "passed": passed, "total": len(res),
+    "tests": [{"title": t, "ok": ok} for t, ok in res]}, ensure_ascii=False, indent=1))
 if passed < len(res):
     print(r.stdout[-3000:])

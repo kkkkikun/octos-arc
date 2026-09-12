@@ -1,8 +1,13 @@
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
 from acceptance import (
     failure_summaries,
     map_specs_to_nodes,
+    restore_worktree,
+    snapshot_worktree,
     spec_node_id,
     summarize_report,
 )
@@ -91,3 +96,26 @@ class ReportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WorktreeSnapshotTests(unittest.TestCase):
+    def test_should_undo_test_run_mutations_but_keep_uncommitted_edits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run = lambda args: subprocess.run(["git", *args], cwd=root, check=False, capture_output=True,  # noqa: E731
+                                              env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t",
+                                                   "GIT_COMMITTER_EMAIL": "t@x", "PATH": "/usr/bin:/bin:/opt/homebrew/bin"})
+            run(["init", "-q"])
+            (root / "backend").mkdir()
+            (root / "backend" / "db.json").write_text('{"count": 0}')
+            (root / "backend" / "server.js").write_text("v1")
+            run(["add", "-A"]); run(["commit", "-qm", "init"])
+            (root / "backend" / "server.js").write_text("v2 (repair edit, uncommitted)")
+            snapshot_worktree(run)
+            # the test run mutates the store and creates a new file
+            (root / "backend" / "db.json").write_text('{"count": -1}')
+            (root / "backend" / "uploads.json").write_text("[]")
+            restore_worktree(run)
+            self.assertEqual((root / "backend" / "db.json").read_text(), '{"count": 0}')
+            self.assertEqual((root / "backend" / "server.js").read_text(), "v2 (repair edit, uncommitted)")
+            self.assertFalse((root / "backend" / "uploads.json").exists())

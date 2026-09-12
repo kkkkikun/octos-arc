@@ -17,9 +17,13 @@ cargo build --release -p octos-cli --no-default-features --features api   # 编�
 
 # 2. 本机做题（约 5 分钟，不到一分钱）
 python3 arc/run-task-local.py arc/tasks/smoke--counter --name try1
+#    --port 43300 换端口可并行跑多题；--template <已有产物目录> 进入 evolution 模式
+#    （先跑 smoke--counter，再以它的产物为模板跑 smoke-evolution--counter）
 
 # 3. 用平台原版 Playwright 测试打分（首次会自动装 Playwright）
 python3 arc/grade-local.py arc/arc-output/try1 smoke--counter
+python3 arc/metrics.py arc/arc-output/try1        # 轮数 / Token / 费用 / 耗时 / 节点状态 / 打分，一行表格
+python3 -m unittest discover -s arc/tests -t arc  # 编排器纯函数的单元测试
 
 # 4. 改一处：main.py 的提示词 / 环境变量，octos_stdio.py 的启动参数，或 crates/ 里的内核
 #    改完回到第 2、3 步，改前改后各跑一次，比数字
@@ -40,10 +44,30 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 
 | 文件 | 作用 |
 |---|---|
-| `main.py` | 平台入口：读需求、驱动 Octos、整理产物、上报进度 |
-| `octos_stdio.py` | 通过 `octos serve --stdio` 驱动内核 |
+| `main.py` | 平台入口与编排器：骨架轮 → 按依赖序逐节点「设计 → 实现 → 本地跑该节点的验收 spec → 修复 ≤5 轮 → 通过即 commit」→ 启动演练 |
+| `requirement_order.py` | 需求树拓扑排序、祖先查找、节点指纹（evolution 差异） |
+| `acceptance.py` | 本地 Playwright 验收：spec↔节点映射、起服务、跑 spec、四字段失败摘要 |
+| `guard.py` | 守护规则：未验证就宣称完成、连续同一错误、改保护路径 |
+| `octos_stdio.py` | 通过 `octos serve --stdio` 驱动内核（默认每轮新 session） |
+| `metrics.py` | 从事件流读 Token / 费用 / 耗时 / 节点状态 |
+| `CHANGELOG.md` | 每条改动的改前改后数据 |
 | `public-tests/<题目>/` | 平台公开的 Playwright 验收测试（会自动喂给模型） |
 | `tasks/<题目>/` | 各题需求文件的离线副本 |
 | `run-task-local.py` / `grade-local.py` / `pack.sh` | 本机做题、打分、打包 |
 
 已知平台细节：容器里 `/workspace/tests` 有验收测试；订票题的测试默认连 3301 端口而平台起在 3000，`main.py` 会要求后端两个端口都监听；容器到 npmjs 很慢，提示词要求零依赖并走 npmmirror。
+
+## 编排器开关（环境变量）
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `OCTOS_TIME_BUDGET` / `OCTOS_NODE_TIME_BUDGET` | 2700 / 1500 s | 整体与单节点（含修复轮）的墙钟预算；单节点预算按剩余时间/剩余节点数自适应 |
+| `OCTOS_NODE_TIMEOUT` / `OCTOS_DESIGN_TIMEOUT` | 1200 / 420 s | 单轮上限 |
+| `OCTOS_REPAIR_ROUNDS` | 5 | 每节点验收修复轮数 K |
+| `OCTOS_DESIGN_TURN` | 1 | 0 = 跳过设计轮 |
+| `OCTOS_SESSION_PER_TURN` | 1 | 0 = 全程共用一个长 session |
+| `OCTOS_PERF_CONTRACT` / `OCTOS_GUARD` | 1 / 1 | 0 = 关闭性能规则 / 守护注入 |
+| `OCTOS_ARC_ALIAS_SPEC_IDS` | 1 | 0 = 不把节点状态镜像到 spec 侧 id |
+| `OCTOS_ARC_INSTALL_PLAYWRIGHT` | 1 | 0 = 找不到 Playwright 时不尝试安装 |
+| `OCTOS_ARC_PLAYWRIGHT_ROOT` | 自动 | 指定含 `node_modules/@playwright/test` 的目录 |
+| `OCTOS_ARC_TEST_TIMEOUT_MS` / `OCTOS_ARC_SLOW_MS` | 10000 / 3000 | 本地验收单测试超时；超过 SLOW 阈值即提醒模型 |

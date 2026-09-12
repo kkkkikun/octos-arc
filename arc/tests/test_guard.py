@@ -47,6 +47,13 @@ class TurnMonitorTests(unittest.TestCase):
         self.assertIn("/abs/tests/REQ-1.spec.ts", joined)
         self.assertIn("requirements/", joined)
 
+    def test_should_not_require_verification_for_design_turns(self):
+        m = TurnMonitor(protected_prefixes=[], expect_verification=False)
+        m.observe(*started("write_file", {"path": ".arc/design/REQ-1.json"}))
+        m.observe(*completed("c1", True))
+        m.finish("Design complete.")
+        self.assertEqual(m.corrections(), [])
+
     def test_should_report_no_files_written_when_only_reading(self):
         m = TurnMonitor(protected_prefixes=[])
         m.observe(*started("read_file", {"path": "backend/server.js"}, "c1"))
