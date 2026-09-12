@@ -5,17 +5,36 @@ The ARC-Bench platform invokes this as:
 
     python main.py <requirement_path> [--output-dir DIR] [--web-port N]
 
-It drives the Octos agent (Rust binary) to compile a requirement tree into a
-runnable web application, and reports progress through the ARC-Bench runtime
-contract: .arc/runner-events.jsonl + .arc/traceability/*.json + git commits.
+Flow (one requirement node at a time, dependencies first):
 
-Configuration is via environment variables:
-    OPENAI_API_KEY / OPENAI_BASE_URL / MODEL   (OpenAI-compatible endpoint)
-    OCTOS_PROVIDER  (override provider name, e.g. deepseek/openai/anthropic)
-    OCTOS_MODEL     (override model name)
-    OCTOS_BIN       (path to the octos binary; default: ./bin/octos then PATH)
-    OCTOS_MAX_ITERATIONS (default 500)
-    OCTOS_NODE_TIMEOUT   (seconds per requirement node, default 1200)
+    skeleton turn (create mode only)
+    for node in topological order:
+        design turn      -> .arc/design/<node>.json + traceability contract
+        implement turn   -> code
+        acceptance loop  -> run the node's Playwright specs locally, feed the
+                            four-field failure digest back, K <= 5 repairs,
+                            commit on improvement, roll back on regression
+        traceability     -> design_done / implementation_done / test_passed|failed
+    startup rehearsal (build + start exactly like the grader)
+
+Evolution mode (ARCBENCH_TEMPLATE_DIR already holds frontend/ + backend/):
+skip the skeleton, diff the requirement tree against the previous run's
+`.arc/traceability/requirements.json`, implement only new/changed nodes and
+regression-test the unchanged ones.
+
+Environment (all optional):
+    OPENAI_API_KEY / OPENAI_BASE_URL / MODEL   OpenAI-compatible endpoint
+    OCTOS_BIN                 octos binary (default: ./bin/octos, PATH, download)
+    OCTOS_NODE_TIMEOUT        seconds per model turn (default 1200)
+    OCTOS_TIME_BUDGET         seconds for the whole generation (default 2700)
+    OCTOS_NODE_TIME_BUDGET    cap per node incl. repairs (default 1500)
+    OCTOS_REPAIR_ROUNDS       K, acceptance repair rounds per node (default 5)
+    OCTOS_DESIGN_TURN         "0" disables the design turn
+    OCTOS_SESSION_PER_TURN    "0" reuses one long octos session (default: fresh)
+    OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
+    OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
+    OCTOS_PERF_CONTRACT       "0" drops the performance rules from prompts
+    OCTOS_GUARD               "0" logs guard findings without injecting them
 """
 
 from __future__ import annotations
@@ -23,9 +42,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import tempfile
@@ -37,40 +56,30 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arcbench_agent_runtime import AgentRuntime  # noqa: E402
+from acceptance import (  # noqa: E402
+    AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, ensure_playwright,
+    failure_summaries, find_playwright_root, map_specs_to_nodes, playwright_candidates,
+)
+from guard import TurnMonitor  # noqa: E402
+from requirement_order import ancestors_of, node_fingerprint, topo_order  # noqa: E402
+
+BUNDLE_DIR = Path(__file__).resolve().parent
 
 
 def log(msg: str) -> None:
-    """Progress lines go to BOTH stdout and stderr.
-
-    The platform's stdout capture gets truncated on long runs (we lost the
-    [flow] lines of an entire failed run that way); the runner stores agent
-    stderr as a separate field, so mirroring there keeps our diagnostics
-    retrievable. Stderr content does not affect the verdict (exit code and
-    SDK events do).
-    """
+    """Progress lines go to BOTH stdout and stderr (the platform truncates
+    stdout on long runs but keeps stderr as a separate field)."""
     print(msg, flush=True)
     print(msg, file=sys.stderr, flush=True)
 
 
-def _postflight_structure_check(output_dir: Path, web_port: int = 3000) -> None:
-    """Diagnose and repair the deliverable layout the runner checks.
+# ---------------------------------------------------------------- postflight
 
-    The runner requires PROJECT_DIR/frontend and PROJECT_DIR/backend after
-    the agent exits ("web template is incomplete" otherwise). Round 12 showed
-    a run can end with them missing while the platform still reports
-    "generation agent finished successfully" (we return 0 on handled
-    failures). Log the directory tree so we can see what octos actually
-    produced, and if the app was scaffolded exactly one level deep
-    (output_dir/<app>/frontend etc.), lift it into place.
-
-    Also free the web port: round 14 died on EADDRINUSE :3000 at evaluation
-    time because a smoke-test server from a failed generation turn was still
-    holding it.
-    """
+def _postflight_structure_check(output_dir: Path) -> None:
+    """Log the deliverable tree; lift a one-level-nested app into place."""
     tree_lines = []
     for root, dirs, files in os.walk(output_dir):
-        dirs[:] = [d for d in dirs
-                   if d not in ("node_modules", ".git", "dist", "__pycache__")]
+        dirs[:] = [d for d in dirs if d not in ("node_modules", ".git", "dist", "__pycache__")]
         depth = Path(root).relative_to(output_dir).parts
         if len(depth) > 2:
             dirs[:] = []
@@ -83,76 +92,47 @@ def _postflight_structure_check(output_dir: Path, web_port: int = 3000) -> None:
             tree_lines.append("... (truncated)")
             break
     log("[postflight] workspace tree:\n" + "\n".join(tree_lines))
-
     if (output_dir / "frontend").is_dir() and (output_dir / "backend").is_dir():
         log("[postflight] frontend/ and backend/ present at workspace root")
         return
-    children = [p for p in output_dir.iterdir()
-                if p.is_dir() and p.name not in (".git", ".arc", "requirements")]
-    for child in children:
+    for child in [p for p in output_dir.iterdir() if p.is_dir() and p.name not in (".git", ".arc", "requirements")]:
         if (child / "frontend").is_dir() and (child / "backend").is_dir():
             log(f"[postflight] app found nested at {child.name}/; lifting to root")
             for item in child.iterdir():
                 dest = output_dir / item.name
-                if dest.exists():
-                    continue
-                shutil.move(str(item), str(dest))
-            if (output_dir / "frontend").is_dir() and (output_dir / "backend").is_dir():
-                log("[postflight] lift succeeded")
+                if not dest.exists():
+                    shutil.move(str(item), str(dest))
             return
-    log("[postflight] WARNING: no frontend/+backend/ found anywhere; "
-        "runner will reject the template")
+    log("[postflight] WARNING: no frontend/+backend/ found anywhere; runner will reject the template")
 
 
 def _free_web_port(web_port: int) -> None:
     """Best-effort kill of whatever still listens on the app port."""
-    # NOTE: log only when a PID was really killed — a bare
-    # `lsof | xargs -r kill` pipeline exits 0 even with an empty port,
-    # and a misleading "freed" line cost us a wrong diagnosis in round 22.
     try:
-        pids = subprocess.run(["lsof", "-ti", f":{web_port}"],
-                              capture_output=True, text=True,
-                              timeout=15).stdout.split()
+        pids = subprocess.run(["lsof", "-ti", f":{web_port}"], capture_output=True, text=True, timeout=15).stdout.split()
     except (OSError, subprocess.TimeoutExpired):
         pids = []
     if not pids:
         log(f"[postflight] port {web_port} already free")
         return
-    for cmd in (["fuser", "-k", f"{web_port}/tcp"],
-                ["sh", "-c", f"lsof -ti :{web_port} | xargs -r kill"]):
+    for cmd in (["fuser", "-k", f"{web_port}/tcp"], ["sh", "-c", f"lsof -ti :{web_port} | xargs -r kill"]):
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-            if r.returncode == 0:
-                log(f"[postflight] killed {len(pids)} listener(s) on port "
-                    f"{web_port} via {cmd[0]}: {pids}")
+            if subprocess.run(cmd, capture_output=True, text=True, timeout=15).returncode == 0:
+                log(f"[postflight] killed {len(pids)} listener(s) on port {web_port} via {cmd[0]}: {pids}")
                 return
         except (OSError, subprocess.TimeoutExpired):
             continue
     log(f"[postflight] port {web_port} cleanup attempted (no tool matched)")
 
 
-def _port_watchdog(web_port: int, output_dir: Path,
-                   stop: "threading.Event") -> None:
-    """Reap OUR processes that bind the grading port during generation.
-
-    Round 33: SIGTERM 3 minutes into the final-check turn — the strongest
-    hypothesis is that the app (whose code defaults to the grading port)
-    was started without the smoke-port override and the runner's port
-    watch killed the run, exactly like round 21. That watch takes minutes
-    to fire (round 21's server lived long enough to be logged repeatedly),
-    so polling every 5s wins the race.
-
-    Only processes whose cwd is inside our workspace are killed: the
-    runner machine is shared across tenants (round 17 saw the port grabbed
-    by an external process), and killing a foreign listener could sabotage
-    someone else's grading.
-    """
+def _port_watchdog(web_port: int, output_dir: Path, stop: threading.Event) -> None:
+    """Kill OUR processes that bind the grading port during generation (the
+    runner terminates a run that serves the grading port early). Foreign
+    listeners are left alone: the runner host is shared."""
     root = str(output_dir).rstrip("/")
     while not stop.is_set():
         try:
-            pids = subprocess.run(["lsof", "-ti", f":{web_port}"],
-                                  capture_output=True, text=True,
-                                  timeout=10).stdout.split()
+            pids = subprocess.run(["lsof", "-ti", f":{web_port}"], capture_output=True, text=True, timeout=10).stdout.split()
         except (OSError, subprocess.TimeoutExpired):
             pids = []
         for pid in pids:
@@ -161,104 +141,14 @@ def _port_watchdog(web_port: int, output_dir: Path,
             except OSError:
                 cwd = ""
             if cwd.startswith(root):
-                log(f"[watchdog] port {web_port} bound by our process "
-                    f"{pid} (cwd={cwd}); killing")
+                log(f"[watchdog] port {web_port} bound by our process {pid} (cwd={cwd}); killing")
                 try:
                     os.kill(int(pid), signal.SIGKILL)
                 except (ProcessLookupError, PermissionError, ValueError):
                     pass
             else:
-                log(f"[watchdog] port {web_port} held by foreign process "
-                    f"{pid} (cwd={cwd or '?'}); leaving it")
+                log(f"[watchdog] port {web_port} held by foreign process {pid} (cwd={cwd or '?'}); leaving it")
         stop.wait(5)
-
-
-def _rehearse_startup(output_dir: Path, smoke_port: int) -> str | None:
-    """Run the grading sequence ourselves, on the smoke port.
-
-    Returns None when the app builds and comes up, else a short error
-    description suitable for feeding back into a repair turn. Round 30:
-    generation finished cleanly, then `npm start` crashed at grading with
-    `Cannot find module './seed'` — the runner's 120s readiness probe
-    failed and zero Playwright tests executed. This rehearsal catches
-    exactly that class of failure before the runner ever sees it.
-    """
-    frontend = output_dir / "frontend"
-    backend = output_dir / "backend"
-    if not (frontend.is_dir() and backend.is_dir()):
-        return "frontend/ or backend/ missing at workspace root"
-
-    def run_cmd(cmd: list, cwd: Path, timeout: int) -> tuple:
-        try:
-            r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
-                               timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return 124, f"timeout after {timeout}s"
-        except OSError as exc:
-            return 127, str(exc)
-        out = ((r.stdout or "") + "\n" + (r.stderr or "")).strip()
-        return r.returncode, out[-1500:]
-
-    # 1. Frontend build (the runner builds before serving).
-    if (frontend / "package.json").exists():
-        rc, out = run_cmd(["npm", "install", "--no-audit", "--no-fund"],
-                          frontend, 600)
-        if rc != 0 and not (frontend / "node_modules").is_dir():
-            return f"frontend `npm install` failed:\n{out}"
-        rc, out = run_cmd(["npm", "run", "build"], frontend, 600)
-        if rc != 0:
-            return f"frontend `npm run build` failed:\n{out}"
-
-    # 2. Backend boot on the SMOKE port — never the grading port.
-    if not (backend / "package.json").exists():
-        return "backend/package.json missing"
-    rc, out = run_cmd(["npm", "install", "--no-audit", "--no-fund"],
-                      backend, 600)
-    if rc != 0 and not (backend / "node_modules").is_dir():
-        return f"backend `npm install` failed:\n{out}"
-    _free_web_port(smoke_port)
-    log_file = Path(tempfile.mkstemp(prefix="octos-rehearsal-",
-                                     suffix=".log")[1])
-    env = dict(os.environ, PORT=str(smoke_port))
-    try:
-        with open(log_file, "w") as fh:
-            try:
-                proc = subprocess.Popen(
-                    ["npm", "start"], cwd=backend, env=env,
-                    stdout=fh, stderr=subprocess.STDOUT,
-                    start_new_session=True)
-            except OSError as exc:
-                return f"backend `npm start` could not launch: {exc}"
-            try:
-                deadline = time.time() + 45
-                while time.time() < deadline:
-                    if proc.poll() is not None:
-                        out = log_file.read_text(errors="replace")
-                        return (f"backend `npm start` exited early "
-                                f"(rc={proc.returncode}):\n{out[-1500:]}")
-                    try:
-                        with socket.create_connection(
-                                ("127.0.0.1", smoke_port), timeout=2):
-                            log("[rehearsal] backend bound smoke port "
-                                f"{smoke_port}; shutting it down")
-                            return None
-                    except OSError:
-                        time.sleep(1)
-                out = log_file.read_text(errors="replace")
-                return (f"backend did not bind port {smoke_port} within "
-                        f"45s:\n{out[-1500:]}")
-            finally:
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except (ProcessLookupError, PermissionError, OSError):
-                    pass
-                # npm orphans its node child; kill anything left by port.
-                _free_web_port(smoke_port)
-    finally:
-        try:
-            log_file.unlink()
-        except OSError:
-            pass
 
 
 # ---------------------------------------------------------------- requirements
@@ -278,18 +168,6 @@ def load_requirement_tree(req_dir: Path) -> dict:
     return data
 
 
-def flatten_atomic(node: dict, out: list | None = None) -> list[dict]:
-    if out is None:
-        out = []
-    node_type = str(node.get("type") or "").upper()
-    if node_type == "ATOMIC" or (not node.get("children") and node_type != "FOLDER"):
-        out.append(node)
-    for child in node.get("children") or []:
-        if isinstance(child, dict):
-            flatten_atomic(child, out)
-    return out
-
-
 def describe_node(node: dict) -> str:
     lines = [f"ID: {node.get('id')}", f"Name: {node.get('name', '')}"]
     if node.get("description"):
@@ -301,11 +179,48 @@ def describe_node(node: dict) -> str:
             lines.append(f"  - {sc.get('name', 'scenario')}")
             for step in sc.get("steps") or []:
                 if isinstance(step, dict):
-                    kw = step.get("keyword", "")
-                    lines.append(f"      {kw} {step.get('content', '')}")
+                    lines.append(f"      {step.get('keyword', '')} {str(step.get('content', '')).strip()}")
     deps = node.get("dependencies") or []
     if deps:
         lines.append(f"Depends on: {', '.join(map(str, deps))}")
+    return "\n".join(lines)
+
+
+def previous_requirement_records(output_dir: Path) -> dict[str, dict]:
+    """The previous run's requirement table (committed with the template)."""
+    path = output_dir / ".arc" / "traceability" / "requirements.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
+
+
+def unchanged_node_ids(nodes: list[dict], previous: dict[str, dict]) -> set[str]:
+    out = set()
+    for node in nodes:
+        prev = previous.get(str(node.get("id")))
+        if prev and node_fingerprint(prev) == node_fingerprint(node):
+            out.add(str(node.get("id")))
+    return out
+
+
+def source_listing(output_dir: Path, limit: int = 60) -> str:
+    """Short, stable listing of the app sources for evolution prompts."""
+    lines = []
+    for part in ("frontend", "backend"):
+        base = output_dir / part
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            rel = path.relative_to(output_dir)
+            if any(seg in ("node_modules", "dist", ".git") for seg in rel.parts):
+                continue
+            if path.is_file():
+                lines.append(f"{rel} ({path.stat().st_size} B)")
+            if len(lines) >= limit:
+                lines.append("...")
+                return "\n".join(lines)
     return "\n".join(lines)
 
 
@@ -318,11 +233,8 @@ OCTOS_RELEASE_URL = (
 
 
 def _download_octos(dest_dir: Path) -> str:
-    """Fetch the Linux octos binary at runtime (keeps the upload zip small).
-
-    The runner network can be very slow toward GitHub, so download with
-    `curl -C -` resume in a retry loop and verify the tarball before use.
-    """
+    """Fetch the Linux octos binary at runtime via gh-proxy mirrors first (the
+    runner's path to GitHub stalls / kills HTTP/2 streams)."""
     import tarfile
     import urllib.request
 
@@ -334,54 +246,31 @@ def _download_octos(dest_dir: Path) -> str:
         try:
             with tarfile.open(tarball) as tf:
                 return tf.getmember("octos") is not None
-        except Exception:
+        except Exception:  # noqa: BLE001
             return False
 
     ok = tarball_ok()
-    # The runner sits behind a CN network path that mangles GitHub's HTTP/2
-    # streams (curl 92 PROTOCOL_ERROR), stalls connections entirely, and has
-    # stopped accepting direct GitHub connections altogether in recent runs.
-    # Try the public gh-proxy mirrors FIRST (they deliver in ~6-11 min), keep
-    # the direct URL as last resort; fail fast on stalls (--speed-limit) and
-    # resume partial bytes with `-C -`.
-    mirrors = [
-        f"{prefix}/{url}"
-        for prefix in ("https://ghfast.top", "https://gh-proxy.com")
-    ] + [url]
+    mirrors = [f"{prefix}/{url}" for prefix in ("https://ghfast.top", "https://gh-proxy.com")] + [url]
     for attempt in range(1, 13):
         if ok:
             break
         mirror = mirrors[(attempt - 1) % len(mirrors)]
         log(f"[octos] download attempt {attempt} ({mirror}) ...")
         if shutil.which("curl"):
-            # -sS: no progress meter — the platform log endpoint caps stdout
-            # (~200KB) and curl's per-second redraws would push the real
-            # diagnostics (and later eval errors) past the cap.
-            # --http1.1: the runner's path to GitHub kills HTTP/2 streams
-            # mid-download (curl 92 PROTOCOL_ERROR); HTTP/1.1 + `-C -`
-            # resume survives it.
-            # timeout=600: round 15 showed a stalled connection can hold for
-            # the full subprocess timeout; kill it and rotate mirrors instead.
             try:
-                subprocess.run(
-                    ["curl", "-fsSL", "--http1.1", "-C", "-",
-                     "--connect-timeout", "30",
-                     "--speed-limit", "10240", "--speed-time", "60",
-                     "--retry", "2", "-o", str(tarball), mirror],
-                    check=False, timeout=600,
-                )
+                subprocess.run(["curl", "-fsSL", "--http1.1", "-C", "-", "--connect-timeout", "30",
+                                "--speed-limit", "10240", "--speed-time", "60", "--retry", "2",
+                                "-o", str(tarball), mirror], check=False, timeout=600)
             except subprocess.TimeoutExpired:
-                log(f"[octos] attempt {attempt} killed after 600s stall; "
-                    f"rotating mirror")
+                log(f"[octos] attempt {attempt} killed after 600s stall; rotating mirror")
         else:
             try:
                 urllib.request.urlretrieve(mirror, tarball)
-            except Exception as exc:  # noqa: BLE001 - retry below
+            except Exception as exc:  # noqa: BLE001
                 log(f"[octos] download error: {exc}")
         ok = tarball_ok()
     if not ok:
         raise RuntimeError("failed to download octos binary after 12 attempts")
-
     with tarfile.open(tarball) as tf:
         for member in ("octos", "octos-sandbox"):
             try:
@@ -390,9 +279,8 @@ def _download_octos(dest_dir: Path) -> str:
                 pass
     binary = dest_dir / "octos"
     binary.chmod(0o755)
-    sandbox = dest_dir / "octos-sandbox"
-    if sandbox.exists():
-        sandbox.chmod(0o755)
+    if (dest_dir / "octos-sandbox").exists():
+        (dest_dir / "octos-sandbox").chmod(0o755)
     return str(binary)
 
 
@@ -400,16 +288,15 @@ def find_octos() -> str:
     env_bin = os.environ.get("OCTOS_BIN")
     if env_bin and Path(env_bin).exists():
         return env_bin
-    bundled = Path(__file__).resolve().parent / "bin" / "octos"
+    bundled = BUNDLE_DIR / "bin" / "octos"
     if bundled.exists():
         return str(bundled)
     found = shutil.which("octos")
     if found:
         return found
     cache_dir = Path(os.environ.get("OCTOS_CACHE_DIR", "/tmp/octos-bin"))
-    cached = cache_dir / "octos"
-    if cached.exists():
-        return str(cached)
+    if (cache_dir / "octos").exists():
+        return str(cache_dir / "octos")
     return _download_octos(cache_dir)
 
 
@@ -419,17 +306,9 @@ def build_octos_env(config_dir: Path) -> dict:
     api_key = env.get("OPENAI_API_KEY", "")
     base_url = env.get("OPENAI_BASE_URL", "")
     model = os.environ.get("OCTOS_MODEL") or env.get("MODEL", "")
-
     provider = os.environ.get("OCTOS_PROVIDER")
     if not provider:
-        if "deepseek" in base_url:
-            provider = "deepseek"
-        elif "anthropic" in base_url:
-            provider = "anthropic"
-        else:
-            provider = "openai"
-
-    # Map the generic OPENAI_API_KEY onto the provider-specific env name.
+        provider = "deepseek" if "deepseek" in base_url else "anthropic" if "anthropic" in base_url else "openai"
     key_env = "OPENAI_API_KEY"
     if provider == "deepseek" and api_key:
         env.setdefault("DEEPSEEK_API_KEY", api_key)
@@ -438,63 +317,31 @@ def build_octos_env(config_dir: Path) -> dict:
         env.setdefault("ANTHROPIC_API_KEY", api_key)
         key_env = "ANTHROPIC_API_KEY"
     elif provider not in ("openai", "deepseek", "anthropic") and api_key:
-        # `octos chat` resolves a custom/OpenAI-compatible provider's key from
-        # <PROVIDER>_API_KEY (e.g. CUSTOM_API_KEY); the stdio path passes the
-        # env name explicitly, so only the chat driver needs this mirror.
         env.setdefault(f"{provider.upper()}_API_KEY", api_key)
         key_env = f"{provider.upper()}_API_KEY"
-
     config = {
         "provider": provider,
         "model": model,
         "sandbox": {"allow_network": True},
         "memory": {"refresh": {"enabled": False}},
-        # Rounds 24-28: deepseek-v4 turns ended "ok" with EMPTY content and
-        # zero tool calls. Root cause (octos source): when ChatConfig.
-        # max_tokens is unset, octos sends no max_tokens for deepseek-family
-        # models, so the provider's tiny default (4096) applies — the
-        # reasoning model spends the whole budget on reasoning_content and
-        # returns finish_reason=length with no content and no tool calls.
-        # gateway.max_output_tokens feeds AgentConfig.chat_max_tokens.
-        # 32768 proved insufficient headroom in round 34 (six consecutive
-        # ~150s turns of pure reasoning, empty content); raised to 65536.
+        # deepseek-v4 spends its default 4096 output budget on reasoning and
+        # returns empty content; give it real headroom.
         "gateway": {"max_output_tokens": 65536},
     }
     if provider not in ("openai", "deepseek", "anthropic") and base_url:
         config["base_url"] = base_url
     if provider == "deepseek":
-        # Rounds 34/36: even with 65536 output tokens, ~150s turns came back
-        # empty — far too short to exhaust the budget, so the reasoning
-        # spend itself is the problem (server-side clamp or runaway
-        # thinking). octos maps gateway.reasoning_effort onto DeepSeek V4's
-        # reasoning_effort + thinking toggle (only for api.deepseek.com
-        # routes, which is what the platform uses); "low" caps the
-        # reasoning spend so content actually gets emitted.
         config["gateway"]["reasoning_effort"] = "low"
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     env["OCTOS_CONFIG_DIR"] = str(config_dir)
-    # The platform's model proxies do not support SSE streaming (the official
-    # octos-runner sets this too) — without it octos dies with
-    # "failed to send streaming request to OpenAI".
-    env.setdefault("OCTOS_DISABLE_STREAMING", "1")
-    # Run 50d049b049bd (2026-09-11): inside the ARC runner container the
-    # default Workspace-Write sandbox could not exec node/npm ("Permission
-    # denied"), so the model spent 813s / 3.8M tokens simulating tests it
-    # could not run. The container is already the isolation boundary, so
-    # disable octos' inner sandbox there (honoured by `octos serve --solo`).
-    env.setdefault("OCTOS_DANGER_FULL_ACCESS", "1")
-    # Any npm/npx the model runs inside the runner goes to the China mirror;
-    # npmjs.org is slow/unreliable from the ARC runner network.
+    env.setdefault("OCTOS_DISABLE_STREAMING", "1")   # platform proxies reject SSE
+    env.setdefault("OCTOS_DANGER_FULL_ACCESS", "1")  # the container is the sandbox
     env.setdefault("npm_config_registry", "https://registry.npmmirror.com")
     env.setdefault("NPM_CONFIG_REGISTRY", "https://registry.npmmirror.com")
-    # examples/core-mod: a bundle-root EXTRA_RULES.md becomes extra system-
-    # prompt rules when a patched core honors OCTOS_ARC_EXTRA_RULES; the
-    # official release ignores the variable, so shipping the file is harmless.
-    rules_file = Path(__file__).resolve().parent / "EXTRA_RULES.md"
+    rules_file = BUNDLE_DIR / "EXTRA_RULES.md"
     if rules_file.is_file() and "OCTOS_ARC_EXTRA_RULES" not in env:
         env["OCTOS_ARC_EXTRA_RULES"] = rules_file.read_text(encoding="utf-8")[:8000]
-    # Resolved values for the stdio driver's profile bootstrap.
     env["_ARC_PROVIDER"] = provider
     env["_ARC_MODEL"] = model
     env["_ARC_BASE_URL"] = base_url
@@ -506,25 +353,21 @@ _CHAT_FLAGS_CACHE: dict[str, set[str]] = {}
 
 
 def _chat_supported_flags(octos_bin: str) -> set[str]:
-    """Probe `octos chat --help` once; release builds have fewer flags."""
     if octos_bin not in _CHAT_FLAGS_CACHE:
         try:
-            proc = subprocess.run([octos_bin, "chat", "--help"],
-                                  capture_output=True, text=True, timeout=30)
+            proc = subprocess.run([octos_bin, "chat", "--help"], capture_output=True, text=True, timeout=30)
             help_text = (proc.stdout or "") + (proc.stderr or "")
-        except Exception:
+        except Exception:  # noqa: BLE001
             help_text = ""
         _CHAT_FLAGS_CACHE[octos_bin] = {
             flag for flag in ("--json", "--cwd", "--data-dir", "--sandbox", "--profile",
-                              "--max-iterations", "--no-session-persistence")
-            if flag in help_text
-        }
+                              "--max-iterations", "--no-session-persistence") if flag in help_text}
     return _CHAT_FLAGS_CACHE[octos_bin]
 
 
 def run_octos(octos_bin: str, cwd: Path, prompt: str, env: dict, data_dir: Path,
               timeout: int, max_iterations: int) -> tuple[bool, str]:
-    """Run one non-interactive octos turn. Returns (success, output_text)."""
+    """One non-interactive `octos chat` turn (fallback driver)."""
     flags = _chat_supported_flags(octos_bin)
     cmd = [octos_bin, "chat", "-m", prompt]
     if "--json" in flags:
@@ -542,37 +385,34 @@ def run_octos(octos_bin: str, cwd: Path, prompt: str, env: dict, data_dir: Path,
     if "--profile" in flags:
         cmd += ["--profile", os.environ.get("OCTOS_CHAT_PROFILE", "coding")]
     try:
-        proc = subprocess.run(
-            cmd, cwd=str(cwd), env=env, capture_output=True, text=True,
-            timeout=timeout, errors="replace",
-        )
+        proc = subprocess.run(cmd, cwd=str(cwd), env=env, capture_output=True, text=True,
+                              timeout=timeout, errors="replace")
     except subprocess.TimeoutExpired:
         return False, f"octos timed out after {timeout}s"
     out = (proc.stdout or "").strip()
     if proc.returncode != 0:
-        detail = out or (proc.stderr or "").strip()[-2000:]
-        return False, f"octos exited {proc.returncode}: {detail}"
+        return False, f"octos exited {proc.returncode}: {out or (proc.stderr or '').strip()[-2000:]}"
     try:
         payload = json.loads(out)
         if isinstance(payload, dict) and payload.get("error"):
             return False, str(payload["error"])
         return True, str(payload.get("text", "")) if isinstance(payload, dict) else out
     except json.JSONDecodeError:
-        # stdout wasn't the JSON envelope; treat as plain text output.
         return True, out[-4000:]
 
 
 class OctosDriver:
-    """Unified octos invocation: stdio UI Protocol (default) or one-shot chat.
+    """stdio UI-protocol session (default) or one-shot chat turns.
 
-    stdio mode keeps one long-lived session across all turns, giving the agent
-    context continuity between requirement nodes and streaming tool events.
-    Set OCTOS_DRIVER=chat to fall back to per-turn `octos chat -m` processes.
+    By default every turn gets a fresh session: the per-turn prompt already
+    carries all the state the model needs, and a short, byte-stable prefix
+    (system prompt + tool schemas) is what the provider's prefix cache keys on.
     """
 
     def __init__(self, octos_bin: str, cwd: Path, env: dict, data_dir: Path,
                  max_iterations: int, events_log: Path) -> None:
         self.mode = os.environ.get("OCTOS_DRIVER", "stdio")
+        self.fresh_session = os.environ.get("OCTOS_SESSION_PER_TURN", "1") != "0"
         self.octos_bin = octos_bin
         self.cwd = cwd
         self.env = env
@@ -580,26 +420,27 @@ class OctosDriver:
         self.max_iterations = max_iterations
         self.events_log = events_log
         self._session = None
+        self.monitor: TurnMonitor | None = None
 
     def _log_event(self, method: str, params: dict) -> None:
         if method == "core/marker":
-            # examples/core-mod: proof that a patched core build is live on
-            # the runner; log() dual-writes so it lands in the report capture.
             log(f"[core-mod] {params.get('line', '')}")
+        if self.monitor is not None and method in ("tool/started", "tool/completed"):
+            try:
+                self.monitor.observe(method, params)
+            except Exception:  # noqa: BLE001 - guard must never break a turn
+                pass
         try:
             with self.events_log.open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps({"method": method, "params": params},
-                                    ensure_ascii=False) + "\n")
+                fh.write(json.dumps({"method": method, "params": params}, ensure_ascii=False) + "\n")
         except OSError:
             pass
 
     def _get_session(self):
         if self._session is None:
             from octos_stdio import OctosStdioSession
-            self._session = OctosStdioSession(
-                self.octos_bin, self.cwd, self.env, self.data_dir,
-                on_event=self._log_event,
-            )
+            self._session = OctosStdioSession(self.octos_bin, self.cwd, self.env, self.data_dir,
+                                              on_event=self._log_event)
             self._session.bootstrap_profile(
                 provider=self.env.get("_ARC_PROVIDER", "openai"),
                 model=self.env.get("_ARC_MODEL", ""),
@@ -609,27 +450,27 @@ class OctosDriver:
             self._session.open()
         return self._session
 
-    def run(self, prompt: str, timeout: int) -> tuple[bool, str]:
+    def run(self, prompt: str, timeout: int, monitor: TurnMonitor | None = None) -> tuple[bool, str]:
+        self.monitor = monitor
         if self.mode == "chat":
-            fn = lambda: run_octos(self.octos_bin, self.cwd, prompt, self.env,
-                                   self.data_dir, timeout, self.max_iterations)
+            fn = lambda: run_octos(self.octos_bin, self.cwd, prompt, self.env, self.data_dir,  # noqa: E731
+                                   timeout, self.max_iterations)
         else:
-            fn = lambda: self._run_stdio(prompt, timeout)
-        return self._run_with_heartbeat(
-            lambda: self._run_with_retries(fn))
+            fn = lambda: self._run_stdio(prompt, timeout)  # noqa: E731
+        try:
+            ok, text = self._run_with_heartbeat(lambda: self._run_with_retries(fn))
+        finally:
+            self.monitor = None
+            if self.fresh_session:
+                self.close()
+        if monitor is not None:
+            monitor.finish(text)
+        return ok, text
 
     @staticmethod
     def _run_with_heartbeat(fn) -> tuple[bool, str]:
-        """Run a turn in a thread, logging a keepalive line every 30s.
-
-        Round 21 was SIGTERMed ~7 min into a silent final-verification turn.
-        Two candidate triggers: the runner kills on stalled log output, or it
-        watches the grading port and kills once a server answers there (the
-        stronger hypothesis — earlier 7.5-min silent turns survived, and
-        there is no stage time cap: round 20 generated for 44 min). The
-        keepalive covers the first; OCTOS_SMOKE_PORT covers the second.
-        """
-        import threading
+        """Run a turn in a thread, logging a keepalive every 30s (the runner
+        kills silent processes)."""
         box: dict = {}
 
         def target() -> None:
@@ -648,19 +489,12 @@ class OctosDriver:
             log(f"[flow] turn still running ({int(time.time() - t0)}s elapsed)")
         return box.get("r", (False, "turn thread ended without result"))
 
-
     @staticmethod
     def _transient(text: str) -> bool:
         lowered = text.lower()
         return any(k in lowered for k in (
-            "temporarily unavailable", "503", "502", "429", "rate limit",
-            "timeout", "timed out", "connection reset", "overloaded",
-            "failed to send", "streaming request",
-            # Round 22: the platform-injected key returned HTTP 403
-            # "Authentication failed" mid-run after ~25 min of working
-            # requests; round 23 got HTTP 401 "无效的令牌" from the start.
-            # A short retry window lets a rotated/recovered key save the
-            # run instead of failing every remaining turn in 0s.
+            "temporarily unavailable", "503", "502", "429", "rate limit", "timeout", "timed out",
+            "connection reset", "overloaded", "failed to send", "streaming request",
             "403", "authentication failed", "401", "unauthorized"))
 
     def _run_with_retries(self, fn, attempts: int = 3) -> tuple[bool, str]:
@@ -669,22 +503,19 @@ class OctosDriver:
             if ok or not self._transient(text):
                 break
             wait = 30 * (attempt - 1)
-            print(f"[driver] transient error, retry {attempt}/{attempts} "
-                  f"after {wait}s: {text[:200]}", flush=True)
+            log(f"[driver] transient error, retry {attempt}/{attempts} after {wait}s: {text[:200]}")
             time.sleep(wait)
-            self.close()  # fresh session for the retry
+            self.close()
             ok, text = fn()
         return ok, text
 
     def _run_stdio(self, prompt: str, timeout: int) -> tuple[bool, str]:
         try:
             return self._get_session().run_turn(prompt, timeout=float(timeout))
-        except Exception as exc:
-            # Fall back to a fresh one-shot chat for this turn.
+        except Exception as exc:  # noqa: BLE001
             self.close()
-            chat_ok, chat_text = run_octos(self.octos_bin, self.cwd, prompt,
-                                           self.env, self.data_dir, timeout,
-                                           self.max_iterations)
+            chat_ok, chat_text = run_octos(self.octos_bin, self.cwd, prompt, self.env, self.data_dir,
+                                           timeout, self.max_iterations)
             if chat_ok:
                 return True, chat_text
             return False, f"stdio driver error: {exc}; chat fallback: {chat_text}"[:1000]
@@ -696,203 +527,118 @@ class OctosDriver:
 
 
 # ---------------------------------------------------------------- prompts
+#
+# Prompt text is deliberately static (no timestamps, fixed section order) so
+# that identical turns share the provider's prefix cache.
 
-# Hard-won UI contract from real bench runs (rounds 16/19/20, ticketbooking):
-# the platform's Playwright tests drive the UI with getByLabel/getByRole and
-# fill human-readable values. Native widgets silently score 0.
-UI_CONTRACT_PROMPT = """\
-Benchmark UI contract (the automated tests depend on these EXACTLY):
-- Use plain text inputs for ALL form fields: `type="text"` (or \
-`password`/`email`). NEVER `type="date"` or `type="number"` — tests fill \
-values like "Sun, May 31" which native date inputs reject.
-- Every form field needs a visible associated <label> (tests use \
-getByLabel with the field's name, e.g. "date", "from", "to").
-- Every form control must be visible and enabled at all times — never hide \
-native inputs/selects behind custom widgets or display:none containers.
-- NEVER rely on native HTML5 validation (`required`, `pattern`, tooltips). \
-Validate in JavaScript and render error messages as inline DOM text \
-containing words like "required" / "invalid" / "missing" — tests assert on \
-visible page text.
-- Buttons are real <button> elements with plain text labels (e.g. "Search", \
-"Book", "Register", "Sign in").
-- VERBATIM TEXT: copy every visible label / link / button / heading string \
-verbatim from the requirement document into the UI (e.g. if it says the \
-header exposes "Register" and "Login" links, use exactly those English \
-strings as <a> link text; if it says the button is "Next step", the button \
-text is exactly "Next step"). Tests locate elements by these exact strings, \
-some with ANCHORED regexes like /^name$/i — a field the requirement calls \
-"Name" must be labeled exactly "Name"; "Full Name" or "Your Name" never \
-matches.
-- UNIQUENESS (strict mode): any value the page echoes — search criteria, \
-city names, dates, usernames — must appear in EXACTLY ONE visible element. \
-Put normalized search criteria in ONE summary line; train cards show train \
-number, stations, and times but must NOT repeat the searched city names or \
-date as bare text anywhere else on the page. Round 31 shipped cards with a \
-"Shanghai to Beijing" route line under a criteria summary containing the \
-same words: getByText('Shanghai') matched 3 elements and every \
-search/booking test died with "strict mode violation".
-- SEED DATA: when the requirement states concrete published records (e.g. \
-"a Shanghai to Beijing journey on Sun, May 31 has train number G532"), the \
-database seed MUST include exactly those records, with dates stored and \
-matched as the verbatim strings shown ("Sun, May 31" is data, not an ISO \
-date). Search matching is case-insensitive and trims surrounding whitespace. \
-OPTION LABELS ARE FIXTURE DATA TOO: every concrete example value in the \
-requirement (account nationalities, seat classes, station lists) must \
-appear verbatim as <option>/radio labels — if the sample account has \
-nationality "Chinese", the select must include an option labeled exactly \
-"Chinese". Round 31's registration tests all timed out because the \
-nationality select lacked the fixture's option label ("did not find some \
-options").
-- SESSIONS: after registration or login, redirect to the home page and show \
-the exact username plus a "Sign out" link in the header; the session must \
-survive page reload (cookie or token persisted in the browser).
-- ERROR STATES: failed validation stays on the same page, shows an inline \
-message naming the problem (tests match words like required/invalid/match/\
-terms/duplicate), keeps the anonymous header, and creates no records. Show \
-EXACTLY ONE error element at a time — never a per-field error and a \
-form-level summary together: round 31 rendered both "Date is required." \
-and "Please fix the invalid search criteria.", two elements matched the \
-test's error regex, and strict mode failed the assertion.
-- ONE MATCH PER VALUE FORM: when the same entity has a short and a long \
-written form (city "Shanghai" vs station "Shanghai Hongqiao"), a page must \
-render forms so that only ONE element matches — tests use a combined regex \
-like /shanghaihongqiao|shanghai/i, and two matching elements is a strict \
-mode violation (round 32's booking page showed both dd#train-from \
-"Shanghai" and dd#train-departure-station "Shanghai Hongqiao"). Pick one \
-display form per page and use it in exactly one element.
-- UNLISTED CONTROL VALUES: when the requirement says a value must be "one \
-of the values offered by the control" WITHOUT listing them, offer a broad \
-standard set — for a nationality select include at least China, Vietnam, \
-United States, Japan, South Korea, United Kingdom, France, Germany, \
-Canada, Australia (round 31/32: the registration tests select the option \
-labeled "Vietnam"; without it every registration test times out). A gender \
-control is exactly two radio inputs labeled "Male" and "Female". Text \
-fields must accept ISO date strings like "2035-12-31".
-- TEXT ONLY: every string you need exists as plain text in the requirement \
-YAML/files. Reference images are illustrative only — NEVER attempt OCR, \
-ASCII rendering, or any other image text extraction, and never try to \
-install extra tools for it. Round 24 burned a 28-minute turn on image \
-text extraction and produced no code at all.
-- WRITE CODE FIRST: start creating project files in your very first \
-actions. A turn that only reads and analyzes without writing files is a \
-failed turn, no matter how good the analysis is.
+UI_CONTRACT = """\
+UI contract (the hidden Playwright tests depend on these; a violation scores 0):
+- Form fields are plain <input type="text"|"password"|"email"> or native <select>/<input type=checkbox|radio>; NEVER type="date"/"number". Every control has a visible <label for=id> whose text is the field's exact name from the requirement/spec — anchored regexes like /^name$/i reject "Full Name" or "Your Name". Every control stays visible and enabled.
+- Buttons are real <button> elements and links are <a href> elements carrying the EXACT visible text from the requirement/spec (e.g. "Register", "Login", "Sign out", "下一步"). Headings/option labels/messages are copied verbatim too.
+- Concrete example values in the requirement (seed records, option labels, sample accounts, nationalities, seat classes) are FIXTURE DATA: they must exist verbatim as <option>s / seed rows. When a control's values are described but not listed, offer a broad standard set.
+- No native HTML5 validation (no required/pattern/min/max attributes). Validate in JavaScript and show ONE inline error element (role="alert") whose text names the problem with words like required / invalid / match / terms / duplicate / already exists. On error stay on the page, keep the anonymous header, create no record.
+- Strict mode: every echoed value (username, city, date, station) appears in EXACTLY ONE visible element per page. Never render both a short and a long form of one entity, never a per-field error plus a summary error.
+- Sessions: after register/login navigate to `/`, show the exact username in one element and a "Sign out" link; the session survives reload.
+- Startup state: the app reproduces the requirement's initial state (e.g. count 0, published seed records) on EVERY fresh start; never ship mutated runtime data as the seed.
+- Text only: never OCR reference images or install tools for that.
+- Write files in your first actions; a turn that only analyses is a failed turn.
 """
 
-APP_SKELETON_PROMPT = """\
-You are building a full-stack web application in the current working \
-directory. First skim the requirement tree under the requirements/ directory, \
-then set up the project skeleton.
-
-Required architecture (the benchmark runner depends on this EXACT contract, \
-violation = 0 score):
-- frontend/ — web frontend with a package.json that has a working \
-`npm run build` script. A static HTML/CSS/JS frontend is fine; then \
-"build" can be a small Node script that copies the static files into \
-frontend/dist/. A Vite/React setup is also fine if you keep it minimal.
-- backend/  — Node.js, with a package.json that \
-has a `npm run start` script. ZERO NPM DEPENDENCIES is the target: use only \
-built-in modules (http, fs, path, url, crypto) — a small hand-written router \
-over `http.createServer` is enough for these apps, and package.json must then \
-have an empty "dependencies". The grading network is slow and unreliable \
-toward npmjs.org, so every dependency you add is a real risk of a failed \
-install. If a package is truly unavoidable, install it ONLY through the China \
-mirror: run `npm install --registry=https://registry.npmmirror.com <pkg>` and \
-also write `registry=https://registry.npmmirror.com` into a `.npmrc` file in \
-that folder so later installs use the mirror too. Persistence MUST be pure \
-JavaScript: a JSON \
-file (e.g. backend/data/db.json) loaded into memory at startup and written \
-back on every mutation. DO NOT use better-sqlite3, sqlite3, bcrypt, or any \
-npm package with native bindings — this sandbox cannot download prebuilt \
-binaries nor compile them, so native modules can never be smoke-tested \
-here. Hash passwords with Node's built-in crypto (scrypt). The backend \
-reads the PORT environment \
-variable (default {port}), serves the built frontend from frontend/dist/ at \
-http://localhost:{port}/ and exposes JSON APIs under /api/.
-- Seed the JSON store with realistic demo data at startup if it is empty.
-
-""" + UI_CONTRACT_PROMPT + """
-Verification steps the runner will perform later — make sure they ALL pass:
-1. `npm install && npm run build` in frontend/
-2. `npm install && PORT={port} npm run start` in backend/
-3. http://127.0.0.1:{port}/ serves the app.
-
-After scaffolding, run npm install for both directories, build the frontend, \
-and smoke-test that the backend serves the app. Keep \
-dependencies minimal. Do not use TypeScript.
-
-PORT SAFETY (the benchmark runner watches the grading port): during ALL of \
-your work, run servers for smoke tests ONLY on port {smoke} \
-(PORT={smoke}). NEVER bind anything to port {port} yourself — if the \
-runner observes a server on port {port} while you are still working, it \
-terminates the whole run immediately. When you finish, every server you \
-started must be stopped.
+PERFORMANCE_CONTRACT = """\
+Performance & robustness (the grader is a slow container, tests run in parallel, EACH TEST HAS A 10 s BUDGET including reloads):
+- Zero external requests: no CDN scripts, web fonts, analytics, or images from other hosts; every asset is same-origin and small, so `load` fires within ~200 ms.
+- Password hashing: crypto.scryptSync(password, salt, 64) with the DEFAULT cost (N=16384) or pbkdf2 <= 100000 iterations — never more; every API request finishes in < 100 ms.
+- Session cookie: HttpOnly; Path=/; SameSite=Lax; Max-Age at least 7 days; NO `Secure`, NO `Domain` attribute (tests run on http://127.0.0.1). On reload restore the signed-in header from that cookie with at most ONE same-origin request (or render it server-side).
+- No setTimeout delays, polling, service workers, beforeunload handlers, or debounced writes. Persist by writing the whole JSON file synchronously (write temp file, then rename).
 """
 
-NODE_PROMPT_TEMPLATE = """\
-You are implementing one requirement node of a larger full-stack web \
-application. The application skeleton in the current working directory \
-(frontend/ built with `npm run build` into frontend/dist/, Node backend \
-in backend/ with pure-JS JSON-file persistence, started with \
-`npm run start`, serving \
-everything on the port given by the PORT env var) already exists.
-
-Implement the following requirement completely — backend API, database \
-tables/queries, and the frontend UI to exercise it:
-
-{node_spec}
-
-Rules:
-- Extend the existing app; do not rewrite or break already-working features.
-- Do not add npm dependencies; stay on built-in Node modules. If one is \
-truly unavoidable, install it only via \
-`npm install --registry=https://registry.npmmirror.com <pkg>` and keep a \
-`.npmrc` with that registry in the folder.
-- Keep the architecture intact: `npm run build` in frontend/ and \
-`npm run start` in backend/ MUST keep working.
-
-""" + UI_CONTRACT_PROMPT + """
-- After implementing, run `npm run build` in frontend/ and restart the \
-backend ON PORT {smoke} (PORT={smoke} npm run start) to verify the new \
-endpoint(s) respond correctly (e.g. with curl), then stop that server. \
-NEVER bind anything to port {port} — the runner watches that port and \
-terminates the run if it sees a server there while you are still working.
-- Commit nothing yourself; the harness handles git.
+ARCHITECTURE_CONTRACT = """\
+Architecture (the runner depends on this EXACT layout; violation = 0 score):
+- frontend/ — package.json with a working `npm run build` that produces frontend/dist/ (a plain HTML/CSS/JS app plus a tiny Node copy script is ideal; no TypeScript, no framework needed).
+- backend/  — Node.js, package.json with `npm run start`, ZERO npm dependencies: `http.createServer` + a hand-written router, `fs`, `path`, `url`, `crypto` only. It reads PORT (default {port}), serves frontend/dist/ at `/` and JSON APIs under /api/. Persistence is a JSON file (backend/data/db.json) loaded at startup and rewritten on every mutation. Never better-sqlite3/sqlite3/bcrypt or any native module.
+- If a package is truly unavoidable, install it only with `npm install --registry=https://registry.npmmirror.com <pkg>` and write `registry=https://registry.npmmirror.com` into that folder's .npmrc.
 """
+
+PORT_RULES = """\
+Ports: run your own smoke servers ONLY with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start` (port {smoke}). NEVER bind port {port} — the runner watches it and terminates the run. Stop every server you started before you finish. Do not run git; the harness commits.
+"""
+
+SKELETON_PROMPT = """\
+Build the skeleton of a full-stack web application in the current working directory. The requirement tree is at {req_dir} (skim it; individual features come in later turns).
+
+""" + ARCHITECTURE_CONTRACT + """
+{tests}
+Steps: create frontend/ and backend/ as specified with a home page and a health endpoint, seed the JSON store, run `npm run build` in frontend/, start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`, `curl http://127.0.0.1:{smoke}/` to confirm the page is served, then stop it.
+""" + PORT_RULES
 
 NUDGE_PROMPT = """\
-You ended your last turn before creating any files. Stop analyzing. In \
-your very next actions, CREATE the project files with your file-writing \
-tools: frontend/package.json (with the build script), the frontend page \
-sources, backend/package.json (with the start script), and the backend \
-server including the JSON store and seed data required by the requirement \
-document. Do not describe the plan — write the files now.\
+You ended your last turn before creating any files. Stop analysing. In your very next actions CREATE the project files with your file-writing tools: frontend/package.json (build script), the frontend page sources, backend/package.json (start script) and the backend server with the JSON store and seed data. Do not describe the plan — write the files now.\
+"""
+
+DESIGN_PROMPT = """\
+Design — do NOT implement yet — requirement node {node_id} of the web application in the current directory.
+
+{node_spec}
+{ancestors}
+{tests}
+Read the acceptance spec files for this node in full and the existing code they will exercise. Then reply with exactly ONE JSON object inside a ```json fence and nothing else, at most 80 lines:
+{{"routes": [{{"method": "POST", "path": "/api/...", "request": {{}}, "response": {{}}, "errors": []}}],
+ "pages": [{{"path": "/...", "elements": [{{"role": "textbox|button|link|combobox|checkbox|radio|alert", "name": "exact accessible name", "notes": ""}}]}}],
+ "data_model": {{"collection": {{"field": "type"}}}},
+ "files": ["backend/server.js", "frontend/src/..."],
+ "notes": "validation rules, session handling, seed data, performance decisions"}}
+Copy every accessible name verbatim from the specs. Do not modify any file in this turn.\
+"""
+
+NODE_PROMPT = """\
+Implement requirement node {node_id} in the existing application (frontend/ built by `npm run build` into frontend/dist/; zero-dependency Node backend in backend/, `npm start`, PORT env var). Extend the app; do not rewrite or break existing features.
+
+{node_spec}
+{design}{ancestors}
+{tests}
+""" + UI_CONTRACT + """{performance}
+Verify before you finish: `npm run build` in frontend/; start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`; exercise every new page and endpoint with curl (success AND error cases); stop the server.
+""" + PORT_RULES
+
+EVOLUTION_NOTE = """\
+This is an EXISTING application that already passed its previous acceptance tests. Current sources:
+{listing}
+Read the files you need before changing them, keep every existing route, label and behaviour intact, and change only what this node requires.
+"""
+
+REPAIR_PROMPT = """\
+The official acceptance tests for requirement node {node_id} just ran against your app: {passed}/{total} passed. Failing tests (Feature / where it failed / what was observed / the last steps before failure):
+{failures}
+{corrections}{slow}
+Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. Reproduce the failing behaviour first (curl the endpoint or fetch the page on port {smoke}), fix the root cause, rebuild the frontend, re-check with curl, stop your server. The spec files are read-only ground truth.
+""" + PORT_RULES
+
+FINAL_CHECK_PROMPT = """\
+Final end-to-end check of the web application in the current directory:
+1. `npm run build` in frontend/ — fix any error.
+2. Kill leftover servers, start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`, confirm `curl http://127.0.0.1:{smoke}/` serves the app and every API endpoint answers (success and error cases).
+3. Audit every page against the contracts below and fix violations; run a mechanical strict-mode check: for each value the pages echo, count the elements containing it (`curl -s <page> | grep -o '<value>' | wc -l` for server-rendered pages, or read the render code) — the count must be 1.
+{tests}
+""" + UI_CONTRACT + """{performance}
+""" + PORT_RULES
+
+REHEARSAL_REPAIR_PROMPT = """\
+The app failed the pre-grading startup rehearsal. The runner executes exactly:
+1. cd frontend && npm install && npm run build   (must exit 0)
+2. cd backend && npm install && npm start        (must bind PORT and stay up)
+Rehearsal error:
+{error}
+Fix the project so this sequence works (typical causes: a require() path that does not match a real file, a file referenced but never written, a startup syntax error, a dependency missing from package.json). Verify: build the frontend, start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`, confirm it binds, stop it. Never bind {port}. Write the fix now.\
 """
 
 ACCEPTANCE_TESTS_PROMPT = """\
-
-OFFICIAL ACCEPTANCE TESTS ARE AVAILABLE — this is the single most important \
-input. The benchmark grades this app with the Playwright specs under:
-  {tests_dir}
-Files: {files}
-Before writing code for any requirement, READ these spec files (and their \
-support/helpers) in full. They are the ground truth for: routes and hrefs, \
-accessible names used by getByRole/getByLabel, test ids, option labels, \
-exact/regex texts expected on screen, error-message wording, and the order \
-of user actions. Build the UI and API so that EVERY assertion in those files \
-passes. When the requirement text and the spec disagree, the spec wins. Do \
-not modify, copy into the project, or delete the spec files.
+OFFICIAL ACCEPTANCE TESTS (ground truth; when prose and spec disagree, the spec wins) live under {tests_dir}. Files: {files}. Read them and their support helpers before writing code: they define routes, hrefs, accessible names, option labels, exact texts, error wording and action order. Never modify, copy or delete them.
 """
 
 
 def locate_acceptance_tests(tree: dict, bundle_dir: Path) -> Path | None:
-    """Find the public Playwright specs for this task.
-
-    Order: ARCBENCH_TESTS_DIR env, the runner's /workspace/tests mount, then
-    a public-tests/ folder shipped inside the bundle (one sub-folder per
-    requirement id, picked by matching the requirement ROOT name recorded in
-    public-tests/manifest.json). The platform publishes these specs on every
-    task page, so shipping them is public information, not hidden test data.
-    """
+    """ARCBENCH_TESTS_DIR, then the runner's /workspace/tests, then the public
+    specs shipped in the bundle (matched by requirement root name)."""
     candidates: list[Path] = []
     env_dir = os.environ.get("ARCBENCH_TESTS_DIR")
     if env_dir:
@@ -913,8 +659,7 @@ def locate_acceptance_tests(tree: dict, bundle_dir: Path) -> Path | None:
         try:
             if cand.is_dir() and any(cand.rglob("*.spec.ts")):
                 return cand.resolve()
-            log(f"[tests] candidate {cand}: "
-                f"{'no *.spec.ts' if cand.is_dir() else 'absent'}")
+            log(f"[tests] candidate {cand}: {'no *.spec.ts' if cand.is_dir() else 'absent'}")
         except Exception as exc:  # noqa: BLE001
             log(f"[tests] candidate {cand} unreadable: {exc}")
     return None
@@ -924,7 +669,6 @@ def spec_base_ports(tests_dir: Path | None) -> list[int]:
     """Ports the specs hard-code as their default base URL (e.g. 3301)."""
     if not tests_dir:
         return []
-    import re
     ports: set[int] = set()
     for path in tests_dir.rglob("*.ts"):
         try:
@@ -936,153 +680,551 @@ def spec_base_ports(tests_dir: Path | None) -> list[int]:
     return sorted(ports)
 
 
-def acceptance_tests_prompt(tests_dir: Path | None, web_port: int = 3000,
-                            smoke_port: int = 3100) -> str:
+def acceptance_tests_prompt(tests_dir: Path | None, web_port: int, smoke_port: int,
+                            files: list[str] | None = None) -> str:
     if not tests_dir:
         return ""
-    files = sorted(str(p.relative_to(tests_dir)) for p in tests_dir.rglob("*.ts"))
-    text = ACCEPTANCE_TESTS_PROMPT.format(tests_dir=tests_dir,
-                                          files=", ".join(files[:40]) or "(none)")
+    if files is None:
+        files = sorted(str(p.relative_to(tests_dir)) for p in tests_dir.rglob("*.ts"))
+    text = ACCEPTANCE_TESTS_PROMPT.format(tests_dir=tests_dir, files=", ".join(files[:40]) or "(none)")
     extra = [p for p in spec_base_ports(tests_dir) if p != web_port]
     if extra:
-        # Run fda27f4d972e (2026-09-12): the ticket-booking specs default to
-        # http://127.0.0.1:3301 while the grader starts the app with PORT=3000;
-        # every test died with ERR_CONNECTION_REFUSED. Listen on both.
         ports = ", ".join(map(str, extra))
-        text += (
-            f"\nPORT CONTRACT (mandatory): the specs above default to base URL "
-            f"port(s) {ports}, but the grader starts the backend with "
-            f"PORT={web_port}. The backend MUST serve the identical app on BOTH "
-            f"the PORT env value and port(s) {ports} at the same time: call "
-            f"server.listen() once per port with the same request handler. "
-            f"Bind the extra port(s) only when process.env.ARC_EXTRA_PORTS is "
-            f"not '0'. In your own smoke tests always run with "
-            f"`ARC_EXTRA_PORTS=0 PORT={smoke_port} npm run start` so that "
-            f"neither {web_port} nor {ports} is bound while you work.\n"
-        )
+        text += (f"PORT CONTRACT (mandatory): the specs default to port(s) {ports} while the grader starts the "
+                 f"backend with PORT={web_port}. Serve the identical app on BOTH the PORT value and port(s) {ports}: "
+                 f"call server.listen() once per port with the same handler, binding the extra port(s) only when "
+                 f"process.env.ARC_EXTRA_PORTS is not '0'.\n")
     return text
 
 
-FINAL_CHECK_PROMPT = """\
-Do a final end-to-end check of the web application in the current directory:
-1. Run `npm run build` in frontend/ and fix any build errors.
-2. Kill any leftover server process, then start the backend fresh with \
-PORT={smoke} via `npm run start` in backend/. NEVER use port {port} — \
-the benchmark runner watches that port and terminates the run if it sees \
-a server there while you are still working.
-3. Verify the app loads at http://localhost:{smoke}/ and every implemented \
-API endpoint works (exercise them with curl, including error cases).
-4. Audit every form against the benchmark UI contract below and fix \
-violations (these silently score 0 in the automated tests):
+# ---------------------------------------------------------------- flow
 
-""" + UI_CONTRACT_PROMPT + """
-5. STRICT-MODE SELF-TEST — mechanical, not by eye: for every value the \
-requirement echoes (city names, dates, usernames, station names), \
-enumerate EVERY element that will contain it in the rendered DOM. If your \
-pages are server-rendered, do it against the running server: `curl -s \
-<page> | grep -o 'Shanghai' | wc -l` — the count must be 1 (one element). \
-If pages are client-rendered, read the render code instead and list the \
-elements each value lands in (summary line? card title? both = failure). \
-Any searched value appearing in more than one element is a strict-mode \
-failure in the real tests — round 32 passed every search test after \
-fixing this, round 35 regressed by skipping the check. Also trigger each \
-validation failure and confirm exactly ONE error element is rendered. Fix \
-duplicates by restructuring the markup, keeping the information.
-6. Fix anything else that is broken.
-Finally, STOP every server process you started — the benchmark runner starts \
-the backend itself afterwards, so port {port} must be free when you finish.\
-"""
+class Flow:
+    def __init__(self, args, output_dir: Path, req_dir: Path) -> None:
+        self.args = args
+        self.output_dir = output_dir
+        self.req_dir = req_dir
+        self.web_port = args.web_port
+        self.smoke_port = int(os.environ.get("OCTOS_SMOKE_PORT", "3100"))
+        if self.smoke_port == self.web_port:
+            self.smoke_port += 1
+        self.node_timeout = int(os.environ.get("OCTOS_NODE_TIMEOUT", "1200"))
+        self.design_timeout = int(os.environ.get("OCTOS_DESIGN_TIMEOUT", "420"))
+        self.budget = int(os.environ.get("OCTOS_TIME_BUDGET", "2700"))
+        self.node_budget_cap = int(os.environ.get("OCTOS_NODE_TIME_BUDGET", "1500"))
+        self.repair_rounds = int(os.environ.get("OCTOS_REPAIR_ROUNDS", "5"))
+        self.design_enabled = os.environ.get("OCTOS_DESIGN_TURN", "1") != "0"
+        self.alias_states = os.environ.get("OCTOS_ARC_ALIAS_SPEC_IDS", "1") != "0"
+        self.perf_contract = os.environ.get("OCTOS_PERF_CONTRACT", "1") != "0"
+        self.guard_enabled = os.environ.get("OCTOS_GUARD", "1") != "0"
+        self.t_start = time.time()
+        self.runtime = None
+        self.events = None
+        self.driver: OctosDriver | None = None
+        self.tests_dir: Path | None = None
+        self.spec_map: dict = {None: []}
+        self.aliases: dict[str, str] = {}
+        self.runner: AcceptanceRunner | None = None
+        self.designs: dict[str, dict] = {}
+        self.test_verdict: dict[str, bool | None] = {}
+        self.impl_failed: list[str] = []
+        self.pending_corrections: list[str] = []
+        self.evolution = False
 
-REHEARSAL_REPAIR_PROMPT = """\
-The app you built just failed its pre-grading startup rehearsal. The \
-benchmark runner executes exactly this sequence, and it failed on our own \
-smoke run:
+    # -- helpers ----------------------------------------------------------
+    def remaining(self) -> float:
+        return self.budget - (time.time() - self.t_start)
 
-1. cd frontend && npm install && npm run build   (must exit 0)
-2. cd backend && npm install && npm start        (must bind the port and \
-stay up)
+    def time_up(self) -> bool:
+        return self.remaining() <= 0
 
-Rehearsal error:
-{error}
+    def mark(self, kind: str, node_id: str, message: str | None = None) -> None:
+        fn = getattr(self.events, f"mark_{kind}")
+        fn(node_id, message)
+        if self.alias_states:
+            for alias, target in self.aliases.items():
+                if target == node_id:
+                    fn(alias, message)
 
-Fix the project so this exact sequence works. Typical causes: a require() \
-path that does not match the real file location, a file you referenced but \
-never wrote, a syntax error in a module loaded at startup, or a dependency \
-missing from package.json. After fixing, verify it yourself: run the build \
-in frontend/, then start the backend with PORT={smoke}, confirm it binds, \
-and STOP it afterwards. NEVER bind port {port} yourself — the runner \
-terminates the run if it sees a server there while you are still working. \
-Write the fix now — do not just describe it.\
-"""
+    def protected_prefixes(self) -> list[str]:
+        prefixes = [".arc/", str(self.output_dir / ".arc"), "requirements/", str(self.req_dir)]
+        if self.tests_dir:
+            prefixes.append(str(self.tests_dir))
+        return prefixes
+
+    def corrections_text(self) -> str:
+        if not self.pending_corrections:
+            return ""
+        text = "Corrections from the harness:\n" + "\n".join(f"- {c}" for c in self.pending_corrections) + "\n"
+        self.pending_corrections = []
+        return text
+
+    def turn(self, prompt: str, timeout: int, label: str) -> tuple[bool, str]:
+        monitor = TurnMonitor(self.protected_prefixes())
+        t0 = time.time()
+        ok, text = self.driver.run(prompt, max(60, int(timeout)), monitor)
+        log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {time.time()-t0:.0f}s "
+            f"(tools={monitor.tool_calls} wrote={monitor.wrote_files} verified={monitor.verified}): {text[-240:]!r}")
+        for c in monitor.corrections():
+            log(f"[guard] {label}: {c[:160]}")
+            if self.guard_enabled:
+                self.pending_corrections.append(c)
+        return ok, text
+
+    def perf_text(self) -> str:
+        return PERFORMANCE_CONTRACT if self.perf_contract else ""
+
+    def tests_prompt_for(self, node_id: str | None) -> str:
+        if not self.tests_dir:
+            return ""
+        files = list(self.spec_map.get(node_id) or [])
+        support = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.ts")
+                         if not p.name.endswith(".spec.ts"))
+        if not files:  # node without its own spec: show everything
+            files = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
+        return acceptance_tests_prompt(self.tests_dir, self.web_port, self.smoke_port, files + support)
+
+    def ancestors_text(self, node_id: str, ordered: list[dict]) -> str:
+        anc = ancestors_of(node_id, ordered)
+        if not anc:
+            return ""
+        parts = []
+        for dep in anc:
+            design = self.designs.get(dep)
+            if design:
+                slim = {k: design.get(k) for k in ("routes", "pages", "data_model") if design.get(k)}
+                parts.append(f"{dep}: {json.dumps(slim, ensure_ascii=False)[:1500]}")
+            else:
+                parts.append(f"{dep}: implemented (see code)")
+        return "Already implemented dependencies — reuse their routes/data, never break them:\n" + "\n".join(parts) + "\n"
+
+    # -- git --------------------------------------------------------------
+    def head(self) -> str | None:
+        return self.runtime.git.current_head()
+
+    def commit(self, message: str) -> bool:
+        try:
+            return self.runtime.git.commit(message)
+        except Exception as exc:  # noqa: BLE001
+            log(f"[git] commit failed: {exc}")
+            return False
+
+    def restore_app(self, sha: str) -> None:
+        git = self.runtime.git
+        for part in ("frontend", "backend"):
+            if (self.output_dir / part).exists():
+                git.run(["checkout", sha, "--", part], check=False)
+        git.run(["clean", "-fd", "-e", "node_modules", "-e", "dist", "--", "frontend", "backend"], check=False)
+        log(f"[flow] restored frontend/ and backend/ to best commit {sha[:8]}")
+
+    # -- acceptance -------------------------------------------------------
+    def setup_playwright(self) -> None:
+        if not self.tests_dir:
+            return
+        root = find_playwright_root(playwright_candidates(BUNDLE_DIR, self.tests_dir, self.output_dir))
+        if root is None and os.environ.get("OCTOS_ARC_INSTALL_PLAYWRIGHT", "1") != "0":
+            log("[acceptance] no Playwright install found; trying to install one (bounded)")
+            root = ensure_playwright(Path(tempfile.gettempdir()) / "octos-arc-playwright", log)
+        if root is None:
+            log("[acceptance] Playwright unavailable; nodes will be judged by the final check only")
+            return
+        self.runner = AcceptanceRunner(root, self.tests_dir, acceptance_work_dir(root), log,
+                                       timeout_ms=int(os.environ.get("OCTOS_ARC_TEST_TIMEOUT_MS", "10000")),
+                                       workers=int(os.environ.get("OCTOS_ARC_TEST_WORKERS", "2")))
+        log(f"[acceptance] using Playwright at {root}")
+
+    def run_specs(self, specs: list[str]) -> RunSummary:
+        server = AppServer(self.output_dir, self.smoke_port, log)
+        err = server.build()
+        if err is None:
+            err = server.start()
+        if err is not None:
+            server.stop()
+            return RunSummary(error=err)
+        try:
+            return self.runner.run(specs, f"http://127.0.0.1:{self.smoke_port}")
+        finally:
+            server.stop()
+
+    def record_tests(self, node_id: str, specs: list[str], summary: RunSummary) -> None:
+        try:
+            for r in summary.results:
+                test_id = re.sub(r"[^A-Za-z0-9._-]+", "-", r.title)[:120]
+                self.runtime.traceability.upsert_test(test_id=test_id, req_id=node_id, type="e2e",
+                                                      file_path=r.file or None, passed=r.ok, emit_event=False)
+        except Exception as exc:  # noqa: BLE001
+            log(f"[trace] test rows not recorded: {exc}")
+
+    def acceptance_loop(self, node_id: str, specs: list[str], deadline: float) -> bool | None:
+        """Returns True/False for a real verdict, None when no local run happened."""
+        if self.runner is None or not specs:
+            return None
+        best_passed, best_sha, regressions = -1, self.head(), 0
+        for attempt in range(self.repair_rounds + 1):
+            summary = self.run_specs(specs)
+            if summary.error:
+                log(f"[acceptance] {node_id} infrastructure error: {summary.error[:300]}")
+                failures = f"- Feature: app startup\n  Failed at: build/start\n  Observation: {summary.error[:600]}\n  Steps: npm run build -> npm start"
+                summary = RunSummary(passed=0, total=max(1, len(specs)))
+                passed = 0
+            else:
+                passed = summary.passed
+                failures = failure_summaries(summary)
+                self.record_tests(node_id, specs, summary)
+            log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
+            if summary.total and passed == summary.total:
+                self.commit(f"{node_id} (accepted): {passed}/{summary.total} acceptance tests pass")
+                return True
+            if passed > best_passed:
+                if best_passed >= 0:
+                    self.commit(f"{node_id} (repair {attempt}): {passed}/{summary.total} pass")
+                best_passed, best_sha, regressions = passed, self.head(), 0
+            elif passed < best_passed:
+                regressions += 1
+                if regressions >= 2 and best_sha:
+                    self.restore_app(best_sha)
+                    self.pending_corrections.append(
+                        f"Your last two repairs made the tests worse; the harness restored frontend/ and backend/ "
+                        f"to the best state ({best_passed}/{summary.total}). Start from that code.")
+                    regressions = 0
+            if attempt == self.repair_rounds:
+                break
+            left = deadline - time.time()
+            if left < 90 or self.time_up():
+                log(f"[flow] {node_id}: node budget exhausted before repair {attempt + 1}")
+                break
+            slow = summary.slow(int(os.environ.get("OCTOS_ARC_SLOW_MS", "3000")))
+            slow_text = ("Also, these tests took over 3 s on this fast machine and will exceed the grader's "
+                         "10 s budget: " + "; ".join(slow) + ". Remove the latency.\n" + self.perf_text()) if slow else ""
+            prompt = REPAIR_PROMPT.format(node_id=node_id, passed=passed, total=summary.total,
+                                          failures=failures or "(no detail)", corrections=self.corrections_text(),
+                                          slow=slow_text, smoke=self.smoke_port, port=self.web_port)
+            self.turn(prompt, min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}")
+        if best_passed > 0 and best_sha and self.head() != best_sha:
+            self.restore_app(best_sha)
+            self.commit(f"{node_id}: keep best acceptance state {best_passed}")
+        return False
+
+    # -- per node ---------------------------------------------------------
+    def design(self, node: dict, ordered: list[dict], deadline: float) -> dict | None:
+        node_id = str(node.get("id"))
+        prompt = DESIGN_PROMPT.format(node_id=node_id, node_spec=describe_node(node),
+                                      ancestors=self.ancestors_text(node_id, ordered),
+                                      tests=self.tests_prompt_for(node_id))
+        ok, text = self.turn(prompt, min(self.design_timeout, deadline - time.time()), f"{node_id} design")
+        design = None
+        m = re.search(r"```json\s*(\{.*?\})\s*```", text, re.S) or re.search(r"(\{.*\})", text, re.S)
+        if ok and m:
+            try:
+                design = json.loads(m.group(1))
+            except json.JSONDecodeError:
+                design = None
+        if not isinstance(design, dict):
+            log(f"[flow] {node_id}: design turn produced no JSON; continuing with prose design")
+            return {"notes": text.strip()[-1500:]} if text.strip() else None
+        return design
+
+    def save_design(self, node_id: str, design: dict) -> None:
+        design_dir = self.output_dir / ".arc" / "design"
+        design_dir.mkdir(parents=True, exist_ok=True)
+        (design_dir / f"{node_id}.json").write_text(json.dumps(design, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            self.runtime.traceability.upsert_node_contract(node_id, design)
+            for i, route in enumerate(design.get("routes") or []):
+                if isinstance(route, dict):
+                    self.runtime.traceability.upsert_interface(
+                        interface_id=f"{node_id}:route:{i}", req_ids=[node_id], type="http",
+                        content=f"{route.get('method', '')} {route.get('path', '')}".strip(), emit_event=False)
+        except Exception as exc:  # noqa: BLE001
+            log(f"[trace] design not recorded: {exc}")
+
+    def node_cycle(self, node: dict, ordered: list[dict], index: int, total: int) -> None:
+        node_id = str(node.get("id"))
+        specs = list(self.spec_map.get(node_id) or [])
+        nodes_left = total - index + 1
+        node_budget = min(self.node_budget_cap, max(240, self.remaining() / nodes_left))
+        deadline = time.time() + node_budget
+        log(f"[flow] node {index}/{total} {node_id} starting (budget {node_budget:.0f}s, specs={specs})")
+
+        self.mark("design_started", node_id)
+        design = None
+        if self.design_enabled:
+            design = self.design(node, ordered, deadline)
+        if design:
+            self.designs[node_id] = design
+            self.save_design(node_id, design)
+            self.mark("design_done", node_id, "design JSON written to .arc/design/" + node_id + ".json")
+        else:
+            self.mark("design_done", node_id, "design folded into the implementation prompt")
+
+        self.mark("implementation_started", node_id)
+        design_text = ("Design contract for this node (follow it):\n"
+                       + json.dumps(design, ensure_ascii=False)[:4000] + "\n") if design else ""
+        if self.evolution:
+            design_text = EVOLUTION_NOTE.format(listing=source_listing(self.output_dir)) + design_text
+        prompt = NODE_PROMPT.format(node_id=node_id, node_spec=describe_node(node), design=design_text,
+                                    ancestors=self.ancestors_text(node_id, ordered),
+                                    tests=self.tests_prompt_for(node_id), smoke=self.smoke_port, port=self.web_port,
+                                    performance=self.perf_text())
+        prompt = self.corrections_text() + prompt
+        ok, text = self.turn(prompt, min(self.node_timeout, deadline - time.time()), f"{node_id} implement")
+        if not ok:
+            self.mark("implementation_failed", node_id, text[-500:])
+            self.impl_failed.append(node_id)
+            return
+        self.mark("implementation_done", node_id, text[-500:] or None)
+        self.commit(f"{node_id} (implement): {node.get('name', '')}")
+
+        verdict = self.acceptance_loop(node_id, specs, deadline)
+        self.test_verdict[node_id] = verdict
+        if verdict is True:
+            self.mark("test_passed", node_id, f"{len(specs)} acceptance spec file(s) pass locally")
+            try:
+                for iface in self.runtime.traceability.list_interfaces(req_id=node_id):
+                    self.runtime.traceability.set_interface_implemented(iface["interface_id"], True, emit_event=False)
+            except Exception:  # noqa: BLE001
+                pass
+        elif verdict is False:
+            self.mark("test_failed", node_id, "acceptance specs still failing after repair rounds")
+
+    def regression_cycle(self, node: dict) -> None:
+        """Evolution: unchanged node — carry the design/impl over, re-run its specs."""
+        node_id = str(node.get("id"))
+        specs = list(self.spec_map.get(node_id) or [])
+        self.mark("design_started", node_id)
+        self.mark("design_done", node_id, "unchanged since the previous requirement version; carried over")
+        self.mark("implementation_started", node_id)
+        self.mark("implementation_done", node_id, "carried over from the template application")
+        verdict = None
+        if self.runner is not None and specs:
+            summary = self.run_specs(specs)
+            if summary.error:
+                log(f"[acceptance] regression {node_id} infrastructure error: {summary.error[:300]}")
+            else:
+                self.record_tests(node_id, specs, summary)
+                verdict = summary.all_passed
+                log(f"[acceptance] regression {node_id}: {summary.passed}/{summary.total}")
+                if not verdict:
+                    deadline = time.time() + min(self.node_budget_cap, max(240, self.remaining() / 2))
+                    self.pending_corrections.append(
+                        "This node passed before this evolution round; the regression below must be fixed "
+                        "without removing the new behaviour.")
+                    verdict = self.acceptance_loop(node_id, specs, deadline)
+        self.test_verdict[node_id] = verdict
+        if verdict is True:
+            self.mark("test_passed", node_id, "regression specs pass locally")
+        elif verdict is False:
+            self.mark("test_failed", node_id, "regression specs fail after repair rounds")
+
+    # -- skeleton ---------------------------------------------------------
+    def skeleton(self, tree: dict) -> None:
+        log("[flow] skeleton turn starting")
+        prompt = SKELETON_PROMPT.format(req_dir=self.req_dir, port=self.web_port, smoke=self.smoke_port,
+                                        tests=self.tests_prompt_for(None))
+        for attempt in range(1, 5):
+            if self.time_up():
+                raise RuntimeError("time budget exhausted before the skeleton existed")
+            ok, text = self.turn(prompt, self.node_timeout, f"skeleton attempt {attempt}")
+            if ok and not self.has_app():
+                log("[flow] skeleton turn wrote no frontend/backend; nudging")
+                for nudge in range(1, 3):
+                    self.turn(NUDGE_PROMPT, 600, f"nudge {nudge}/2")
+                    if self.has_app():
+                        break
+            if self.has_app():
+                self.commit("chore: scaffold web application skeleton")
+                return
+            time.sleep(30)
+        raise RuntimeError("skeleton scaffolding failed: no frontend/ and backend/ after 4 attempts")
+
+    def has_app(self) -> bool:
+        return (self.output_dir / "frontend" / "package.json").is_file() and \
+            (self.output_dir / "backend" / "package.json").is_file()
+
+    # -- final ------------------------------------------------------------
+    def rehearsal(self) -> bool:
+        for attempt in range(1, 4):
+            log(f"[rehearsal] startup rehearsal {attempt}/3 (smoke port {self.smoke_port})")
+            server = AppServer(self.output_dir, self.smoke_port, log)
+            err = server.build() or server.start()
+            server.stop()
+            if err is None:
+                log("[rehearsal] app builds and starts cleanly")
+                return True
+            log(f"[rehearsal] FAILED: {err.splitlines()[0][:200]}")
+            if attempt == 3 or self.remaining() < -600:
+                log("[rehearsal] giving up; submitting as-is")
+                return False
+            self.turn(REHEARSAL_REPAIR_PROMPT.format(error=err[-1200:], port=self.web_port, smoke=self.smoke_port),
+                      self.node_timeout, f"rehearsal repair {attempt}")
+            self.commit("fix: startup rehearsal repair")
+        return False
+
+    # -- run --------------------------------------------------------------
+    def run(self) -> int:
+        self.runtime = AgentRuntime.from_env(project_dir=str(self.output_dir))
+        self.events = self.runtime.events
+        self.events.mark_run_started("octos bundle started")
+        ordered: list[dict] = []
+        watchdog_stop = threading.Event()
+        try:
+            previous = previous_requirement_records(self.output_dir)
+            tree = load_requirement_tree(self.req_dir)
+            self.runtime.traceability.store_requirement_tree(tree)
+            ordered = topo_order(tree)
+            if not ordered:
+                raise ValueError("no ATOMIC requirement nodes found")
+            node_ids = [str(n.get("id")) for n in ordered]
+            log(f"[flow] {len(ordered)} atomic nodes in dependency order: {node_ids}")
+
+            self.evolution = self.has_app()
+            unchanged: set[str] = set()
+            if self.evolution:
+                unchanged = unchanged_node_ids(ordered, previous)
+                log(f"[flow] evolution mode: existing app detected; unchanged nodes {sorted(unchanged)}, "
+                    f"to implement {[i for i in node_ids if i not in unchanged]}")
+
+            self.tests_dir = locate_acceptance_tests(tree, BUNDLE_DIR)
+            if self.tests_dir:
+                specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
+                self.spec_map, self.aliases = map_specs_to_nodes(specs, node_ids)
+                log(f"[tests] {len(specs)} spec files at {self.tests_dir}; mapping "
+                    f"{ {k: v for k, v in self.spec_map.items() if v} }; aliases {self.aliases}")
+            else:
+                log("[tests] no acceptance specs found; building from requirement text only")
+
+            self.runtime.git.ensure_repo()
+            self.setup_playwright()
+
+            octos_bin = find_octos()
+            log(f"[octos] binary {octos_bin}")
+            data_dir = Path(tempfile.mkdtemp(prefix="octos-data-"))
+            env = build_octos_env(Path(tempfile.mkdtemp(prefix="octos-config-")))
+            env["PORT"] = str(self.smoke_port)  # a bare `npm start` inside a turn must not hit the grading port
+            self.driver = OctosDriver(octos_bin, self.output_dir, env, data_dir,
+                                      int(os.environ.get("OCTOS_MAX_ITERATIONS", "500")),
+                                      events_log=self.output_dir / ".arc" / "octos-events.jsonl")
+            threading.Thread(target=_port_watchdog, args=(self.web_port, self.output_dir, watchdog_stop),
+                             daemon=True).start()
+            try:
+                if not self.evolution:
+                    self.skeleton(tree)
+                for index, node in enumerate(ordered, 1):
+                    node_id = str(node.get("id"))
+                    if self.time_up():
+                        log(f"[flow] time budget exhausted; skipping {node_id}")
+                        self.mark("implementation_started", node_id)
+                        self.mark("implementation_failed", node_id, "skipped: time budget exhausted")
+                        self.impl_failed.append(node_id)
+                        continue
+                    if node_id in unchanged:
+                        self.regression_cycle(node)
+                    else:
+                        self.node_cycle(node, ordered, index, len(ordered))
+
+                undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]
+                final_ok = None
+                if undecided and not self.time_up():
+                    log(f"[flow] final check turn for nodes without a local verdict: {undecided}")
+                    final_ok, _ = self.turn(FINAL_CHECK_PROMPT.format(smoke=self.smoke_port, port=self.web_port,
+                                                                      tests=self.tests_prompt_for(None),
+                                                                      performance=self.perf_text()),
+                                            self.node_timeout, "final check")
+                    self.commit("chore: final verification pass")
+                rehearsed = self.rehearsal()
+                for node_id in undecided:
+                    if rehearsed and final_ok is not False:
+                        self.mark("test_passed", node_id, "final check and startup rehearsal passed")
+                    else:
+                        self.mark("test_failed", node_id, "final check or startup rehearsal failed")
+                    self.test_verdict[node_id] = bool(rehearsed and final_ok is not False)
+            finally:
+                watchdog_stop.set()
+                if self.driver:
+                    self.driver.close()
+            self.commit("chore: traceability and acceptance state")
+            failed = [i for i in node_ids if self.test_verdict.get(i) is not True]
+            if failed:
+                self.events.mark_run_completed(f"completed; nodes not verified: {', '.join(failed)}")
+            else:
+                self.events.mark_run_completed("all requirement nodes implemented and verified")
+            _postflight_structure_check(self.output_dir)
+            _free_web_port(self.web_port)
+            self.write_preview_ready()
+            return 0
+        except Exception as exc:  # the platform judges by events, not exit code
+            log(f"[flow] aborted: {exc!r}")
+            watchdog_stop.set()
+            if self.driver:
+                self.driver.close()
+            for node in ordered:
+                node_id = str(node.get("id"))
+                if node_id not in self.test_verdict:
+                    self.mark("test_failed", node_id, f"run aborted: {str(exc)[:200]}")
+            _postflight_structure_check(self.output_dir)
+            _free_web_port(self.web_port)
+            self.events.mark_run_failed(str(exc)[:1000])
+            return 0
+
+    def write_preview_ready(self) -> None:
+        artifacts_dir = os.environ.get("ARCBENCH_ARTIFACTS_DIR")
+        if artifacts_dir:
+            try:
+                Path(artifacts_dir).mkdir(parents=True, exist_ok=True)
+                (Path(artifacts_dir) / "preview-ready.json").write_text(
+                    json.dumps({"ready": True, "reason": "octos bundle completed"}) + "\n", encoding="utf-8")
+            except OSError:
+                pass
 
 
-# ---------------------------------------------------------------- main flow
+# ---------------------------------------------------------------- main
+
+def probe_endpoint() -> None:
+    """Raw chat.completions probe; waits out proxy outages (up to 10 min)."""
+    key = os.environ.get("OPENAI_API_KEY", "")
+    base = os.environ.get("OPENAI_BASE_URL")
+    if not (key and base):
+        return
+    import urllib.request as _ur
+    body = json.dumps({"model": os.environ.get("MODEL", "deepseek-chat"),
+                       "messages": [{"role": "user", "content": "Reply with exactly: OK"}], "max_tokens": 4}).encode()
+    deadline = time.time() + 600
+    attempt = 0
+    while True:
+        attempt += 1
+        req = _ur.Request(base.rstrip("/") + "/chat/completions", data=body, method="POST",
+                          headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
+        try:
+            with _ur.urlopen(req, timeout=60) as resp:
+                log(f"[probe] raw chat/completions -> HTTP {resp.status}: {resp.read()[:120]!r}")
+                return
+        except Exception as exc:  # noqa: BLE001
+            log(f"[probe] attempt {attempt} -> {exc}")
+            if time.time() >= deadline:
+                log("[probe] endpoint still failing after 10min; proceeding anyway")
+                return
+            time.sleep(30)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Octos agent bundle for ARC-Bench")
-    parser.add_argument(
-        "requirement_path",
-        nargs="?",
-        default=os.environ.get("ARCBENCH_TASK_DIR", "/workspace/task"),
-    )
+    parser.add_argument("requirement_path", nargs="?", default=os.environ.get("ARCBENCH_TASK_DIR", "/workspace/task"))
     parser.add_argument("--output-dir", default=None)
-    # The platform runner passes `--type web|cli|android`; older local flows
-    # used `--app-type`. Accept both spellings into the same dest.
     parser.add_argument("--type", "--app-type", dest="app_type", default="web")
     parser.add_argument("--web-port", type=int,
-                        default=int(os.environ.get("ARCBENCH_WEB_PORT",
-                                                   os.environ.get("ARC_WEB_PORT", "3000"))))
+                        default=int(os.environ.get("ARCBENCH_WEB_PORT", os.environ.get("ARC_WEB_PORT", "3000"))))
     args = parser.parse_args()
 
-    # Diagnostics (no secrets): which model endpoint did the runner inject?
-    _key = os.environ.get("OPENAI_API_KEY", "")
+    key = os.environ.get("OPENAI_API_KEY", "")
     print(f"[env] OPENAI_BASE_URL={os.environ.get('OPENAI_BASE_URL', '<unset>')}", flush=True)
     print(f"[env] MODEL={os.environ.get('MODEL', '<unset>')}", flush=True)
-    print(f"[env] OPENAI_API_KEY={'set(len=%d)' % len(_key) if _key else '<unset>'}", flush=True)
+    print(f"[env] OPENAI_API_KEY={'set(len=%d)' % len(key) if key else '<unset>'}", flush=True)
     print(f"[env] ARCBENCH_TEMPLATE_DIR={os.environ.get('ARCBENCH_TEMPLATE_DIR', '<unset>')}", flush=True)
     print(f"[env] ARCBENCH_TASK_DIR={os.environ.get('ARCBENCH_TASK_DIR', '<unset>')}", flush=True)
     print(f"[env] argv requirement_path={args.requirement_path}", flush=True)
-
-    # Raw LLM probe: bypass octos entirely and hit the injected endpoint with
-    # a minimal chat.completions request, so we can tell a dead endpoint
-    # apart from an octos request-shape problem. Never logs the key.
-    # The platform proxy occasionally 500s ("上游负载") for minutes at a
-    # time; gate on it (up to ~10 min) instead of burning generation turns
-    # against a dead endpoint.
-    if _key and os.environ.get("OPENAI_BASE_URL"):
-        import urllib.request as _ur
-        probe_body = json.dumps({
-            "model": os.environ.get("MODEL", "deepseek-chat"),
-            "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
-            "max_tokens": 4,
-        }).encode()
-        probe_deadline = time.time() + 600
-        probe_attempt = 0
-        while True:
-            probe_attempt += 1
-            probe_req = _ur.Request(
-                os.environ["OPENAI_BASE_URL"].rstrip("/") + "/chat/completions",
-                data=probe_body,
-                headers={"Content-Type": "application/json",
-                         "Authorization": "Bearer " + _key},
-                method="POST",
-            )
-            try:
-                with _ur.urlopen(probe_req, timeout=60) as resp:
-                    log(f"[probe] raw chat/completions -> HTTP {resp.status}: "
-                        f"{resp.read()[:200]!r}")
-                    break
-            except Exception as exc:
-                body = getattr(exc, "read", lambda: b"")()
-                log(f"[probe] attempt {probe_attempt} -> {exc} {body[:200]!r}")
-                if time.time() >= probe_deadline:
-                    log("[probe] endpoint still failing after 10min; proceeding anyway")
-                    break
-                time.sleep(30)
+    probe_endpoint()
 
     req_src = Path(args.requirement_path).resolve()
-    # On ARC-Bench the runner hands us the template workspace via
-    # ARCBENCH_TEMPLATE_DIR; generated code must land there for preview/tests.
     if args.output_dir:
         output_dir = Path(args.output_dir).resolve()
     elif os.environ.get("ARCBENCH_TEMPLATE_DIR"):
@@ -1091,263 +1233,15 @@ def main() -> int:
         output_dir = Path.cwd() / "workspace" / f"run-{time.strftime('%Y%m%d-%H%M%S')}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Mirror ARC: copy the requirement input into the workspace. On the
-    # platform the requirement dir already lives outside the template repo,
-    # so skip polluting the evaluated workspace there.
     on_platform = bool(os.environ.get("ARCBENCH_TEMPLATE_DIR"))
     if on_platform:
-        dest_req = req_src
+        req_dir = req_src
     else:
-        dest_req = output_dir / "requirements"
-        if dest_req.exists():
-            shutil.rmtree(dest_req)
-        shutil.copytree(req_src, dest_req)
-
-    runtime = AgentRuntime.from_env(project_dir=str(output_dir))
-    events = runtime.events
-    events.mark_run_started("octos bundle started")
-
-    try:
-        tree = load_requirement_tree(dest_req)
-        runtime.traceability.store_requirement_tree(tree)
-        atomic_nodes = flatten_atomic(tree)
-        if not atomic_nodes:
-            raise ValueError("no ATOMIC requirement nodes found")
-
-        tests_dir = locate_acceptance_tests(tree, Path(__file__).resolve().parent)
-        if tests_dir:
-            log(f"[tests] using acceptance specs at {tests_dir}: "
-                f"{len(list(tests_dir.rglob('*.spec.ts')))} spec files")
-        else:
-            log("[tests] no acceptance specs found; building from requirement text only")
-
-        runtime.git.ensure_repo()
-
-        octos_bin = find_octos()
-        max_iter = int(os.environ.get("OCTOS_MAX_ITERATIONS", "500"))
-        node_timeout = int(os.environ.get("OCTOS_NODE_TIMEOUT", "1200"))
-        # Wall-clock budget for the whole generation flow. If we exceed it,
-        # stop starting new turns and go straight to postflight — a partial
-        # template that exits cleanly scores better than a SIGTERM mid-turn
-        # (round 21 died that way and produced zero executed tests).
-        budget = int(os.environ.get("OCTOS_TIME_BUDGET", "2700"))
-        t_run_start = time.time()
-        # Smoke tests must NEVER use the grading port: round 21 was SIGTERMed
-        # minutes after the final-verification turn started a server on
-        # port 3000 — the runner appears to treat a live grading port as
-        # "agent finished" and kills the process.
-        smoke_port = int(os.environ.get("OCTOS_SMOKE_PORT", "3100"))
-        if smoke_port == args.web_port:
-            smoke_port += 1
-        tests_prompt = acceptance_tests_prompt(tests_dir, args.web_port, smoke_port)
-
-        def time_up() -> bool:
-            return time.time() - t_run_start > budget
-        data_dir = Path(tempfile.mkdtemp(prefix="octos-data-"))
-        config_dir = Path(tempfile.mkdtemp(prefix="octos-config-"))
-        env = build_octos_env(config_dir)
-        # Make the smoke port the INHERITED default for anything the agent
-        # starts: generated apps read `process.env.PORT || <grading port>`,
-        # so a bare `npm start` inside a turn would otherwise bind the
-        # grading port and get us SIGTERMed (round 21; round 33 died the
-        # same way 3 minutes into the final check). An explicit
-        # `PORT=xxx npm start` from the prompt still wins over this.
-        env["PORT"] = str(smoke_port)
-        # Independent seatbelt: reap anything that binds the grading port
-        # during generation. The runner's own port watch takes minutes to
-        # fire (round 21), this polls every 5s, so we win the race against
-        # any accidental bind the prompt didn't prevent.
-        watchdog_stop = threading.Event()
-        watchdog = threading.Thread(
-            target=_port_watchdog,
-            args=(args.web_port, output_dir, watchdog_stop),
-            daemon=True,
-        )
-        watchdog.start()
-        driver = OctosDriver(
-            octos_bin, output_dir, env, data_dir, max_iter,
-            events_log=output_dir / ".arc" / "octos-events.jsonl",
-        )
-
-        try:
-            # Step 0: orient in the starter project + shared foundations.
-            # Retry the skeleton turn: the platform LLM proxy 500s in bursts,
-            # and without a skeleton there is no app at all.
-            log(f"[flow] skeleton/foundations turn starting "
-                f"({len(atomic_nodes)} atomic nodes queued)")
-            skeleton_ok = False
-            skeleton_text = ""
-            for sk_attempt in range(1, 5):
-                if time_up():
-                    log("[flow] time budget exhausted before skeleton retry")
-                    break
-                t0 = time.time()
-                skeleton_ok, skeleton_text = driver.run(
-                    APP_SKELETON_PROMPT.format(port=args.web_port,
-                                               smoke=smoke_port) + tests_prompt,
-                    node_timeout,
-                )
-                log(f"[flow] skeleton turn attempt {sk_attempt} "
-                    f"{'ok' if skeleton_ok else 'FAILED'} "
-                    f"in {time.time()-t0:.0f}s: {skeleton_text[-300:]!r}")
-                # Round 24: every turn reported "ok" while writing zero
-                # files (the model wandered into OCR attempts). A turn
-                # without frontend/ and backend/ on disk is a failed turn
-                # regardless of what the driver reports.
-                if skeleton_ok and not (
-                        (output_dir / "frontend").is_dir()
-                        and (output_dir / "backend").is_dir()):
-                    skeleton_ok = False
-                    skeleton_text = ("turn ended ok but no frontend/backend "
-                                     "on disk; treating as failed")
-                    log("[flow] skeleton produced no frontend/backend; "
-                        "retrying with emphasis on writing files")
-                    # Round 25/27 pattern: the model ends the turn with a
-                    # text announcement ("then start building") instead of
-                    # tool calls, and full re-prompts get empty replies.
-                    # Nudge the SAME session to execute before burning a
-                    # whole fresh attempt.
-                    for nudge in range(1, 3):
-                        if time_up():
-                            break
-                        log(f"[flow] nudge turn {nudge}/2: push the model "
-                            f"to actually write files")
-                        n_ok, n_text = driver.run(NUDGE_PROMPT, 600)
-                        log(f"[flow] nudge {nudge} "
-                            f"{'ok' if n_ok else 'FAILED'}: "
-                            f"{n_text[-200:]!r}")
-                        if ((output_dir / "frontend").is_dir()
-                                and (output_dir / "backend").is_dir()):
-                            log("[flow] nudge produced frontend/ + backend/")
-                            skeleton_ok = True
-                            break
-                if skeleton_ok:
-                    break
-                # Round 34: four skeleton attempts + nudges all returned
-                # empty in the SAME session — once the context accumulates
-                # empty assistant turns, the model keeps reasoning-and-
-                # truncating the same way. Reset the session so the next
-                # attempt starts from a clean context.
-                if sk_attempt < 4:
-                    log("[flow] resetting session before next skeleton "
-                        "attempt (empty-context loop)")
-                    driver.close()
-                time.sleep(45)
-            if not skeleton_ok:
-                raise RuntimeError(f"skeleton scaffolding failed: {skeleton_text}")
-            runtime.git.commit("chore: scaffold web application skeleton")
-
-            # Per-node implementation.
-            failed: list[str] = []
-            for idx, node in enumerate(atomic_nodes, 1):
-                node_id = str(node.get("id"))
-                if time_up():
-                    log(f"[flow] time budget exhausted; skipping {node_id} "
-                        f"and remaining nodes")
-                    events.mark_implementation_started(node_id)
-                    events.mark_implementation_failed(node_id, "skipped: time budget")
-                    failed.append(node_id)
-                    continue
-                events.mark_design_started(node_id)
-                events.mark_design_done(node_id, "design folded into octos implementation prompt")
-                events.mark_implementation_started(node_id)
-                log(f"[flow] node {idx}/{len(atomic_nodes)} {node_id} starting")
-                t0 = time.time()
-                ok, text = driver.run(
-                    NODE_PROMPT_TEMPLATE.format(port=args.web_port,
-                                                smoke=smoke_port,
-                                                node_spec=describe_node(node))
-                    + tests_prompt,
-                    node_timeout,
-                )
-                log(f"[flow] node {node_id} {'ok' if ok else 'FAILED'} "
-                    f"in {time.time()-t0:.0f}s: {text[-300:]!r}")
-                if ok:
-                    events.mark_implementation_done(node_id, text[-500:] or None)
-                    runtime.git.commit(f"{node_id} (implement): {node.get('name', '')}")
-                else:
-                    events.mark_implementation_failed(node_id, text[-500:])
-                    failed.append(node_id)
-
-            # Final verification pass; octos leaves the port free.
-            ok, text = False, "skipped: time budget"
-            if time_up():
-                log("[flow] time budget exhausted; skipping final verification")
-            else:
-                log("[flow] final verification turn starting")
-                t0 = time.time()
-                ok, text = driver.run(
-                    FINAL_CHECK_PROMPT.format(port=args.web_port,
-                                              smoke=smoke_port) + tests_prompt,
-                    node_timeout,
-                )
-                log(f"[flow] final check {'ok' if ok else 'FAILED'} "
-                    f"in {time.time()-t0:.0f}s: {text[-300:]!r}")
-
-            # Startup rehearsal: run the grading sequence ourselves on the
-            # smoke port and hand any failure back for repair. Round 30
-            # finished generation cleanly, then `npm start` crashed at
-            # grading (Cannot find module './seed') and zero Playwright
-            # tests executed. Not gated on time_up(): the runner's kill
-            # trigger is a live grading port (round 21), not elapsed time
-            # (round 20 generated 44 min and scored), and the rehearsal
-            # only ever touches the smoke port.
-            for rehearsal in range(1, 4):
-                log(f"[rehearsal] startup rehearsal {rehearsal}/3 "
-                    f"(smoke port {smoke_port})")
-                t0 = time.time()
-                err = _rehearse_startup(output_dir, smoke_port)
-                if err is None:
-                    log(f"[rehearsal] app builds and starts cleanly "
-                        f"in {time.time()-t0:.0f}s")
-                    break
-                log(f"[rehearsal] FAILED in {time.time()-t0:.0f}s: "
-                    f"{err.splitlines()[0][:200]}")
-                if rehearsal == 3:
-                    log("[rehearsal] giving up; submitting as-is")
-                    break
-                ok_r, text_r = driver.run(
-                    REHEARSAL_REPAIR_PROMPT.format(
-                        error=err[-1200:], port=args.web_port,
-                        smoke=smoke_port),
-                    node_timeout,
-                )
-                log(f"[rehearsal] repair turn "
-                    f"{'ok' if ok_r else 'FAILED'}: {text_r[-200:]!r}")
-        finally:
-            watchdog_stop.set()
-            driver.close()
-        for node in atomic_nodes:
-            node_id = str(node.get("id"))
-            if node_id in failed or not ok:
-                events.mark_test_failed(node_id, "final verification did not pass")
-            else:
-                events.mark_test_passed(node_id, "verified by octos final check")
-        runtime.git.commit("chore: final verification pass")
-
-        if failed:
-            events.mark_run_completed(f"completed with {len(failed)} failed node(s): {', '.join(failed)}")
-        else:
-            events.mark_run_completed("all requirement nodes implemented")
-        _postflight_structure_check(output_dir, args.web_port)
-        _free_web_port(args.web_port)
-        # Tell the platform the preview can be served (mirrors the demo agent).
-        artifacts_dir = os.environ.get("ARCBENCH_ARTIFACTS_DIR")
-        if artifacts_dir:
-            try:
-                Path(artifacts_dir).mkdir(parents=True, exist_ok=True)
-                (Path(artifacts_dir) / "preview-ready.json").write_text(
-                    json.dumps({"ready": True, "reason": "octos bundle completed"}) + "\n",
-                    encoding="utf-8",
-                )
-            except OSError:
-                pass
-        return 0
-    except Exception as exc:  # platform judges by events, not exit code
-        _postflight_structure_check(output_dir, args.web_port)
-        _free_web_port(args.web_port)
-        events.mark_run_failed(str(exc)[:1000])
-        return 0
+        req_dir = output_dir / "requirements"
+        if req_dir.exists():
+            shutil.rmtree(req_dir)
+        shutil.copytree(req_src, req_dir)
+    return Flow(args, output_dir, req_dir).run()
 
 
 if __name__ == "__main__":

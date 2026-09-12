@@ -1,0 +1,59 @@
+import unittest
+
+from guard import TurnMonitor
+
+
+def started(name, args, call_id="c1"):
+    return "tool/started", {"tool_call_id": call_id, "tool_name": name, "arguments": args}
+
+
+def completed(call_id, success, preview=""):
+    return "tool/completed", {"tool_call_id": call_id, "success": success, "output_preview": preview}
+
+
+class TurnMonitorTests(unittest.TestCase):
+    def test_should_flag_completion_claim_without_verification_commands(self):
+        m = TurnMonitor(protected_prefixes=[".arc/", "requirements/"])
+        m.observe(*started("write_file", {"path": "backend/server.js"}))
+        m.observe(*completed("c1", True))
+        m.finish("Done. The feature is fully implemented and verified. ✅")
+        self.assertIn("claimed completion without running", " ".join(m.corrections()))
+
+    def test_should_not_flag_when_build_and_curl_ran(self):
+        m = TurnMonitor(protected_prefixes=[])
+        m.observe(*started("bash", {"cmd": "cd frontend && npm run build"}, "c1"))
+        m.observe(*completed("c1", True))
+        m.observe(*started("bash", {"cmd": "curl -s http://127.0.0.1:43101/api/count"}, "c2"))
+        m.observe(*completed("c2", True))
+        m.finish("Implemented and verified.")
+        self.assertEqual(m.corrections(), [])
+
+    def test_should_flag_three_identical_consecutive_errors(self):
+        m = TurnMonitor(protected_prefixes=[])
+        for i in range(3):
+            m.observe(*started("bash", {"cmd": "node backend/server.js"}, f"c{i}"))
+            m.observe(*completed(f"c{i}", False, "Error: listen EADDRINUSE :::43101"))
+        m.finish("")
+        self.assertTrue(any("same error 3 times" in c for c in m.corrections()))
+
+    def test_should_flag_writes_into_protected_paths(self):
+        m = TurnMonitor(protected_prefixes=[".arc/", "requirements/", "/abs/tests/"])
+        m.observe(*started("edit_file", {"path": "/abs/tests/REQ-1.spec.ts"}, "c1"))
+        m.observe(*completed("c1", True))
+        m.observe(*started("bash", {"cmd": "echo x > requirements/requirements.yaml"}, "c2"))
+        m.observe(*completed("c2", True))
+        m.finish("ok")
+        joined = " ".join(m.corrections())
+        self.assertIn("/abs/tests/REQ-1.spec.ts", joined)
+        self.assertIn("requirements/", joined)
+
+    def test_should_report_no_files_written_when_only_reading(self):
+        m = TurnMonitor(protected_prefixes=[])
+        m.observe(*started("read_file", {"path": "backend/server.js"}, "c1"))
+        m.observe(*completed("c1", True))
+        m.finish("Here is my plan...")
+        self.assertFalse(m.wrote_files)
+
+
+if __name__ == "__main__":
+    unittest.main()
