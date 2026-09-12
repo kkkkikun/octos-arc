@@ -1,6 +1,6 @@
 import unittest
 
-from main import OctosDriver, describe_node, unchanged_node_ids
+from main import OctosDriver, describe_node, folder_descendants, unchanged_node_ids
 
 
 def node(node_id, description, deps=()):
@@ -43,3 +43,11 @@ class TransientTests(unittest.TestCase):
     def test_should_retry_provider_errors(self):
         self.assertTrue(OctosDriver._transient("HTTP 503 Service Temporarily Unavailable"))
         self.assertTrue(OctosDriver._transient("failed to send streaming request"))
+
+
+class FolderDescendantTests(unittest.TestCase):
+    def test_should_map_every_folder_to_its_atomic_leaves(self):
+        tree = {"id": "ROOT", "type": "FOLDER", "children": [
+            {"id": "F-1", "type": "FOLDER", "children": [node("REQ-1", "a"), node("REQ-2", "b")]},
+            node("REQ-3", "c")]}
+        self.assertEqual(folder_descendants(tree), {"F-1": ["REQ-1", "REQ-2"], "ROOT": ["REQ-1", "REQ-2", "REQ-3"]})
