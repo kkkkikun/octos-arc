@@ -132,6 +132,15 @@ C 用旧 main（`82e3bef3`）适配包在 `arc-bench-web--keep` 本机跑到 26/
 2. **骨架轮不再读全部 spec**。旧 `ACCEPTANCE_TESTS_PROMPT` 在骨架轮列出全部 spec 文件并要求「写代码前全部读完」，模型因此在一轮里把 32 个功能全做完（70 分钟、单会话 40–130 万字符推理）。现在骨架轮只给 spec 目录、共享 helper 和「最多读两个 spec 学约定，不实现功能」，spec 文件在各自节点轮才出现。
 3. **整体预算按节点数放大**：未显式设 `OCTOS_TIME_BUDGET` 时取 max(3600, 480 × ATOMIC 节点数)（`OCTOS_SECONDS_PER_NODE`），keep 为 15,360 s；节点预算仍是 min(1500, 剩余/剩余节点)。
 
+第二轮代码的本机验证：
+
+| 运行 | 轮数 | tokens_in | tokens_out | 费用 ¥ | 耗时 s | 公开测试 | 节点状态 |
+|---|---:|---:|---:|---:|---:|---|---|
+| r9-counter | 1 | 25,242 | 7,757 | 0.0327 | 331 | 1/1 | REQ-1、ROOT PASSED |
+| **r9-tb** | 5 | 213,602 | 127,660 | **0.5768** | **1,346** | 10/10（按评测方式启动） | REQ-1、REQ-2、REQ-1.1、REQ-1.2、ROOT PASSED |
+
+r9-tb 逐轮：骨架 211 s（不再读全部 spec）→ REQ-1 设计 167 s → 实现 504 s → 6/6 → REQ-2 设计 213 s → 实现 238 s → 4/4 → 全套并行 10/10 → 演练通过，零修复轮。相对改前：费用 −25%、耗时 −46%。
+
 C 的其余发现与本分支已有改动的对应：轮超时被当瞬时错误重放 → `d5f9dccb` 已修；骨架超时但盘上已有 frontend/backend 则继续 → `skeleton()` 已按盘上状态判定；单会话累积上下文（keep 云端 8,256 万 token、¥17.94）→ 默认按节点新开 session；云端评测阶段 Playwright 用 4 workers 1 秒后被 SIGKILL 是平台侧问题，适配层无法影响；Evolution 在平台上 `ARCBENCH_TEMPLATE_DIR` 未设置而模板在 `/workspace/template`，本分支按输出目录里是否已有 frontend/backend 判定，与 C 观察到的 2/2 一致。
 
 ## 紧急修正 · 云端 Smoke Evolution 0/2（C 回流，运行 da9a64b32c09 / 16ea5178359a）
