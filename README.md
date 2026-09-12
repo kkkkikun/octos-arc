@@ -1,3 +1,5 @@
+> **用 Octos 参赛请直接用 [octos-org/octos-arc](https://github.com/octos-org/octos-arc)**：那里一个仓库、一个 `main` 分支包含内核源码和完整的参赛流程（这个适配包的最新版也在它的 `arc/` 目录里）。本仓库保留为**通用参考实现**：想给别的 agent 写 ARC-Bench 适配包，照这里的结构来。
+
 # arc-adapter
 
 [Octos](https://github.com/octos-org/octos) 的 [ARC-Bench](https://arc-bench.com) 适配包,也是标准参考实现。写自己的 agent 适配包时可以照这个仓库的结构来。
