@@ -684,7 +684,7 @@ Performance & robustness (the grader is a slow container, tests run in parallel,
 - Zero external requests: no CDN scripts, web fonts, analytics, or images from other hosts; every asset is same-origin and small, so `load` fires within ~200 ms.
 - The grader CPU is 5–10x slower than a laptop and runs 4 browsers at once, so budget CPU per request at 30 ms: hash passwords with crypto.scryptSync(password, salt, 64, {N: 4096, r: 8, p: 1}) or pbkdf2Sync with <= 10000 iterations — never the default scrypt cost, never bcrypt; keep the JSON store small and rewrite it only on mutation.
 - Session cookie: HttpOnly; Path=/; SameSite=Lax; Max-Age at least 7 days; NO `Secure`, NO `Domain` attribute (tests run on http://127.0.0.1). On reload restore the signed-in header from that cookie with at most ONE same-origin request (or render it server-side).
-- No setTimeout delays, polling, service workers, beforeunload handlers, or debounced writes. Persist by writing the whole JSON file synchronously (write temp file, then rename).
+- Persistence: the in-memory store is the single source of truth; never re-read the JSON file per request. Mutations update memory first and then write the whole file synchronously (writeFileSync to a temp file, then rename) — never an async read-modify-write, because the grader runs 2–4 test files in parallel against ONE backend and a concurrent register/login pair must never lose a user. No setTimeout delays, polling, service workers, beforeunload handlers, or debounced writes.
 """
 
 ARCHITECTURE_CONTRACT = """\

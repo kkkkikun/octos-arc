@@ -71,4 +71,5 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 | `OCTOS_ARC_ALIAS_SPEC_IDS` | 1 | 0 = 不把节点状态镜像到 spec 侧 id |
 | `OCTOS_ARC_INSTALL_PLAYWRIGHT` | 1 | 0 = 找不到 Playwright 时不尝试安装 |
 | `OCTOS_ARC_PLAYWRIGHT_ROOT` | 自动 | 指定含 `node_modules/@playwright/test` 的目录 |
+| `OCTOS_ARC_FULLY_PARALLEL` | 0 | 1 = 本地验收让同一文件内的测试也并行（比平台更严的压力测试） |
 | `OCTOS_ARC_TEST_TIMEOUT_MS` / `OCTOS_ARC_SLOW_MS` | 10000 / 3000 | 本地验收单测试超时；超过 SLOW 阈值即提醒模型 |
