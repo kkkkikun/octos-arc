@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "status": "runtime_implementation_unreleased",
-  "repository": "octos-org/octos-arc-runtime",
+  "repository": "octos-org/octos-arc",
   "upstream": {
     "repository": "octos-org/octos",
     "commit": "8558a3bff41f43838130808a1fa6cf0299e0bc40",

@@ -1,6 +1,6 @@
 # ARC-Bench 内核优化记录
 
-分支：`arc-opt`。所有数字均来自本机事件流或测试输出；评测分数与单元测试结果分开记录。
+当前交付分支：`wf-kernel`（第一轮运行记录保留原始 `arc-opt` 证据）。所有数字均来自本机事件流、测试输出或 GitHub Actions 产物；评测分数与单元测试结果分开记录。
 
 ## 结论摘要
 
@@ -19,6 +19,47 @@
 | Ticket Booking 费用 | 无记录 | 0.99110494 | `token_cost_update` |
 | Ticket Booking 耗时 | >10 分钟后中断 | 1,878 秒 | `runner-events.jsonl` 起止时间 |
 | Ticket Booking Playwright | 未执行 | 10/10 | `grade-local.py` 公开测试 |
+
+## 第二轮：工作流 B（P0-0、B1、B2、B3、B5）
+
+本轮从 `origin/main` 的 `82e3bef3` 新建 `wf-kernel`，没有改动 `legacy`，也没有启用或复用上游发布工作流。
+
+### P0-0：stdio/solo 默认 coding 工具面
+
+该项已由第一轮合入的 `82e3bef3` 继承并复核：`serve --stdio --solo` 默认使用 coding 工具白名单，跳过 bundled app-skills/platform-skills；无 memory/goal 时不注入对应 snapshot，panes 树不进入模型上下文。实测为 5,714 input tokens、12 个工具，达到不超过 6,000 的目标。
+
+### B1：Linux x86_64 手动发布
+
+改动位置：`.github/workflows/arc-linux-release.yml`。
+
+新增唯一的 ARC 专用 `workflow_dispatch` 工作流。它按输入的精确 ref 构建 `x86_64-unknown-linux-gnu` runtime 和 bundled tools，生成 `octos-bundle-x86_64-unknown-linux-gnu.tar.gz`，并在 Release 中上传 bundle SHA-256、`octos` 二进制 SHA-256、源码提交、rustc 和版本信息。工作流只在 `wf-kernel` 合入默认分支后才会被 GitHub 注册并允许 dispatch；当前分支上的 API dispatch 被 GitHub 拒绝（workflow 尚未存在于 default branch），所以本轮没有伪造 Release，也没有回填 `runtime_release`。
+
+### B2：DeepSeek 费用异常
+
+改动位置：`crates/octos-llm/src/openai.rs`、`pricing.rs`、`crates/octos-core/src/ui_protocol.rs`、`crates/octos-cli/src/api/ui_protocol_transport.rs`。
+
+OpenAI 兼容响应现在解析 DeepSeek 顶层 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`，并将其归一化为不重复计入的 input/cache-read 口径；DeepSeek cache hit 使用 0.1 的输入价格折扣。`turn/completed` 同时暴露 `cache_hit`，便于将计费数据与请求数据逐轮核对。新增 8 个 `octos-llm` cache/pricing 测试及 CLI 完成事件回归测试；尚未再次调用付费 ARC 任务，因此本轮没有声称线上费用下降，实际评测应标记为“未评测”。
+
+### B3：每轮与每节点预算
+
+改动位置：`crates/octos-cli/src/config.rs`、`commands/gateway/gateway_runtime.rs`、`runtime/session.rs`；节点执行逻辑沿用 `crates/octos-arc/src/runner.rs` 的 `--node-budget-seconds` 和 `--node-token-budget`。
+
+serve/stdio 会话新增可选 `[gateway].token_budget`，映射到 agent 的整轮总 Token 上限（包含缓存 Token）；`session_timeout_secs` 提供整轮时间上限。`octos arc` 仍按依赖拓扑逐节点设置 Token/时间预算，节点耗尽时记录 `skipped_budget`，保留此前完成的节点。Agent 的超限返回是失败结果，包含 `budget_exhausted`，不会被当成成功回合继续空转。配置解析和 session bootstrap 回归测试已通过。
+
+### B5：容器实测
+
+本机 `docker` 命令不可用，未把容器实测写成已完成。可在 Ubuntu runner 或 ARC 容器中执行以下无特权复核：
+
+```bash
+docker run --rm --security-opt=no-new-privileges --cap-drop=ALL \
+  -v "$PWD":/src -w /src rust:1.98.0-bookworm \
+  bash -lc 'cargo build --locked -p octos-cli --no-default-features --features api'
+docker run --rm --security-opt=no-new-privileges --cap-drop=ALL \
+  -v "$PWD":/src -w /src rust:1.98.0-bookworm \
+  bash -lc '/src/target/debug/octos --version'
+```
+
+随后向 `serve --stdio --solo` 发送一次 `shell`/`exec` 请求，记录容器标记、sandbox warning 和结构化工具结果；预期是明确降级执行，或错误中包含 `sandbox denied` 及 `--danger-full-access` 建议。
 
 ## P0-0：stdio/solo 提示与工具面瘦身
 
