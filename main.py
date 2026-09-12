@@ -312,7 +312,7 @@ def describe_node(node: dict) -> str:
 # ---------------------------------------------------------------- octos driver
 
 OCTOS_RELEASE_URL = (
-    "https://github.com/octos-org/octos/releases/latest/download/"
+    "https://github.com/octos-org/octos/releases/download/v2.0.2/"
     "octos-bundle-x86_64-unknown-linux-gnu.tar.gz"
 )
 
@@ -470,6 +470,12 @@ def build_octos_env(config_dir: Path) -> dict:
     # octos-runner sets this too) — without it octos dies with
     # "failed to send streaming request to OpenAI".
     env.setdefault("OCTOS_DISABLE_STREAMING", "1")
+    # Run 50d049b049bd (2026-09-11): inside the ARC runner container the
+    # default Workspace-Write sandbox could not exec node/npm ("Permission
+    # denied"), so the model spent 813s / 3.8M tokens simulating tests it
+    # could not run. The container is already the isolation boundary, so
+    # disable octos' inner sandbox there (honoured by `octos serve --solo`).
+    env.setdefault("OCTOS_DANGER_FULL_ACCESS", "1")
     # examples/core-mod: a bundle-root EXTRA_RULES.md becomes extra system-
     # prompt rules when a patched core honors OCTOS_ARC_EXTRA_RULES; the
     # official release ignores the variable, so shipping the file is harmless.
@@ -833,6 +839,66 @@ server including the JSON store and seed data required by the requirement \
 document. Do not describe the plan — write the files now.\
 """
 
+ACCEPTANCE_TESTS_PROMPT = """\
+
+OFFICIAL ACCEPTANCE TESTS ARE AVAILABLE — this is the single most important \
+input. The benchmark grades this app with the Playwright specs under:
+  {tests_dir}
+Files: {files}
+Before writing code for any requirement, READ these spec files (and their \
+support/helpers) in full. They are the ground truth for: routes and hrefs, \
+accessible names used by getByRole/getByLabel, test ids, option labels, \
+exact/regex texts expected on screen, error-message wording, and the order \
+of user actions. Build the UI and API so that EVERY assertion in those files \
+passes. When the requirement text and the spec disagree, the spec wins. Do \
+not modify, copy into the project, or delete the spec files.
+"""
+
+
+def locate_acceptance_tests(tree: dict, bundle_dir: Path) -> Path | None:
+    """Find the public Playwright specs for this task.
+
+    Order: ARCBENCH_TESTS_DIR env, the runner's /workspace/tests mount, then
+    a public-tests/ folder shipped inside the bundle (one sub-folder per
+    requirement id, picked by matching the requirement ROOT name recorded in
+    public-tests/manifest.json). The platform publishes these specs on every
+    task page, so shipping them is public information, not hidden test data.
+    """
+    candidates: list[Path] = []
+    env_dir = os.environ.get("ARCBENCH_TESTS_DIR")
+    if env_dir:
+        candidates.append(Path(env_dir))
+    candidates.append(Path("/workspace/tests"))
+    bundled = bundle_dir / "public-tests"
+    manifest = bundled / "manifest.json"
+    if manifest.is_file():
+        try:
+            mapping = json.loads(manifest.read_text(encoding="utf-8"))
+            root_name = str(tree.get("name", "")).strip()
+            for req_id, title in mapping.items():
+                if str(title).strip() == root_name and (bundled / req_id).is_dir():
+                    candidates.append(bundled / req_id)
+        except Exception as exc:  # noqa: BLE001
+            log(f"[tests] manifest unreadable: {exc}")
+    for cand in candidates:
+        try:
+            if cand.is_dir() and any(cand.rglob("*.spec.ts")):
+                return cand.resolve()
+            log(f"[tests] candidate {cand}: "
+                f"{'no *.spec.ts' if cand.is_dir() else 'absent'}")
+        except Exception as exc:  # noqa: BLE001
+            log(f"[tests] candidate {cand} unreadable: {exc}")
+    return None
+
+
+def acceptance_tests_prompt(tests_dir: Path | None) -> str:
+    if not tests_dir:
+        return ""
+    files = sorted(str(p.relative_to(tests_dir)) for p in tests_dir.rglob("*.ts"))
+    return ACCEPTANCE_TESTS_PROMPT.format(tests_dir=tests_dir,
+                                          files=", ".join(files[:40]) or "(none)")
+
+
 FINAL_CHECK_PROMPT = """\
 Do a final end-to-end check of the web application in the current directory:
 1. Run `npm run build` in frontend/ and fix any build errors.
@@ -984,6 +1050,14 @@ def main() -> int:
         if not atomic_nodes:
             raise ValueError("no ATOMIC requirement nodes found")
 
+        tests_dir = locate_acceptance_tests(tree, Path(__file__).resolve().parent)
+        tests_prompt = acceptance_tests_prompt(tests_dir)
+        if tests_dir:
+            log(f"[tests] using acceptance specs at {tests_dir}: "
+                f"{len(list(tests_dir.rglob('*.spec.ts')))} spec files")
+        else:
+            log("[tests] no acceptance specs found; building from requirement text only")
+
         runtime.git.ensure_repo()
 
         octos_bin = find_octos()
@@ -1046,7 +1120,7 @@ def main() -> int:
                 t0 = time.time()
                 skeleton_ok, skeleton_text = driver.run(
                     APP_SKELETON_PROMPT.format(port=args.web_port,
-                                               smoke=smoke_port),
+                                               smoke=smoke_port) + tests_prompt,
                     node_timeout,
                 )
                 log(f"[flow] skeleton turn attempt {sk_attempt} "
@@ -1118,7 +1192,8 @@ def main() -> int:
                 ok, text = driver.run(
                     NODE_PROMPT_TEMPLATE.format(port=args.web_port,
                                                 smoke=smoke_port,
-                                                node_spec=describe_node(node)),
+                                                node_spec=describe_node(node))
+                    + tests_prompt,
                     node_timeout,
                 )
                 log(f"[flow] node {node_id} {'ok' if ok else 'FAILED'} "
@@ -1139,7 +1214,7 @@ def main() -> int:
                 t0 = time.time()
                 ok, text = driver.run(
                     FINAL_CHECK_PROMPT.format(port=args.web_port,
-                                              smoke=smoke_port),
+                                              smoke=smoke_port) + tests_prompt,
                     node_timeout,
                 )
                 log(f"[flow] final check {'ok' if ok else 'FAILED'} "

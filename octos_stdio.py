@@ -28,6 +28,8 @@ class OctosStdioSession:
         self.cwd = str(cwd)
         self.on_event = on_event or (lambda method, params: None)
         cmd = [octos_bin, "serve", "--stdio", "--solo", "--data-dir", str(data_dir)]
+        if env.get("OCTOS_DANGER_FULL_ACCESS") == "1":
+            cmd.append("--danger-full-access")
         self.proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, cwd=self.cwd, env=env,
