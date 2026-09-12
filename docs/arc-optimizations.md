@@ -40,6 +40,8 @@
 
 OpenAI 兼容响应现在解析 DeepSeek 顶层 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`，并将其归一化为不重复计入的 input/cache-read 口径；DeepSeek cache hit 使用 0.1 的输入价格折扣。`turn/completed` 同时暴露 `cache_hit`，便于将计费数据与请求数据逐轮核对。新增 8 个 `octos-llm` cache/pricing 测试及 CLI 完成事件回归测试；尚未再次调用付费 ARC 任务，因此本轮没有声称线上费用下降，实际评测应标记为“未评测”。
 
+本轮本地 Counter 运行 `wf-kernel-counter`（事件流：`/Users/mac/Desktop/octos-official-demo/arc-output/wf-kernel-counter/.arc/octos-events.jsonl`）为 3 轮、37,691 input、22,556 output、658,176 cache-hit tokens，累计费用 0.10373706；`grade-local.py` 公开测试为 1/1。费用异常修复的 provider 真实线上计费仍未评测，以上是新内核本地回归的可复核数据。
+
 ### B3：每轮与每节点预算
 
 改动位置：`crates/octos-cli/src/config.rs`、`commands/gateway/gateway_runtime.rs`、`runtime/session.rs`；节点执行逻辑沿用 `crates/octos-arc/src/runner.rs` 的 `--node-budget-seconds` 和 `--node-token-budget`。
