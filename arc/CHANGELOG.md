@@ -26,6 +26,10 @@ Counter（`smoke--counter`，1 个节点，公开测试 1 条）：
 | R5 r5-counter-3 | 默认（单节点已跳过设计轮） | 2 | 83,073 | 50,649 | 0.1605 | 862 | 1/1 | REQ-1 PASSED | `arc/arc-output/r5-counter-3/.arc/` |
 | R4 r4-counter-turnscope | 默认 + `OCTOS_SESSION_SCOPE=turn` | 3 | 79,855 | 33,519 | 0.1452 | 548 | 1/1 | REQ-1 PASSED | `arc/arc-output/r4-counter-turnscope/.arc/` |
 | **R6 r6-counter** | **默认（单节点：骨架并入节点轮，简短自验）** | **1** | **14,048** | **5,478** | **0.0211** | **63** | **1/1** | REQ-1 PASSED | `arc/arc-output/r6-counter/.arc/` |
+| R3 r3-counter-noperf | R6 代码 + `OCTOS_PERF_CONTRACT=0` | 1 | 30,307 | 11,034 | 0.0384 | 351 | 1/1 | REQ-1 PASSED | `arc/arc-output/r3-counter-noperf/.arc/` |
+| R1 r1-counter-minimal | R6 代码 + 修复轮 0、性能规则关、守护关、单 session | 1 | 19,563 | 11,256 | 0.0325 | 220 | 1/1 | REQ-1 PASSED | `arc/arc-output/r1-counter-minimal/.arc/` |
+
+Counter 小结：同一代码三次运行（R6、R3、R1）都是 1 轮、1/1，费用 ¥0.021–0.038、耗时 63–351 s，运行间方差（模型自验证的多少）大于开关本身的差异；相对改前（¥0.0756、422 s）费用降到 28%–51%、耗时降到 15%–83%。真正起作用的是 A5 的两条：单节点不再单开骨架轮、提示词告知「harness 随后跑官方测试，自验证从简」。
 
 Ticket Booking（`ticket-booking--ticket-booking`，2 个节点，公开测试 10 条）：
 

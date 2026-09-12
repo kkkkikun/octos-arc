@@ -30,6 +30,7 @@ Environment (all optional):
     OCTOS_NODE_TIME_BUDGET    cap per node incl. repairs (default 1500)
     OCTOS_REPAIR_ROUNDS       K, acceptance repair rounds per node (default 5)
     OCTOS_DESIGN_TURN         "0" disables the design turn
+    OCTOS_DESIGN_MODE         separate (default) | inline (design JSON written inside the implement turn)
     OCTOS_SESSION_SCOPE       node (default) | turn | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
@@ -621,6 +622,10 @@ Build a full-stack web application in the current working directory that impleme
 
 """ + ARCHITECTURE_CONTRACT
 
+INLINE_DESIGN_NOTE = """\
+Before writing code, write your design for this node as ONE JSON object to .arc/design/{node_id}.json ({{"routes": [...], "pages": [{{"path", "elements": [{{"role", "name"}}]}}], "data_model": {{}}, "files": [...], "notes": ""}}; accessible names copied verbatim from the specs), then implement it.
+"""
+
 EVOLUTION_NOTE = """\
 This is an EXISTING application that already passed its previous acceptance tests. Current sources:
 {listing}
@@ -738,6 +743,9 @@ class Flow:
         self.repair_rounds = int(os.environ.get("OCTOS_REPAIR_ROUNDS", "5"))
         self.design_enabled = os.environ.get("OCTOS_DESIGN_TURN", "1") != "0"
         self.design_min_nodes = int(os.environ.get("OCTOS_DESIGN_MIN_NODES", "2"))
+        # "separate": own read-only turn before implementing; "inline": the
+        # implement turn writes .arc/design/<node>.json first, then codes.
+        self.design_mode = os.environ.get("OCTOS_DESIGN_MODE", "separate")
         self.implement_fraction = float(os.environ.get("OCTOS_IMPLEMENT_FRACTION", "0.6"))
         self.alias_states = os.environ.get("OCTOS_ARC_ALIAS_SPEC_IDS", "1") != "0"
         self.perf_contract = os.environ.get("OCTOS_PERF_CONTRACT", "1") != "0"
@@ -992,18 +1000,22 @@ class Flow:
 
         self.mark("design_started", node_id)
         design = None
-        if self.design_enabled and total >= self.design_min_nodes:
+        design_wanted = self.design_enabled and total >= self.design_min_nodes
+        inline_design = design_wanted and self.design_mode == "inline"
+        if design_wanted and not inline_design:
             design = self.design(node, ordered, deadline)
         if design:
             self.designs[node_id] = design
             self.save_design(node_id, design)
             self.mark("design_done", node_id, "design JSON written to .arc/design/" + node_id + ".json")
-        else:
+        elif not inline_design:
             self.mark("design_done", node_id, "design folded into the implementation prompt")
 
         self.mark("implementation_started", node_id)
         design_text = ("Design contract for this node (follow it):\n"
                        + json.dumps(design, ensure_ascii=False)[:4000] + "\n") if design else ""
+        if inline_design:
+            design_text = INLINE_DESIGN_NOTE.format(node_id=node_id)
         if self.evolution:
             design_text = EVOLUTION_NOTE.format(listing=source_listing(self.output_dir)) + design_text
         if self.has_app():
@@ -1030,6 +1042,18 @@ class Flow:
             self.driver.close()
             self.pending_corrections.append(
                 "Your implementation turn ran out of time; work in smaller steps and verify with curl early.")
+        if inline_design:
+            written = self.output_dir / ".arc" / "design" / f"{node_id}.json"
+            try:
+                design = json.loads(written.read_text(encoding="utf-8")) if written.is_file() else None
+            except (OSError, json.JSONDecodeError):
+                design = None
+            if isinstance(design, dict):
+                self.designs[node_id] = design
+                self.save_design(node_id, design)
+                self.mark("design_done", node_id, "design JSON written inline to .arc/design/" + node_id + ".json")
+            else:
+                self.mark("design_done", node_id, "design folded into the implementation turn (no JSON file)")
         self.mark("implementation_done", node_id, (text[-500:] or None) if ok else "implement turn timed out; partial code")
         self.commit(f"{node_id} (implement): {node.get('name', '')}")
 
