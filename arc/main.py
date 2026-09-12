@@ -61,8 +61,8 @@ from arcbench_agent_runtime import AgentRuntime  # noqa: E402
 from acceptance import (  # noqa: E402
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, ensure_playwright,
     failure_summaries, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
-    nodes_for_failures, playwright_candidates, playwright_version_hint, restore_worktree,
-    snapshot_worktree,
+    nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
+    restore_worktree, snapshot_worktree, tree_digest,
 )
 from guard import TurnMonitor  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, topo_order  # noqa: E402
@@ -384,8 +384,11 @@ def find_octos() -> str:
     return _download_octos(cache_dir)
 
 
-def build_octos_env(config_dir: Path) -> dict:
-    """Prepare env + minimal config.json for non-interactive octos."""
+def build_octos_env(config_dir: Path, protected_dirs: list[Path] | None = None) -> dict:
+    """Prepare env + minimal config.json for non-interactive octos.
+
+    `protected_dirs` (official tests, requirements) get a before_tool_call
+    hook that denies write_file/edit_file into them (exit 1 = deny)."""
     env = os.environ.copy()
     api_key = env.get("OPENAI_API_KEY", "")
     base_url = env.get("OPENAI_BASE_URL", "")
@@ -416,6 +419,14 @@ def build_octos_env(config_dir: Path) -> dict:
         config["base_url"] = base_url
     if provider == "deepseek":
         config["gateway"]["reasoning_effort"] = "low"
+    hook_script = BUNDLE_DIR / "hooks" / "deny_protected.py"
+    if protected_dirs and hook_script.is_file():
+        config["hooks"] = [{
+            "event": "before_tool_call",
+            "command": [sys.executable, str(hook_script), *[str(p) for p in protected_dirs]],
+            "timeout_ms": 4000,
+            "tool_filter": ["write_file", "edit_file", "diff_edit", "apply_patch", "create_file", "append_file"],
+        }]
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     env["OCTOS_CONFIG_DIR"] = str(config_dir)
@@ -643,7 +654,7 @@ UI contract (the hidden Playwright tests depend on these; a violation scores 0):
 PERFORMANCE_CONTRACT = """\
 Performance & robustness (the grader is a slow container, tests run in parallel, EACH TEST HAS A 10 s BUDGET including reloads):
 - Zero external requests: no CDN scripts, web fonts, analytics, or images from other hosts; every asset is same-origin and small, so `load` fires within ~200 ms.
-- Password hashing: crypto.scryptSync(password, salt, 64) with the DEFAULT cost (N=16384) or pbkdf2 <= 100000 iterations — never more; every API request finishes in < 100 ms.
+- The grader CPU is 5–10x slower than a laptop and runs 4 browsers at once, so budget CPU per request at 30 ms: hash passwords with crypto.scryptSync(password, salt, 64, {N: 4096, r: 8, p: 1}) or pbkdf2Sync with <= 10000 iterations — never the default scrypt cost, never bcrypt; keep the JSON store small and rewrite it only on mutation.
 - Session cookie: HttpOnly; Path=/; SameSite=Lax; Max-Age at least 7 days; NO `Secure`, NO `Domain` attribute (tests run on http://127.0.0.1). On reload restore the signed-in header from that cookie with at most ONE same-origin request (or render it server-side).
 - No setTimeout delays, polling, service workers, beforeunload handlers, or debounced writes. Persist by writing the whole JSON file synchronously (write temp file, then rename).
 """
@@ -888,6 +899,11 @@ class Flow:
             log(f"[guard] {label}: {c[:160]}")
             if self.guard_enabled:
                 self.pending_corrections.append(c)
+        restored = self.restore_protected()
+        if restored:
+            self.pending_corrections.append(
+                "You changed official test/requirement files; the harness restored them: "
+                + ", ".join(restored[:5]) + ". They are read-only ground truth — fix the app instead.")
         return ok, text
 
     def perf_text(self) -> str:
@@ -974,6 +990,31 @@ class Flow:
                                        workers=int(os.environ.get("OCTOS_ARC_TEST_WORKERS", "2")),
                                        env_extra=env_extra)
         log(f"[acceptance] using Playwright at {root}")
+
+    def snapshot_protected(self) -> None:
+        """Copy the official tests dir (and requirements) so any edit the model
+        sneaks past the hook (e.g. via a shell redirect) is undone after the
+        turn — the platform grades with THESE files."""
+        self.protected_snapshots = []
+        for live in (self.tests_dir, self.req_dir):
+            if not live or not live.is_dir():
+                continue
+            snap = Path(tempfile.mkdtemp(prefix="octos-protected-"))
+            shutil.copytree(live, snap / "tree", ignore=shutil.ignore_patterns("node_modules"))
+            self.protected_snapshots.append((live, snap / "tree", tree_digest(live)))
+
+    def restore_protected(self) -> list[str]:
+        fixed_all: list[str] = []
+        for live, snap, digest in getattr(self, "protected_snapshots", []):
+            try:
+                fixed = restore_tree(live, snap, digest)
+            except OSError as exc:
+                log(f"[guard] could not restore {live}: {exc}")
+                continue
+            if fixed:
+                log(f"[guard] restored {len(fixed)} protected file(s) under {live}: {fixed[:5]}")
+                fixed_all.extend(f"{live}/{rel}" for rel in fixed)
+        return fixed_all
 
     def cleanup_playwright(self) -> None:
         private = getattr(self, "private_playwright", None)
@@ -1221,8 +1262,9 @@ class Flow:
         all_specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
         if len(all_specs) < 2:
             return
-        rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "3"))
+        rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "2"))
         workers = int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4"))
+        previous_failing: set[str] | None = None
         for attempt in range(rounds + 1):
             summary = self.run_specs(all_specs, workers=workers, grader_like=True)
             if summary.error:
@@ -1248,6 +1290,11 @@ class Flow:
             if not grouped:
                 self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} pass (parallel)")
                 return
+            failing_titles = {r.title for rs in grouped.values() for r in rs}
+            if previous_failing is not None and failing_titles == previous_failing:
+                log("[acceptance] full suite: same failures as the previous round; stopping repairs")
+                break
+            previous_failing = failing_titles
             if attempt == rounds or self.remaining() < 240:
                 break
             failing = sorted(k for k in grouped if k) or ["all nodes"]
@@ -1349,7 +1396,9 @@ class Flow:
             octos_bin = find_octos()
             log(f"[octos] binary {octos_bin}")
             data_dir = Path(tempfile.mkdtemp(prefix="octos-data-"))
-            env = build_octos_env(Path(tempfile.mkdtemp(prefix="octos-config-")))
+            protected = [p for p in (self.tests_dir, self.req_dir) if p and p.is_dir()]
+            env = build_octos_env(Path(tempfile.mkdtemp(prefix="octos-config-")), protected)
+            self.snapshot_protected()
             env["PORT"] = str(self.smoke_port)  # a bare `npm start` inside a turn must not hit the grading port
             self.driver = OctosDriver(octos_bin, self.output_dir, env, data_dir,
                                       int(os.environ.get("OCTOS_MAX_ITERATIONS", "500")),

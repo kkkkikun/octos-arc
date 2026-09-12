@@ -107,6 +107,7 @@ class RunSummary:
     results: list[TestOutcome] = field(default_factory=list)
     stdout_tail: str = ""
     error: str | None = None  # infrastructure error (no report)
+    load_errors: list[str] = field(default_factory=list)  # Playwright top-level errors
 
     def slow(self, threshold_ms: int) -> list[str]:
         return [r.title for r in self.results if r.duration_ms >= threshold_ms]
@@ -140,6 +141,7 @@ def summarize_report(report: dict) -> RunSummary:
             walk(suite.get("suites", []), file)
 
     walk(report.get("suites", []))
+    summary.load_errors = [_ANSI.sub("", str(e.get("message") or e))[:600] for e in report.get("errors") or []]
     summary.total = len(summary.results)
     summary.passed = sum(1 for r in summary.results if r.ok)
     return summary
@@ -373,6 +375,37 @@ def port_open(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def tree_digest(root: Path) -> dict[str, str]:
+    """rel path -> sha256 for every regular file under root (node_modules skipped)."""
+    import hashlib
+    out: dict[str, str] = {}
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and "node_modules" not in path.parts:
+            out[str(path.relative_to(root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return out
+
+
+def restore_tree(live: Path, snapshot: Path, expected: dict[str, str]) -> list[str]:
+    """Make `live` match `snapshot` again: rewrite changed/deleted files, remove
+    added ones. Returns the relative paths that had to be fixed."""
+    fixed: list[str] = []
+    current = tree_digest(live)
+    for rel, digest in expected.items():
+        if current.get(rel) != digest:
+            dest = live / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(snapshot / rel, dest)
+            fixed.append(rel)
+    for rel in current:
+        if rel not in expected:
+            try:
+                (live / rel).unlink()
+            except OSError:
+                pass
+            fixed.append(rel)
+    return fixed
+
+
 def snapshot_worktree(git_run: Callable[[list[str]], object]) -> None:
     """Stage everything so `restore_worktree` can undo what a test run mutates
     (persisted JSON stores, uploaded files) without losing the model's edits."""
@@ -541,6 +574,13 @@ class AcceptanceRunner:
         except (OSError, json.JSONDecodeError) as exc:
             return RunSummary(error=f"unreadable playwright report: {exc}")
         summary.stdout_tail = _ANSI.sub("", tail)
+        if summary.total == 0:
+            # Cloud run a6ccc437539f: the model had edited /workspace/tests, the
+            # copied spec no longer loaded, and "0/0" looked like a verdict.
+            detail = "; ".join(summary.load_errors) or summary.stdout_tail[-600:] or f"rc={r.returncode}"
+            self.log(f"[acceptance] 0 tests collected from {', '.join(spec_rel_paths)}: {detail[:300]}")
+            return RunSummary(error=f"Playwright collected 0 tests from {', '.join(spec_rel_paths)} "
+                                    f"(spec files unreadable or broken): {detail}", load_errors=summary.load_errors)
         self.log(f"[acceptance] {summary.passed}/{summary.total} passed in {time.time()-t0:.0f}s "
                  f"({', '.join(spec_rel_paths)})")
         return summary

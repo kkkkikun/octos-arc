@@ -9,8 +9,10 @@ from acceptance import (
     map_specs_to_nodes,
     playwright_version_hint,
     nodes_for_failures,
+    restore_tree,
     restore_worktree,
     snapshot_worktree,
+    tree_digest,
     spec_node_id,
     summarize_report,
 )
@@ -154,3 +156,26 @@ class PrivateInstallTests(unittest.TestCase):
         for key in ("npm_config_cache", "NPM_CONFIG_CACHE", "PLAYWRIGHT_BROWSERS_PATH"):
             self.assertTrue(env[key].startswith("/private/x"), key)
         self.assertIn("npmmirror", env["PLAYWRIGHT_DOWNLOAD_HOST"])
+
+
+class ProtectedTreeTests(unittest.TestCase):
+    def test_should_restore_changed_deleted_and_added_files(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            live = Path(tmp) / "tests"; (live / "support").mkdir(parents=True)
+            (live / "REQ-1.spec.ts").write_text("original"); (live / "support" / "e2e.ts").write_text("helper")
+            snap = Path(tmp) / "snap"; shutil.copytree(live, snap)
+            digest = tree_digest(live)
+            (live / "REQ-1.spec.ts").write_text("tampered"); (live / "support" / "e2e.ts").unlink()
+            (live / "playwright.config.ts").write_text("injected")
+            fixed = restore_tree(live, snap, digest)
+            self.assertEqual(sorted(fixed), ["REQ-1.spec.ts", "playwright.config.ts", "support/e2e.ts"])
+            self.assertEqual((live / "REQ-1.spec.ts").read_text(), "original")
+            self.assertEqual((live / "support" / "e2e.ts").read_text(), "helper")
+            self.assertFalse((live / "playwright.config.ts").exists())
+            self.assertEqual(tree_digest(live), digest)
+
+    def test_should_report_zero_tests_as_load_error(self):
+        summary = summarize_report({"suites": [], "errors": [{"message": "SyntaxError: Unexpected token"}]})
+        self.assertEqual(summary.total, 0)
+        self.assertEqual(summary.load_errors, ["SyntaxError: Unexpected token"])
