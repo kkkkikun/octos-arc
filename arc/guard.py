@@ -18,8 +18,9 @@ _REDIRECT = re.compile(r"(?:>>?|tee\s+(?:-a\s+)?|cp\s+\S+\s+|mv\s+\S+\s+|sed\s+-
 
 class TurnMonitor:
     def __init__(self, protected_prefixes: list[str], repeat_threshold: int = 3,
-                 expect_verification: bool = True) -> None:
+                 expect_verification: bool = True, allowed_prefixes: list[str] | None = None) -> None:
         self.protected = [p for p in protected_prefixes if p]
+        self.allowed = [p for p in (allowed_prefixes or []) if p]
         self.repeat_threshold = repeat_threshold
         self.expect_verification = expect_verification
         self.wrote_files = False
@@ -70,6 +71,8 @@ class TurnMonitor:
         if not path:
             return
         self.written_paths.append(path)
+        if any(path.startswith(a) or f"/{a}" in path for a in self.allowed):
+            return
         for prefix in self.protected:
             if path.startswith(prefix) or f"/{prefix}" in path:
                 self.protected_writes.append(path)

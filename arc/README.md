@@ -61,7 +61,7 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 
 | 变量 | 默认 | 作用 |
 |---|---|---|
-| `OCTOS_TIME_BUDGET` / `OCTOS_NODE_TIME_BUDGET` | 2700 / 1500 s | 整体与单节点（含修复轮）的墙钟预算；单节点预算按剩余时间/剩余节点数自适应 |
+| `OCTOS_TIME_BUDGET` / `OCTOS_NODE_TIME_BUDGET` | 3600 / 1500 s | 整体与单节点（含修复轮）的墙钟预算；单节点预算按剩余时间/剩余节点数自适应 |
 | `OCTOS_NODE_TIMEOUT` / `OCTOS_DESIGN_TIMEOUT` | 1200 / 420 s | 单轮上限 |
 | `OCTOS_REPAIR_ROUNDS` | 5 | 每节点验收修复轮数 K |
 | `OCTOS_DESIGN_TURN` | 1 | 0 = 跳过设计轮 |

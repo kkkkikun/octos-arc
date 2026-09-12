@@ -40,7 +40,7 @@ environment.update(
     OCTOS_PROVIDER="custom",
     OCTOS_MAX_ITERATIONS=os.environ.get("OCTOS_MAX_ITERATIONS", "60"),
     OCTOS_NODE_TIMEOUT=os.environ.get("OCTOS_NODE_TIMEOUT", "1200"),
-    OCTOS_TIME_BUDGET=os.environ.get("OCTOS_TIME_BUDGET", "2400"),
+    OCTOS_TIME_BUDGET=os.environ.get("OCTOS_TIME_BUDGET", "3600"),
     OCTOS_SMOKE_PORT=str(arguments.smoke_port or arguments.port + 1),
 )
 environment["PATH"] = os.environ.get("NODE_BIN", "/opt/homebrew/opt/node@24/bin") + ":" + environment.get("PATH", "")

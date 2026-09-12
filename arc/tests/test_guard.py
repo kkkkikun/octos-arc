@@ -47,6 +47,15 @@ class TurnMonitorTests(unittest.TestCase):
         self.assertIn("/abs/tests/REQ-1.spec.ts", joined)
         self.assertIn("requirements/", joined)
 
+    def test_should_allow_design_file_inside_protected_arc_dir(self):
+        m = TurnMonitor(protected_prefixes=[".arc/"], allowed_prefixes=[".arc/design/"])
+        m.observe(*started("write_file", {"path": ".arc/design/REQ-1.json"}, "c1"))
+        m.observe(*completed("c1", True))
+        m.observe(*started("write_file", {"path": ".arc/traceability/node_states.json"}, "c2"))
+        m.observe(*completed("c2", True))
+        m.finish("")
+        self.assertEqual(m.protected_writes, [".arc/traceability/node_states.json"])
+
     def test_should_not_require_verification_for_design_turns(self):
         m = TurnMonitor(protected_prefixes=[], expect_verification=False)
         m.observe(*started("write_file", {"path": ".arc/design/REQ-1.json"}))

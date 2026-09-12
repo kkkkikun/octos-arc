@@ -26,7 +26,7 @@ Environment (all optional):
     OPENAI_API_KEY / OPENAI_BASE_URL / MODEL   OpenAI-compatible endpoint
     OCTOS_BIN                 octos binary (default: ./bin/octos, PATH, download)
     OCTOS_NODE_TIMEOUT        seconds per model turn (default 1200)
-    OCTOS_TIME_BUDGET         seconds for the whole generation (default 2700)
+    OCTOS_TIME_BUDGET         seconds for the whole generation (default 3600)
     OCTOS_NODE_TIME_BUDGET    cap per node incl. repairs (default 1500)
     OCTOS_REPAIR_ROUNDS       K, acceptance repair rounds per node (default 5)
     OCTOS_DESIGN_TURN         "0" disables the design turn
@@ -711,7 +711,7 @@ class Flow:
             self.smoke_port += 1
         self.node_timeout = int(os.environ.get("OCTOS_NODE_TIMEOUT", "1200"))
         self.design_timeout = int(os.environ.get("OCTOS_DESIGN_TIMEOUT", "420"))
-        self.budget = int(os.environ.get("OCTOS_TIME_BUDGET", "2700"))
+        self.budget = int(os.environ.get("OCTOS_TIME_BUDGET", "3600"))
         self.node_budget_cap = int(os.environ.get("OCTOS_NODE_TIME_BUDGET", "1500"))
         self.repair_rounds = int(os.environ.get("OCTOS_REPAIR_ROUNDS", "5"))
         self.design_enabled = os.environ.get("OCTOS_DESIGN_TURN", "1") != "0"
@@ -761,7 +761,8 @@ class Flow:
         return text
 
     def turn(self, prompt: str, timeout: int, label: str, expect_verification: bool = True) -> tuple[bool, str]:
-        monitor = TurnMonitor(self.protected_prefixes(), expect_verification=expect_verification)
+        monitor = TurnMonitor(self.protected_prefixes(), expect_verification=expect_verification,
+                              allowed_prefixes=[".arc/design/", str(self.output_dir / ".arc" / "design")])
         t0 = time.time()
         ok, text = self.driver.run(prompt, max(60, int(timeout)), monitor)
         log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {time.time()-t0:.0f}s "
