@@ -2,6 +2,21 @@
 
 度量口径：本机 `.arc/octos-events.jsonl` 的 `turn/completed`（tokens_in / tokens_out 之和，不含缓存命中）与 `token_cost_update`（每个 session 的累计 `session_cost`，多 session 求和）；耗时取 `.arc/runner-events.jsonl` 的 running → completed；通过数由 `arc/grade-local.py` 用平台公开 Playwright 测试打分（`arc/metrics.py <输出目录>` 可一次打印整行）。所有运行都是本机、同一二进制（`octos 2.0.3-rc.11 (82e3bef3)`，`target/release/octos`，SHA-256 `b0b670ba…cd8c5`）、同一模型（`deepseek-v4-flash` 经 `api.arc-bench.com`）。「未评测」表示没有云端运行。
 
+## 结论表（改前 → 改后，均为本机最终配置一次运行；云端未评测）
+
+| 题 | 指标 | 改前 R0 | 改后 | 运行 |
+|---|---|---|---|---|
+| Counter | 公开测试 | 1/1 | 1/1 | r6-counter |
+| Counter | tokens_in / tokens_out | 48,958 / 16,118 | 14,048 / 5,478 | 同上 |
+| Counter | 费用 / 耗时 | ¥0.0756 / 422 s | ¥0.0211 / 63 s | 同上 |
+| Counter | 节点状态 | REQ-1 PASSED（终检成功才有） | REQ-1 PASSED（本地 spec 判定） | 同上 |
+| Ticket Booking | 公开测试（按评测方式启动） | 10/10 | 10/10 | r7-tb |
+| Ticket Booking | tokens_in / tokens_out | 241,076 / 90,562 | 302,042 / 168,548 | 同上 |
+| Ticket Booking | 费用 / 耗时 | ¥0.7645 / 2,508 s | ¥0.7166 / 1,988 s | 同上 |
+| Ticket Booking | 节点状态 / tests 表 / 设计契约 | REQ-1、REQ-2 PASSED（依赖终检）/ 无 / 无 | REQ-1、REQ-2（+镜像 REQ-1.1、REQ-1.2）PASSED / 10 行全 passed / 2 | 同上 |
+| Smoke Evolution | 公开测试（2 文件并行） | 不支持（会重做骨架） | 2/2 | e2-evolution |
+| Smoke Evolution | 费用 / 耗时 | — | ¥0.0877 / 428 s | 同上 |
+
 ## 运行矩阵
 
 | 运行 | 适配层 | 开关 / 代码状态 | 用途 |
@@ -51,7 +66,11 @@ Smoke Evolution（`smoke-evolution--counter`，模板 = 上一行 Counter 产物
 
 R7 逐轮：骨架 475 s → REQ-1 设计 155 s（51 次工具调用，模型无视「只读」仍执行了命令）→ 实现 831 s → 验收 4/6 → 修复 62 s（7 次调用）→ 6/6 → REQ-2 设计 147 s → 实现 267 s → 验收启动异常（后端「listening」后以 rc=0 退出）→ 修复轮 21 s 后 octos 进程退出（stderr 尾部为正常 INFO 日志，无 turn/error；转 B 排查）→ 重跑验收 4/4 → 全套并行 10/10 → 演练通过。
 
-（其余行在运行结束后补充。）
+| R8 r8-tb-inline | R7 代码 + `OCTOS_DESIGN_MODE=inline` | 4 | 202,001 | 126,386 | 0.5494 | 2,847 | 10/10（按评测方式启动） | 同上 | `arc/arc-output/r8-tb-inline/.arc/` |
+
+R8 逐轮：骨架 182 s → REQ-1 实现（含设计 JSON）900 s 超时 → 验收 0/6 → 修复 565 s 超时 → 3/6 → 节点预算耗尽 → REQ-2 实现 484 s → 验收 0/4 → 修复 609 s → 4/4 → 全套并行 10/10（REQ-1 剩余 3 条在 REQ-2 修复中被顺带修好）→ 演练通过。
+
+Ticket Booking 小结：R7（默认）与 R8（inline 设计）都拿到 10/10；R7 费用 ¥0.717（改前 ¥0.765，−6%）、耗时 1,988 s（改前 2,508 s，−21%）；R8 费用 ¥0.549（−28%）但耗时 2,847 s（+14%），因为把设计并入实现轮后实现轮两次撞到 900 s 上限。默认保留独立的只读设计轮。**费用减半的目标在 TB 上没有达到**：三次 TB 运行输入 Token 202k–302k，与改前 241k 同量级，输出 Token（含推理）126k–169k 反而高于改前的 91k——模型在每轮里做的自验证多、推理长；进一步压缩要靠内核侧的工具输出裁剪/推理预算（B4/B3）和更短的实现轮。
 
 ## A1 · 功能实现率归零的原因
 

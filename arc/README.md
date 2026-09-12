@@ -64,7 +64,7 @@ sh arc/pack.sh                               # 得到 octos-arc-bundle.zip
 | `OCTOS_TIME_BUDGET` / `OCTOS_NODE_TIME_BUDGET` | 3600 / 1500 s | 整体与单节点（含修复轮）的墙钟预算；单节点预算按剩余时间/剩余节点数自适应 |
 | `OCTOS_NODE_TIMEOUT` / `OCTOS_DESIGN_TIMEOUT` | 1200 / 420 s | 单轮上限 |
 | `OCTOS_REPAIR_ROUNDS` | 5 | 每节点验收修复轮数 K |
-| `OCTOS_DESIGN_TURN` / `OCTOS_DESIGN_MODE` | 1 / separate | 0 = 跳过设计轮；`inline` = 设计 JSON 在实现轮开头写出，不单开一轮 |
+| `OCTOS_DESIGN_TURN` / `OCTOS_DESIGN_MODE` | 1 / separate | 0 = 跳过设计轮；`inline` = 设计 JSON 在实现轮开头写出，不单开一轮（TB 上更省钱但更慢，见 CHANGELOG R7/R8） |
 | `OCTOS_SESSION_SCOPE` | node | 新 session 的粒度：`node`（设计/实现/修复共用）、`turn`（每轮新）、`run`（全程一个） |
 | `OCTOS_DESIGN_MIN_NODES` / `OCTOS_IMPLEMENT_FRACTION` | 2 / 0.6 | 节点数不足时跳过设计轮；实现轮最多占节点预算的比例，留时间给修复轮 |
 | `OCTOS_PERF_CONTRACT` / `OCTOS_GUARD` | 1 / 1 | 0 = 关闭性能规则 / 守护注入 |
