@@ -150,4 +150,5 @@ C 的其余发现与本分支已有改动的对应：轮超时被当瞬时错误
 **改法**（`acceptance.py` / `main.py`）：
 1. 先找预装：候选路径加上 `npm root -g` 的上级、/workspace、/workspace/tests、/app、/runner、/opt/playwright、/usr/local/lib、/usr/lib、$HOME；再做一次 25 s 内的 `find / -maxdepth 6 -path '*/node_modules/@playwright/test'`（排除 /proc /sys /tmp）。
 2. 真要自装时完全隔离：版本钉死（tests 目录的 package-lock/package.json 声明的版本，否则 1.63.0；绝不 latest），`npm_config_cache` 与 `PLAYWRIGHT_BROWSERS_PATH` 都指向本次运行的私有临时目录，浏览器用 `node_modules/.bin/playwright install` 而不是 `npx`，所有验收运行带同一 `PLAYWRIGHT_BROWSERS_PATH`，运行结束（含异常路径）删除整个私有目录。
-3. 本机验证：私有安装 24 s 完成，chromium-1243 落在私有目录，登录节点 4/4；安装前后 `~/Library/Caches/ms-playwright` 与 `~/.npm` 均未变化，私有目录已删除。**云端未评测**，请 C 用本分支打包跑一次 smoke-evolution 再合入。
+3. 本机验证：私有安装 24 s 完成，chromium-1243 落在私有目录，登录节点 4/4；安装前后 `~/Library/Caches/ms-playwright` 与 `~/.npm` 均未变化，私有目录已删除。
+4. 云端 d116ad5e3aa0（wf-adapter-2@71040c6c）15 s 崩溃：`setup_playwright` 的一处文本替换未生效，仍把 `(root, env)` 元组当 Path 用，且缺 `cleanup_playwright`。`e3c1197f` 整段重写并加回归测试 `SetupPlaywrightTests`；本机把 local-grader 藏起来强制走该分支跑 Counter（r10-counter-privatepw）：私有安装 25 s → 验收 1/1 → 演练通过 → 私有目录已删除，公开测试 1/1，¥0.0306，374 s。**云端未评测**，等 C 用 e3c1197f 打包再跑一次 smoke-evolution 后合入。
