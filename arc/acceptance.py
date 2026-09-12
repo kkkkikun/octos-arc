@@ -436,7 +436,12 @@ class AcceptanceRunner:
             "import { defineConfig } from '@playwright/test';\n"
             f"export default defineConfig({{ testDir: './tests', timeout: {self.timeout_ms}, retries: 0, "
             f"workers: {workers or self.workers}, reporter: [['json', {{ outputFile: 'report.json' }}]], "
-            "use: { headless: true, baseURL: process.env.E2E_BASE_URL, actionTimeout: 0 } });\n")
+            # Action/navigation/expect timeouts sit below the 10 s test timeout on
+            # purpose: a hanging click then fails with the locator named in the
+            # call log instead of an anonymous "Test timeout exceeded".
+            f"expect: {{ timeout: {min(4000, self.timeout_ms // 2)} }}, "
+            f"use: {{ headless: true, baseURL: process.env.E2E_BASE_URL, actionTimeout: {min(4000, self.timeout_ms // 2)}, "
+            f"navigationTimeout: {min(6000, self.timeout_ms * 3 // 5)} }} }});\n")
         return self.work_dir / "playwright.config.ts"
 
     def run(self, spec_rel_paths: list[str], base_url: str, wall_timeout: int = 900,
