@@ -1583,6 +1583,13 @@ pub struct GatewayConfig {
     #[serde(default)]
     pub max_output_tokens: Option<u32>,
 
+    /// Maximum total tokens processed by one session turn (input + output,
+    /// including cached prompt tokens). When set, the turn stops with an
+    /// explicit budget-exhausted result instead of continuing into another
+    /// round. `octos arc` nodes use their own per-node budget.
+    #[serde(default)]
+    pub token_budget: Option<u32>,
+
     /// Reasoning effort for thinking models (`low`|`medium`|`high`). Applied to
     /// every turn; only models that declare a reasoning style receive it
     /// (DeepSeek V4 gets `reasoning_effort` + `thinking`, OpenAI reasoning models
@@ -1628,6 +1635,7 @@ impl Default for GatewayConfig {
             tool_timeout_secs: None,
             session_timeout_secs: None,
             max_output_tokens: None,
+            token_budget: None,
             reasoning_effort: None,
             llm_temperature: None,
             llm_sampling_params: None,
@@ -2469,6 +2477,18 @@ mod tests {
         let json = r#"{"channels": [{"type": "cli"}]}"#;
         let gw: GatewayConfig = serde_json::from_str(json).unwrap();
         assert_eq!(gw.max_history, 50);
+    }
+
+    #[test]
+    fn gateway_token_budget_is_optional_and_parses() {
+        let absent: GatewayConfig =
+            serde_json::from_str(r#"{"channels": [{"type": "cli"}]}"#).unwrap();
+        assert_eq!(absent.token_budget, None);
+
+        let configured: GatewayConfig =
+            serde_json::from_str(r#"{"channels": [{"type": "cli"}], "token_budget": 12000}"#)
+                .unwrap();
+        assert_eq!(configured.token_budget, Some(12_000));
     }
 
     #[test]

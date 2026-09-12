@@ -770,6 +770,7 @@ pub(crate) fn configured_agent_defaults(profile: &ProfileRuntime) -> AgentConfig
             .gateway
             .as_ref()
             .and_then(|g| g.max_output_tokens),
+        max_tokens: profile.config.gateway.as_ref().and_then(|g| g.token_budget),
         chat_temperature: profile.config.model_temperature.or_else(|| {
             profile
                 .config
@@ -1445,6 +1446,7 @@ tools = ["read_file"]
         sp.insert("repeat_penalty".to_string(), serde_json::json!(1.1));
         Arc::get_mut(&mut profile).unwrap().config.gateway = Some(crate::config::GatewayConfig {
             max_output_tokens: Some(32768),
+            token_budget: Some(50000),
             llm_temperature: Some(0.7),
             llm_sampling_params: Some(sp),
             reasoning_effort: Some(octos_llm::ReasoningEffort::High),
@@ -1455,6 +1457,7 @@ tools = ["read_file"]
             .expect("bootstrap");
         let cfg = rt.agent.agent_config();
         assert_eq!(cfg.chat_max_tokens, Some(32768));
+        assert_eq!(cfg.max_tokens, Some(50000));
         assert_eq!(cfg.chat_temperature, Some(0.7));
         assert_eq!(
             cfg.chat_sampling_params
