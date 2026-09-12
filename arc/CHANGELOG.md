@@ -123,3 +123,13 @@ Counter（1 节点）与 Ticket Booking（REQ-2 依赖 REQ-1，文档顺序本�
 ## A7 · 守护规则
 
 `guard.TurnMonitor` 订阅每轮的 `tool/started` / `tool/completed` 事件：写了文件、结束语宣称完成却没有执行过 build/start/curl/node 类命令（设计轮不适用）；同一错误（数字归一化后）连续 ≥3 次；写入保护路径（spec 目录、需求目录、`.arc/`，但允许 `.arc/design/`）。命中的纠正句附在同一节点下一轮提示词开头（`OCTOS_GUARD=0` 只记日志不注入）。预算：整体 `OCTOS_TIME_BUDGET`，节点预算 = min(1500, 剩余时间 / 剩余节点)，实现轮 ≤ 60%，修复轮剩余不足 90 s 即停止并保留最优 commit；整体预算耗尽的节点直接标 `implementation_failed`；任何异常都在 `finally` 段给未判定节点补 `test_failed`。
+
+## 第二轮 · 吸收工作流 C 的回流（`bd3c56ca`）
+
+C 用旧 main（`82e3bef3`）适配包在 `arc-bench-web--keep` 本机跑到 26/32、83 分钟，回流三点已吸收：
+
+1. **FOLDER 节点也计入平台需求数**（keep 记「45 requirements and 32 scenarios」）。`mark_folders()` 在收尾时给每个非 ATOMIC 节点按其 ATOMIC 后代推导 design/implement/test 状态：全部子节点通过才 `test_passed`，否则 `test_failed` 并列出未通过的子节点；异常路径同样补齐。
+2. **骨架轮不再读全部 spec**。旧 `ACCEPTANCE_TESTS_PROMPT` 在骨架轮列出全部 spec 文件并要求「写代码前全部读完」，模型因此在一轮里把 32 个功能全做完（70 分钟、单会话 40–130 万字符推理）。现在骨架轮只给 spec 目录、共享 helper 和「最多读两个 spec 学约定，不实现功能」，spec 文件在各自节点轮才出现。
+3. **整体预算按节点数放大**：未显式设 `OCTOS_TIME_BUDGET` 时取 max(3600, 480 × ATOMIC 节点数)（`OCTOS_SECONDS_PER_NODE`），keep 为 15,360 s；节点预算仍是 min(1500, 剩余/剩余节点)。
+
+C 的其余发现与本分支已有改动的对应：轮超时被当瞬时错误重放 → `d5f9dccb` 已修；骨架超时但盘上已有 frontend/backend 则继续 → `skeleton()` 已按盘上状态判定；单会话累积上下文（keep 云端 8,256 万 token、¥17.94）→ 默认按节点新开 session；云端评测阶段 Playwright 用 4 workers 1 秒后被 SIGKILL 是平台侧问题，适配层无法影响；Evolution 在平台上 `ARCBENCH_TEMPLATE_DIR` 未设置而模板在 `/workspace/template`，本分支按输出目录里是否已有 frontend/backend 判定，与 C 观察到的 2/2 一致。
