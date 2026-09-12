@@ -771,6 +771,12 @@ pub(crate) fn configured_agent_defaults(profile: &ProfileRuntime) -> AgentConfig
             .as_ref()
             .and_then(|g| g.max_output_tokens),
         max_tokens: profile.config.gateway.as_ref().and_then(|g| g.token_budget),
+        max_timeout: profile
+            .config
+            .gateway
+            .as_ref()
+            .and_then(|g| g.session_timeout_secs)
+            .map(std::time::Duration::from_secs),
         chat_temperature: profile.config.model_temperature.or_else(|| {
             profile
                 .config
@@ -1447,6 +1453,7 @@ tools = ["read_file"]
         Arc::get_mut(&mut profile).unwrap().config.gateway = Some(crate::config::GatewayConfig {
             max_output_tokens: Some(32768),
             token_budget: Some(50000),
+            session_timeout_secs: Some(900),
             llm_temperature: Some(0.7),
             llm_sampling_params: Some(sp),
             reasoning_effort: Some(octos_llm::ReasoningEffort::High),
@@ -1458,6 +1465,7 @@ tools = ["read_file"]
         let cfg = rt.agent.agent_config();
         assert_eq!(cfg.chat_max_tokens, Some(32768));
         assert_eq!(cfg.max_tokens, Some(50000));
+        assert_eq!(cfg.max_timeout, Some(std::time::Duration::from_secs(900)));
         assert_eq!(cfg.chat_temperature, Some(0.7));
         assert_eq!(
             cfg.chat_sampling_params
