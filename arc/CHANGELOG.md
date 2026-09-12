@@ -164,4 +164,10 @@ C 的其余发现与本分支已有改动的对应：轮超时被当瞬时错误
 4. **全套修复早停**：失败集合与上一轮相同即停止（默认最多 2 轮，`OCTOS_FINAL_REPAIR_ROUNDS`）。
 5. **A4 哈希预算**：明确评测 CPU 慢 5–10 倍且 4 个浏览器并行，scrypt 用 `{N: 4096, r: 8, p: 1}` 或 pbkdf2 ≤ 10,000 次，单请求 CPU ≤ 30 ms。
 
-本机验证：`SetupPlaywright`/hook/tree-restore 共 34 个单元测试；r12-counter 1/1、¥0.0386、91 s（ROOT 状态已写）；r11-tb 见下。
+本机验证：`SetupPlaywright`/hook/tree-restore 共 34 个单元测试；r12-counter 1/1、¥0.0386、91 s（ROOT 状态已写）。
+
+| 运行 | 轮数 | tokens_in | tokens_out | 费用 ¥ | 耗时 s | 公开测试 | 节点状态 |
+|---|---:|---:|---:|---:|---:|---|---|
+| r11-tb | 7 | 192,910 | 109,919 | 0.6697 | 1,141 | 10/10（按评测方式启动） | REQ-1、REQ-2、REQ-1.1、REQ-1.2、ROOT PASSED |
+
+r11-tb 逐轮：骨架 89 s → REQ-1 设计 139 s → 实现 312 s → 验收 0/6（首页有两个 `a[href="/register"]`，strict mode）→ 修复 174 s → 6/6 → REQ-2 设计 60 s → 实现 196 s → 验收 0/4（`getByLabel(/用户名/)` 命中两个输入框）→ 修复 152 s → 4/4 → 全套并行 10/10 → 演练通过。两处都是四字段摘要直接点名的 strict-mode 错，各一轮修好；改前基线 ¥0.765 / 2,508 s。
