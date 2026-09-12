@@ -476,6 +476,10 @@ def build_octos_env(config_dir: Path) -> dict:
     # could not run. The container is already the isolation boundary, so
     # disable octos' inner sandbox there (honoured by `octos serve --solo`).
     env.setdefault("OCTOS_DANGER_FULL_ACCESS", "1")
+    # Any npm/npx the model runs inside the runner goes to the China mirror;
+    # npmjs.org is slow/unreliable from the ARC runner network.
+    env.setdefault("npm_config_registry", "https://registry.npmmirror.com")
+    env.setdefault("NPM_CONFIG_REGISTRY", "https://registry.npmmirror.com")
     # examples/core-mod: a bundle-root EXTRA_RULES.md becomes extra system-
     # prompt rules when a patched core honors OCTOS_ARC_EXTRA_RULES; the
     # official release ignores the variable, so shipping the file is harmless.
@@ -773,8 +777,17 @@ violation = 0 score):
 `npm run build` script. A static HTML/CSS/JS frontend is fine; then \
 "build" can be a small Node script that copies the static files into \
 frontend/dist/. A Vite/React setup is also fine if you keep it minimal.
-- backend/  — Node.js + Express, with a package.json that \
-has a `npm run start` script. Persistence MUST be pure JavaScript: a JSON \
+- backend/  — Node.js, with a package.json that \
+has a `npm run start` script. ZERO NPM DEPENDENCIES is the target: use only \
+built-in modules (http, fs, path, url, crypto) — a small hand-written router \
+over `http.createServer` is enough for these apps, and package.json must then \
+have an empty "dependencies". The grading network is slow and unreliable \
+toward npmjs.org, so every dependency you add is a real risk of a failed \
+install. If a package is truly unavoidable, install it ONLY through the China \
+mirror: run `npm install --registry=https://registry.npmmirror.com <pkg>` and \
+also write `registry=https://registry.npmmirror.com` into a `.npmrc` file in \
+that folder so later installs use the mirror too. Persistence MUST be pure \
+JavaScript: a JSON \
 file (e.g. backend/data/db.json) loaded into memory at startup and written \
 back on every mutation. DO NOT use better-sqlite3, sqlite3, bcrypt, or any \
 npm package with native bindings — this sandbox cannot download prebuilt \
@@ -806,7 +819,7 @@ started must be stopped.
 NODE_PROMPT_TEMPLATE = """\
 You are implementing one requirement node of a larger full-stack web \
 application. The application skeleton in the current working directory \
-(frontend/ built with `npm run build` into frontend/dist/, Express backend \
+(frontend/ built with `npm run build` into frontend/dist/, Node backend \
 in backend/ with pure-JS JSON-file persistence, started with \
 `npm run start`, serving \
 everything on the port given by the PORT env var) already exists.
@@ -818,6 +831,10 @@ tables/queries, and the frontend UI to exercise it:
 
 Rules:
 - Extend the existing app; do not rewrite or break already-working features.
+- Do not add npm dependencies; stay on built-in Node modules. If one is \
+truly unavoidable, install it only via \
+`npm install --registry=https://registry.npmmirror.com <pkg>` and keep a \
+`.npmrc` with that registry in the folder.
 - Keep the architecture intact: `npm run build` in frontend/ and \
 `npm run start` in backend/ MUST keep working.
 
