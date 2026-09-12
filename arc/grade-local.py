@@ -20,6 +20,10 @@ for step, cwd in (("npm install --no-audit --no-fund && npm run build", out/"fro
     rc, log = sh(step, cwd)
     print(f"[grade] {cwd.name}: {step!r} -> {rc}"); 
     if rc: print(log); sys.exit(2)
+# The specs mutate the app's persisted store; snapshot the (git-managed) output
+# dir and restore it afterwards so grading never changes what gets shipped.
+def git(*args): subprocess.run(["git", "-C", str(out), *args], capture_output=True)
+git("add", "-A")
 benv = dict(env, PORT=str(port))
 srv = subprocess.Popen("npm run start", cwd=out/"backend", env=benv, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, preexec_fn=os.setsid)
 for _ in range(60):
@@ -38,6 +42,7 @@ tenv = dict(env, E2E_BASE_URL=f"http://127.0.0.1:{port}")
 t0 = time.time()
 r = subprocess.run(["npx", "playwright", "test", "-c", str(work/"playwright.config.ts")], cwd=grader, env=tenv, capture_output=True, text=True)
 os.killpg(srv.pid, signal.SIGTERM)
+git("checkout", "--", "."); git("clean", "-fdq", "-e", "node_modules", "-e", "dist", "--", "frontend", "backend")
 rep = json.loads((work/"report.json").read_text()) if (work/"report.json").exists() else {}
 def walk(suites):
     for s in suites:
