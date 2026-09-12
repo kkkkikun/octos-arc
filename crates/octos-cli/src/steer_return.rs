@@ -118,6 +118,7 @@ mod tests {
             cursor: None,
             tokens_in: None,
             tokens_out: None,
+            cache_hit: None,
             session_result: None,
         })
         .into_rpc_notification()

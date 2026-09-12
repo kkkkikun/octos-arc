@@ -6336,6 +6336,11 @@ pub struct TurnCompletedEvent {
     /// UPCR-2026-014 (M9-α-9): aggregated output-token count.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens_out: Option<u32>,
+    /// Number of prompt tokens served from the provider cache. This is kept
+    /// on the legacy lifecycle event for ARC cost diagnostics; it is the
+    /// same value exposed as `TokenUsage::cache_read_tokens`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_hit: Option<u32>,
     /// UPCR-2026-014 (M9-α-9): durable per-row identity for the final
     /// assistant message that closed the turn. Mirrors the SSE
     /// `session_result` frame's role.

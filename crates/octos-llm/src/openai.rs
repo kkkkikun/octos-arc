@@ -949,27 +949,10 @@ impl LlmProvider for OpenAIProvider {
             tool_calls,
             stop_reason,
             usage: {
-                // OpenAI reports cached tokens INSIDE prompt_tokens; the
-                // TokenUsage contract is disjoint (Anthropic-style: total
-                // prompt = input + cache_read), so subtract at the boundary.
-                let cached = api_response
-                    .usage
-                    .prompt_tokens_details
-                    .as_ref()
-                    .map(|d| d.cached_tokens)
-                    .unwrap_or(0);
-                let cache_write = api_response
-                    .usage
-                    .prompt_tokens_details
-                    .as_ref()
-                    .map(|d| d.cache_write_tokens)
-                    .unwrap_or(0);
+                let (input_tokens, cached, cache_write) =
+                    normalize_prompt_cache_usage(&api_response.usage);
                 TokenUsage {
-                    input_tokens: api_response
-                        .usage
-                        .prompt_tokens
-                        .saturating_sub(cached)
-                        .saturating_sub(cache_write),
+                    input_tokens,
                     output_tokens: api_response.usage.completion_tokens,
                     reasoning_tokens: api_response
                         .usage
@@ -1349,10 +1332,19 @@ struct FunctionCall {
     arguments: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct Usage {
+    #[serde(default)]
     prompt_tokens: u32,
+    #[serde(default)]
     completion_tokens: u32,
+    /// DeepSeek's OpenAI-compatible API reports cache accounting as
+    /// top-level hit/miss fields instead of `prompt_tokens_details`. These
+    /// fields are already disjoint, so they take precedence when present.
+    #[serde(default)]
+    prompt_cache_hit_tokens: Option<u32>,
+    #[serde(default)]
+    prompt_cache_miss_tokens: Option<u32>,
     /// Automatic prompt-cache breakdown. `cached_tokens` counts the portion
     /// of `prompt_tokens` served from OpenAI's cache (INCLUDED in
     /// `prompt_tokens`, unlike Anthropic's disjoint accounting). Compat
@@ -1377,6 +1369,39 @@ struct PromptTokensDetails {
     cached_tokens: u32,
     #[serde(default)]
     cache_write_tokens: u32,
+}
+
+/// Normalize OpenAI-compatible usage into Octos's disjoint token contract.
+/// DeepSeek reports `prompt_cache_hit_tokens` and
+/// `prompt_cache_miss_tokens`; older OpenAI-compatible servers report an
+/// inclusive `prompt_tokens` total with `cached_tokens` nested below it.
+fn normalize_prompt_cache_usage(usage: &Usage) -> (u32, u32, u32) {
+    if usage.prompt_cache_hit_tokens.is_some() || usage.prompt_cache_miss_tokens.is_some() {
+        let cached = usage.prompt_cache_hit_tokens.unwrap_or(0);
+        let input = usage
+            .prompt_cache_miss_tokens
+            .unwrap_or_else(|| usage.prompt_tokens.saturating_sub(cached));
+        return (input, cached, 0);
+    }
+
+    let cached = usage
+        .prompt_tokens_details
+        .as_ref()
+        .map(|details| details.cached_tokens)
+        .unwrap_or(0);
+    let cache_write = usage
+        .prompt_tokens_details
+        .as_ref()
+        .map(|details| details.cache_write_tokens)
+        .unwrap_or(0);
+    (
+        usage
+            .prompt_tokens
+            .saturating_sub(cached)
+            .saturating_sub(cache_write),
+        cached,
+        cache_write,
+    )
 }
 
 // --- Streaming SSE helpers (shared with OpenRouter) ---
@@ -1463,21 +1488,16 @@ pub(crate) fn parse_openai_sse_events(event: &SseEvent) -> Vec<StreamEvent> {
     }
 
     if let Some(usage) = data.get("usage").filter(|u| !u.is_null()) {
-        // OpenAI reports cached tokens INSIDE prompt_tokens; the TokenUsage
-        // contract is disjoint (total prompt = input + cache_read).
-        let prompt = usage["prompt_tokens"].as_u64().unwrap_or(0) as u32;
-        let cached = usage["prompt_tokens_details"]["cached_tokens"]
-            .as_u64()
-            .unwrap_or(0) as u32;
-        let cache_write = usage["prompt_tokens_details"]["cache_write_tokens"]
-            .as_u64()
-            .unwrap_or(0) as u32;
+        let parsed = serde_json::from_value::<Usage>(usage.clone()).unwrap_or_default();
+        let (input_tokens, cached, cache_write) = normalize_prompt_cache_usage(&parsed);
         events.push(StreamEvent::Usage(TokenUsage {
-            input_tokens: prompt.saturating_sub(cached).saturating_sub(cache_write),
-            output_tokens: usage["completion_tokens"].as_u64().unwrap_or(0) as u32,
-            reasoning_tokens: usage["completion_tokens_details"]["reasoning_tokens"]
-                .as_u64()
-                .unwrap_or(0) as u32,
+            input_tokens,
+            output_tokens: parsed.completion_tokens,
+            reasoning_tokens: parsed
+                .completion_tokens_details
+                .as_ref()
+                .map(|details| details.reasoning_tokens)
+                .unwrap_or(0),
             cache_read_tokens: cached,
             cache_write_tokens: cache_write,
             ..Default::default()
@@ -2812,6 +2832,42 @@ mod cache_usage_tests {
         assert_eq!(usage.input_tokens, 50);
         assert_eq!(usage.cache_read_tokens, 20);
         assert_eq!(usage.cache_write_tokens, 30);
+    }
+
+    #[test]
+    fn should_normalize_deepseek_top_level_cache_hit_and_miss_tokens() {
+        let event = SseEvent {
+            event: None,
+            data: r#"{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":5,"prompt_cache_hit_tokens":75,"prompt_cache_miss_tokens":25}}"#.into(),
+        };
+        let events = parse_openai_sse_events(&event);
+        let usage = events
+            .iter()
+            .find_map(|event| match event {
+                StreamEvent::Usage(usage) => Some(usage),
+                _ => None,
+            })
+            .expect("usage event");
+        assert_eq!(usage.input_tokens, 25);
+        assert_eq!(usage.cache_read_tokens, 75);
+        assert_eq!(usage.cache_write_tokens, 0);
+    }
+
+    #[test]
+    fn should_use_deepseek_miss_when_only_cache_hit_is_reported() {
+        let event = SseEvent {
+            event: None,
+            data: r#"{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":5,"prompt_cache_hit_tokens":75}}"#.into(),
+        };
+        let usage = parse_openai_sse_events(&event)
+            .into_iter()
+            .find_map(|event| match event {
+                StreamEvent::Usage(usage) => Some(usage),
+                _ => None,
+            })
+            .expect("usage event");
+        assert_eq!(usage.input_tokens, 25);
+        assert_eq!(usage.cache_read_tokens, 75);
     }
 
     #[tokio::test]

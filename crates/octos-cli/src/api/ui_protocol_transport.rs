@@ -36027,6 +36027,7 @@ async fn run_standalone_turn(
                     // meaning for every other consumer of this event.
                     "tokens_cache": (response.token_usage.cache_read_tokens as u64)
                         + (response.token_usage.cache_write_tokens as u64),
+                    "cache_hit": response.token_usage.cache_read_tokens,
                     "cursor": cursor,
                     "message_id": final_assistant_message_id,
                     "final_assistant_committed_seq": final_assistant_committed_seq,
@@ -36303,6 +36304,10 @@ async fn run_standalone_turn(
                     .get("tokens_cache")
                     .and_then(Value::as_u64)
                     .unwrap_or(0);
+                let cache_hit = event
+                    .get("cache_hit")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| u32::try_from(value).ok());
                 final_tokens_consumed = final_tokens_consumed
                     .saturating_add(tokens_in)
                     .saturating_add(tokens_out)
@@ -36342,6 +36347,7 @@ async fn run_standalone_turn(
                     cursor: done_cursor,
                     tokens_in: Some(u32::try_from(tokens_in).unwrap_or(u32::MAX)),
                     tokens_out: Some(u32::try_from(tokens_out).unwrap_or(u32::MAX)),
+                    cache_hit,
                     session_result,
                     outcome: Some(TurnTerminalOutcome::Completed),
                     token_usage: None,
@@ -37904,6 +37910,7 @@ struct TurnCompletionDetails {
     cursor: Option<UiCursor>,
     tokens_in: Option<u32>,
     tokens_out: Option<u32>,
+    cache_hit: Option<u32>,
     session_result: Option<TurnSessionResult>,
     // Populated on the standalone-turn `done` path; read only by feature
     // combinations that project the terminal outcome into the lifecycle emit.
@@ -37997,6 +38004,7 @@ async fn try_emit_terminal(
                     // `done` event so the WS path is no longer dormant.
                     tokens_in,
                     tokens_out,
+                    cache_hit: details.cache_hit,
                     session_result: details.session_result,
                 }),
             );
@@ -38274,6 +38282,7 @@ async fn try_emit_completed_terminal_with_forced_backpressure(
             cursor: None,
             tokens_in: None,
             tokens_out: None,
+            cache_hit: None,
             session_result: None,
         }),
     );

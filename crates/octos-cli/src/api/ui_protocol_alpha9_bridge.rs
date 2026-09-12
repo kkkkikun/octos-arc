@@ -110,6 +110,7 @@ pub(super) fn emit_turn_completed_full(
         cursor: None,
         tokens_in,
         tokens_out,
+        cache_hit: None,
         session_result,
     });
     let _ = ledger.append_notification(notification);

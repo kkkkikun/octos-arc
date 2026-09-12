@@ -186,7 +186,9 @@ fn speaks_anthropic_protocol(provider: &str, model: &str) -> bool {
 ///   time-billed, octos never creates explicit caches, and the Gemini parser
 ///   never reports write tokens, so 0.0 writes can never make a real token
 ///   vanish.
-/// - everything else (openai, openrouter, deepseek, local, unknown/empty):
+/// - DeepSeek: cache hits are charged at the provider's discounted input
+///   rate (0.1x); DeepSeek does not report cache-write tokens.
+/// - everything else (openai, openrouter, local, unknown/empty):
 ///   no cached READ rate is knowable — the catalog's only OpenAI row carries
 ///   `cache_read_per_mtok: None`, and the public discount varies per model
 ///   FAMILY (0.5x for gpt-4o-era, deeper for newer), so a provider-wide
@@ -208,6 +210,12 @@ pub fn cache_rates(provider: &str, model: &str) -> CacheRates {
         };
     }
     let p = provider.to_ascii_lowercase();
+    if p.contains("deepseek") {
+        return CacheRates {
+            read_multiplier: 0.1,
+            write_multiplier: 0.0,
+        };
+    }
     if p.contains("gemini") || p.contains("vertex") || p.contains("google") {
         return CacheRates {
             read_multiplier: 0.25,
@@ -685,7 +693,6 @@ mod tests {
         for (provider, model) in [
             ("openai", "gpt-4o"),
             ("openrouter", "anthropic/claude-3.5-sonnet"),
-            ("deepseek", "deepseek-chat"),
             ("local", "qwen2.5"),
             ("", ""),
         ] {
@@ -706,6 +713,24 @@ mod tests {
                 "{provider}/{model}: cache-write tokens must add cost"
             );
         }
+    }
+
+    #[test]
+    fn should_price_deepseek_cache_hits_at_the_discounted_input_rate() {
+        let p = ModelPricing {
+            input_per_million: 0.27,
+            output_per_million: 1.10,
+        };
+        let cost = p.cost_with_cache_for_provider(
+            "deepseek",
+            "deepseek-v4-flash",
+            25_000,
+            5_000,
+            75_000,
+            0,
+        );
+        let expected = p.cost(25_000, 5_000) + (75_000.0 / 1_000_000.0) * p.input_per_million * 0.1;
+        assert!((cost - expected).abs() < 1e-12, "got {cost}");
     }
 
     #[test]

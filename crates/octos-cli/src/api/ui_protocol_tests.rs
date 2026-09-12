@@ -10069,6 +10069,7 @@ fn ledger_event_cursor_covers_every_cursor_bearing_variant() {
             cursor: Some(cursor.clone()),
             tokens_in: None,
             tokens_out: None,
+            cache_hit: None,
             session_result: None,
         }));
     assert_eq!(ledger_event_cursor(&completed), Some(cursor.clone()));
@@ -10130,6 +10131,7 @@ async fn try_emit_terminal_populates_turn_completed_tokens_and_session_result() 
         cursor: Some(cursor.clone()),
         tokens_in: Some(123),
         tokens_out: Some(456),
+        cache_hit: Some(75),
         session_result: Some(TurnSessionResult {
             committed_seq: cursor.seq,
             message_id: format!("{}:{}:{}", session_id.0, cursor.seq, 99_999),
@@ -10171,6 +10173,10 @@ async fn try_emit_terminal_populates_turn_completed_tokens_and_session_result() 
     assert!(
         frame.contains("\"tokens_out\":456"),
         "tokens_out must surface from completion details: {frame}"
+    );
+    assert!(
+        frame.contains("\"cache_hit\":75"),
+        "cache_hit must surface from completion details: {frame}"
     );
     assert!(
         frame.contains("\"session_result\""),
@@ -17765,6 +17771,7 @@ async fn stdio_default_connection_delivers_legacy_turn_completed() {
             cursor: None,
             tokens_in: None,
             tokens_out: None,
+            cache_hit: None,
             session_result: None,
         }));
 
@@ -17821,6 +17828,7 @@ fn projection_envelope_client_hello_over_stdio_opt_in_preserved() {
             cursor: None,
             tokens_in: None,
             tokens_out: None,
+            cache_hit: None,
             session_result: None,
         }));
     assert!(
@@ -21980,6 +21988,7 @@ async fn approval_respond_ledgers_decided_before_unblocked_turn_completion() {
             cursor: None,
             tokens_in: None,
             tokens_out: None,
+            cache_hit: None,
             session_result: None,
         }));
     });
@@ -22081,6 +22090,7 @@ async fn forced_backpressure_fixture_ledgers_terminal_and_latches_failed() {
             cursor: None,
             tokens_in: None,
             tokens_out: None,
+            cache_hit: None,
             session_result: None,
         }),
     );
@@ -24091,6 +24101,7 @@ async fn session_rollback_excludes_dropped_turns_from_thread_turns() {
             cursor: None,
             tokens_in: None,
             tokens_out: None,
+            cache_hit: None,
             session_result: None,
         }));
     }
@@ -25627,6 +25638,7 @@ async fn turn_state_get_falls_back_to_durable_projection_for_evicted() {
         cursor: None,
         tokens_in: None,
         tokens_out: None,
+        cache_hit: None,
         session_result: None,
     }));
 
@@ -27357,6 +27369,7 @@ fn capability_filter_envelope_legacy_mutual_exclusion() {
             cursor: None,
             tokens_in: None,
             tokens_out: None,
+            cache_hit: None,
             session_result: None,
         }));
     let file_attached = UiProtocolLedgerEvent::Notification(file_attached_for(&session));
@@ -28057,6 +28070,7 @@ fn should_assign_unique_v2_seq_to_terminal_and_consecutive_attachments() {
             cursor: None,
             tokens_in: None,
             tokens_out: None,
+            cache_hit: None,
             session_result: None,
         }));
     // Production dual-emission persists the v1 terminal companion after the
@@ -29676,6 +29690,7 @@ async fn v2_terminal_waits_behind_canonical_persist_on_session_forwarder() {
             cursor: None,
             tokens_in: Some(3),
             tokens_out: Some(2),
+            cache_hit: None,
             session_result: None,
         }),
     )
