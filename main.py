@@ -437,6 +437,12 @@ def build_octos_env(config_dir: Path) -> dict:
     elif provider == "anthropic" and api_key:
         env.setdefault("ANTHROPIC_API_KEY", api_key)
         key_env = "ANTHROPIC_API_KEY"
+    elif provider not in ("openai", "deepseek", "anthropic") and api_key:
+        # `octos chat` resolves a custom/OpenAI-compatible provider's key from
+        # <PROVIDER>_API_KEY (e.g. CUSTOM_API_KEY); the stdio path passes the
+        # env name explicitly, so only the chat driver needs this mirror.
+        env.setdefault(f"{provider.upper()}_API_KEY", api_key)
+        key_env = f"{provider.upper()}_API_KEY"
 
     config = {
         "provider": provider,
@@ -454,6 +460,8 @@ def build_octos_env(config_dir: Path) -> dict:
         # ~150s turns of pure reasoning, empty content); raised to 65536.
         "gateway": {"max_output_tokens": 65536},
     }
+    if provider not in ("openai", "deepseek", "anthropic") and base_url:
+        config["base_url"] = base_url
     if provider == "deepseek":
         # Rounds 34/36: even with 65536 output tokens, ~150s turns came back
         # empty — far too short to exhaust the budget, so the reasoning
@@ -507,7 +515,7 @@ def _chat_supported_flags(octos_bin: str) -> set[str]:
         except Exception:
             help_text = ""
         _CHAT_FLAGS_CACHE[octos_bin] = {
-            flag for flag in ("--json", "--cwd", "--data-dir",
+            flag for flag in ("--json", "--cwd", "--data-dir", "--sandbox", "--profile",
                               "--max-iterations", "--no-session-persistence")
             if flag in help_text
         }
@@ -529,6 +537,10 @@ def run_octos(octos_bin: str, cwd: Path, prompt: str, env: dict, data_dir: Path,
         cmd += ["--max-iterations", str(max_iterations)]
     if "--no-session-persistence" in flags:
         cmd.append("--no-session-persistence")
+    if "--sandbox" in flags and env.get("OCTOS_DANGER_FULL_ACCESS") == "1":
+        cmd += ["--sandbox", "danger-full-access"]
+    if "--profile" in flags:
+        cmd += ["--profile", os.environ.get("OCTOS_CHAT_PROFILE", "coding")]
     try:
         proc = subprocess.run(
             cmd, cwd=str(cwd), env=env, capture_output=True, text=True,
@@ -908,12 +920,47 @@ def locate_acceptance_tests(tree: dict, bundle_dir: Path) -> Path | None:
     return None
 
 
-def acceptance_tests_prompt(tests_dir: Path | None) -> str:
+def spec_base_ports(tests_dir: Path | None) -> list[int]:
+    """Ports the specs hard-code as their default base URL (e.g. 3301)."""
+    if not tests_dir:
+        return []
+    import re
+    ports: set[int] = set()
+    for path in tests_dir.rglob("*.ts"):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in re.finditer(r"https?://(?:127\.0\.0\.1|localhost):(\d{2,5})", text):
+            ports.add(int(m.group(1)))
+    return sorted(ports)
+
+
+def acceptance_tests_prompt(tests_dir: Path | None, web_port: int = 3000,
+                            smoke_port: int = 3100) -> str:
     if not tests_dir:
         return ""
     files = sorted(str(p.relative_to(tests_dir)) for p in tests_dir.rglob("*.ts"))
-    return ACCEPTANCE_TESTS_PROMPT.format(tests_dir=tests_dir,
+    text = ACCEPTANCE_TESTS_PROMPT.format(tests_dir=tests_dir,
                                           files=", ".join(files[:40]) or "(none)")
+    extra = [p for p in spec_base_ports(tests_dir) if p != web_port]
+    if extra:
+        # Run fda27f4d972e (2026-09-12): the ticket-booking specs default to
+        # http://127.0.0.1:3301 while the grader starts the app with PORT=3000;
+        # every test died with ERR_CONNECTION_REFUSED. Listen on both.
+        ports = ", ".join(map(str, extra))
+        text += (
+            f"\nPORT CONTRACT (mandatory): the specs above default to base URL "
+            f"port(s) {ports}, but the grader starts the backend with "
+            f"PORT={web_port}. The backend MUST serve the identical app on BOTH "
+            f"the PORT env value and port(s) {ports} at the same time: call "
+            f"server.listen() once per port with the same request handler. "
+            f"Bind the extra port(s) only when process.env.ARC_EXTRA_PORTS is "
+            f"not '0'. In your own smoke tests always run with "
+            f"`ARC_EXTRA_PORTS=0 PORT={smoke_port} npm run start` so that "
+            f"neither {web_port} nor {ports} is bound while you work.\n"
+        )
+    return text
 
 
 FINAL_CHECK_PROMPT = """\
@@ -1068,7 +1115,6 @@ def main() -> int:
             raise ValueError("no ATOMIC requirement nodes found")
 
         tests_dir = locate_acceptance_tests(tree, Path(__file__).resolve().parent)
-        tests_prompt = acceptance_tests_prompt(tests_dir)
         if tests_dir:
             log(f"[tests] using acceptance specs at {tests_dir}: "
                 f"{len(list(tests_dir.rglob('*.spec.ts')))} spec files")
@@ -1093,6 +1139,7 @@ def main() -> int:
         smoke_port = int(os.environ.get("OCTOS_SMOKE_PORT", "3100"))
         if smoke_port == args.web_port:
             smoke_port += 1
+        tests_prompt = acceptance_tests_prompt(tests_dir, args.web_port, smoke_port)
 
         def time_up() -> bool:
             return time.time() - t_run_start > budget
