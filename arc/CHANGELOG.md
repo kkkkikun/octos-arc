@@ -24,6 +24,12 @@ Counter（`smoke--counter`，1 个节点，公开测试 1 条）：
 | R5 r5-counter | 默认（首版，测试后未还原数据） | 3 | 39,785 | 20,070 | 0.0834 | 354 | **0/1**（db.json 被验收测试改成 -1 后随 commit 提交） | REQ-1 PASSED | `arc/arc-output/r5-counter/.arc/` |
 | R5 r5-counter-2 | 默认 + 测试后还原工作区 | 3 | 74,906 | 28,700 | 0.1436 | 597 | 1/1 | REQ-1 PASSED | `arc/arc-output/r5-counter-2/.arc/` |
 
+Ticket Booking（`ticket-booking--ticket-booking`，2 个节点，公开测试 10 条）：
+
+| 运行 | 配置 | 轮数 | tokens_in | tokens_out | 费用 ¥ | 耗时 s | 公开测试 | 节点状态 | 事件流 |
+|---|---|---:|---:|---:|---:|---:|---|---|---|
+| R0 base-tb | 改前 | 5 | 241,076 | 90,562 | 0.7645 | 2,508（骨架轮超时 1200 s 后整轮重跑，共 1,991 s） | 10/10 | REQ-1/2 PASSED | `octos-arc-A-baseline/arc/arc-output/base-tb/.arc/` |
+
 （其余行在运行结束后补充。）
 
 ## A1 · 功能实现率归零的原因

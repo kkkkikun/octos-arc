@@ -604,14 +604,22 @@ Copy every accessible name verbatim from the specs. Do not create or modify any 
 """
 
 NODE_PROMPT = """\
-Implement requirement node {node_id} in the existing application (frontend/ built by `npm run build` into frontend/dist/; zero-dependency Node backend in backend/, `npm start`, PORT env var). Extend the app; do not rewrite or break existing features.
-
+{preamble}
 {node_spec}
 {design}{ancestors}
 {tests}
 """ + UI_CONTRACT + """{performance}
-Verify before you finish: `npm run build` in frontend/; start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`; exercise every new page and endpoint with curl (success AND error cases); stop the server.
+Verify briefly before you finish — the harness runs the official acceptance tests for this node right after your turn and hands you the failures, so do not build your own test suite: `npm run build` in frontend/, start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`, one curl per new endpoint (one success, one error case), stop the server.
 """ + PORT_RULES
+
+NODE_PREAMBLE_EXTEND = """\
+Implement requirement node {node_id} in the existing application (frontend/ built by `npm run build` into frontend/dist/; zero-dependency Node backend in backend/, `npm start`, PORT env var). Extend the app; do not rewrite or break existing features.
+"""
+
+NODE_PREAMBLE_CREATE = """\
+Build a full-stack web application in the current working directory that implements requirement node {node_id} (the whole requirement tree is at {req_dir}; this is its only feature node).
+
+""" + ARCHITECTURE_CONTRACT
 
 EVOLUTION_NOTE = """\
 This is an EXISTING application that already passed its previous acceptance tests. Current sources:
@@ -623,7 +631,7 @@ REPAIR_PROMPT = """\
 The official acceptance tests for requirement node {node_id} just ran against your app: {passed}/{total} passed. Failing tests (Feature / where it failed / what was observed / the last steps before failure):
 {failures}
 {corrections}{slow}
-Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. Reproduce the failing behaviour first (curl the endpoint or fetch the page on port {smoke}), fix the root cause, rebuild the frontend, re-check with curl, stop your server. The spec files are read-only ground truth.
+Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. Reproduce the failing behaviour first (curl the endpoint or fetch the page on port {smoke}), fix the root cause, rebuild the frontend, re-check with one curl, stop your server. The harness re-runs the official tests right after your turn. The spec files are read-only ground truth.
 """ + PORT_RULES
 
 FINAL_CHECK_PROMPT = """\
@@ -991,14 +999,20 @@ class Flow:
                        + json.dumps(design, ensure_ascii=False)[:4000] + "\n") if design else ""
         if self.evolution:
             design_text = EVOLUTION_NOTE.format(listing=source_listing(self.output_dir)) + design_text
+        if self.has_app():
+            preamble = NODE_PREAMBLE_EXTEND.format(node_id=node_id)
+        else:  # single-node tree without a skeleton turn: create the app in this turn
+            preamble = NODE_PREAMBLE_CREATE.format(node_id=node_id, req_dir=self.req_dir, port=self.web_port)
         prompt = NODE_PROMPT.format(node_id=node_id, node_spec=describe_node(node), design=design_text,
-                                    ancestors=self.ancestors_text(node_id, ordered),
+                                    preamble=preamble, ancestors=self.ancestors_text(node_id, ordered),
                                     tests=self.tests_prompt_for(node_id), smoke=self.smoke_port, port=self.web_port,
                                     performance=self.perf_text())
         prompt = self.corrections_text() + prompt
         implement_timeout = min(self.node_timeout, self.implement_fraction * node_budget, deadline - time.time())
         ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
         timed_out = (not ok) and "timed out" in text.lower()
+        if ok and not self.has_app():
+            ok, text = False, "turn ended without frontend/package.json and backend/package.json on disk"
         if not ok and not timed_out:
             self.mark("implementation_failed", node_id, text[-500:])
             self.impl_failed.append(node_id)
@@ -1186,9 +1200,11 @@ class Flow:
             threading.Thread(target=_port_watchdog, args=(self.web_port, self.output_dir, watchdog_stop),
                              daemon=True).start()
             try:
-                if not self.evolution:
+                if not self.evolution and (len(ordered) > 1 or os.environ.get("OCTOS_SKELETON_ALWAYS") == "1"):
                     self.skeleton(tree)
                     self.driver.end_scope("node")
+                elif not self.evolution:
+                    log("[flow] single-node tree: skeleton folded into the node turn")
                 for index, node in enumerate(ordered, 1):
                     node_id = str(node.get("id"))
                     if self.time_up():
