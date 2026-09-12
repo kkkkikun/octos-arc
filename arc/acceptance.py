@@ -145,6 +145,21 @@ def summarize_report(report: dict) -> RunSummary:
     return summary
 
 
+def nodes_for_failures(results: list[TestOutcome], spec_map: dict) -> dict[str, list[TestOutcome]]:
+    """Group failed outcomes by the requirement node that owns their spec file
+    (matched on the spec file's basename); unmapped files land under None."""
+    owner: dict[str, object] = {}
+    for node_id, paths in spec_map.items():
+        for path in paths or []:
+            owner[Path(path).name] = node_id
+    grouped: dict = {}
+    for r in results:
+        if r.ok:
+            continue
+        grouped.setdefault(owner.get(Path(r.file or "").name), []).append(r)
+    return grouped
+
+
 def _call_log_steps(message: str) -> list[str]:
     """Playwright's `Call log:` lines are the closest thing to a step trace
     when the spec has no test.step() blocks."""
@@ -369,7 +384,7 @@ class AcceptanceRunner:
         self.timeout_ms = timeout_ms
         self.workers = workers
 
-    def _prepare(self) -> Path:
+    def _prepare(self, workers: int | None = None) -> Path:
         # Specs `import '@playwright/test'`; Node resolves that upward from the
         # spec file, so the copied tree must sit under the Playwright install
         # (NODE_PATH is set as well for the case where it cannot).
@@ -380,12 +395,13 @@ class AcceptanceRunner:
         (self.work_dir / "playwright.config.ts").write_text(
             "import { defineConfig } from '@playwright/test';\n"
             f"export default defineConfig({{ testDir: './tests', timeout: {self.timeout_ms}, retries: 0, "
-            f"workers: {self.workers}, reporter: [['json', {{ outputFile: 'report.json' }}]], "
+            f"workers: {workers or self.workers}, reporter: [['json', {{ outputFile: 'report.json' }}]], "
             "use: { headless: true, baseURL: process.env.E2E_BASE_URL, actionTimeout: 0 } });\n")
         return self.work_dir / "playwright.config.ts"
 
-    def run(self, spec_rel_paths: list[str], base_url: str, wall_timeout: int = 900) -> RunSummary:
-        config = self._prepare()
+    def run(self, spec_rel_paths: list[str], base_url: str, wall_timeout: int = 900,
+            workers: int | None = None) -> RunSummary:
+        config = self._prepare(workers)
         report_path = self.work_dir / "report.json"
         cmd = [str(self.root / "node_modules" / ".bin" / "playwright"), "test", "-c", str(config)]
         cmd += [str(self.work_dir / "tests" / p) for p in spec_rel_paths]

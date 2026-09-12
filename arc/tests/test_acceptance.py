@@ -6,6 +6,7 @@ from pathlib import Path
 from acceptance import (
     failure_summaries,
     map_specs_to_nodes,
+    nodes_for_failures,
     restore_worktree,
     snapshot_worktree,
     spec_node_id,
@@ -119,3 +120,17 @@ class WorktreeSnapshotTests(unittest.TestCase):
             self.assertEqual((root / "backend" / "db.json").read_text(), '{"count": 0}')
             self.assertEqual((root / "backend" / "server.js").read_text(), "v2 (repair edit, uncommitted)")
             self.assertFalse((root / "backend" / "uploads.json").exists())
+
+
+class FailureGroupingTests(unittest.TestCase):
+    def test_should_group_failed_tests_by_owning_node_via_spec_basename(self):
+        summary = summarize_report({"suites": [
+            {"title": "a", "file": "REQ-1.spec.ts", "specs": [
+                {"title": "one", "file": "REQ-1.spec.ts", "tests": [{"status": "unexpected", "results": [{"status": "failed", "duration": 1,
+                    "error": {"message": "x", "location": {"file": "/w/tests/REQ-1.spec.ts", "line": 3}}}]}]}]},
+            {"title": "b", "file": "sub/REQ-2.spec.ts", "specs": [
+                {"title": "two", "file": "sub/REQ-2.spec.ts", "tests": [{"status": "expected", "results": [{"status": "passed", "duration": 1}]}]},
+                {"title": "three", "file": "sub/REQ-2.spec.ts", "tests": [{"status": "unexpected", "results": [{"status": "timedOut", "duration": 1}]}]}]},
+        ]})
+        grouped = nodes_for_failures(summary.results, {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": ["sub/REQ-2.spec.ts"], None: []})
+        self.assertEqual({k: [r.title for r in v] for k, v in grouped.items()}, {"REQ-1": ["one"], "REQ-2": ["three"]})

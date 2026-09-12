@@ -58,8 +58,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arcbench_agent_runtime import AgentRuntime  # noqa: E402
 from acceptance import (  # noqa: E402
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, ensure_playwright,
-    failure_summaries, find_playwright_root, map_specs_to_nodes, playwright_candidates,
-    restore_worktree, snapshot_worktree,
+    failure_summaries, find_playwright_root, map_specs_to_nodes, nodes_for_failures,
+    playwright_candidates, restore_worktree, snapshot_worktree,
 )
 from guard import TurnMonitor  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, topo_order  # noqa: E402
@@ -552,7 +552,7 @@ UI contract (the hidden Playwright tests depend on these; a violation scores 0):
 - No native HTML5 validation (no required/pattern/min/max attributes). Validate in JavaScript and show ONE inline error element (role="alert") whose text names the problem with words like required / invalid / match / terms / duplicate / already exists. On error stay on the page, keep the anonymous header, create no record.
 - Strict mode: every echoed value (username, city, date, station) appears in EXACTLY ONE visible element per page. Never render both a short and a long form of one entity, never a per-field error plus a summary error.
 - Sessions: after register/login navigate to `/`, show the exact username in one element and a "Sign out" link; the session survives reload.
-- Startup state: the app reproduces the requirement's initial state (e.g. count 0, published seed records) on EVERY fresh start; never ship mutated runtime data as the seed.
+- State: persist ONLY what the requirement says is persisted (accounts, sessions, orders, published records) and reproduce that seed on EVERY fresh start; never ship mutated runtime data. Anything the requirement describes as a page's initial state (e.g. "the count is initially 0") is per-page-load client state, never a shared server value — the grader runs several test files in parallel against ONE server, so tests must not see each other's mutations.
 - Text only: never OCR reference images or install tools for that.
 - Write files in your first actions; a turn that only analyses is a failed turn.
 """
@@ -849,7 +849,7 @@ class Flow:
                                        workers=int(os.environ.get("OCTOS_ARC_TEST_WORKERS", "2")))
         log(f"[acceptance] using Playwright at {root}")
 
-    def run_specs(self, specs: list[str]) -> RunSummary:
+    def run_specs(self, specs: list[str], workers: int | None = None) -> RunSummary:
         """Build, start, run the specs, then undo whatever the test run mutated
         (a persisted counter at -1 would otherwise be committed as the seed)."""
         git_run = lambda args: self.runtime.git.run(args, check=False)  # noqa: E731
@@ -861,7 +861,7 @@ class Flow:
                 err = server.start()
             if err is not None:
                 return RunSummary(error=err)
-            return self.runner.run(specs, f"http://127.0.0.1:{self.smoke_port}")
+            return self.runner.run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers)
         finally:
             server.stop()
             restore_worktree(git_run)
@@ -1053,6 +1053,48 @@ class Flow:
         elif verdict is False:
             self.mark("test_failed", node_id, "regression specs fail after repair rounds")
 
+    def final_acceptance(self) -> None:
+        """Run EVERY spec file together, files in parallel, like the grader does.
+        Per-node runs cannot see cross-node interference through shared server
+        state; this pass can, and it repairs the nodes whose tests fail."""
+        if self.runner is None or not self.tests_dir:
+            return
+        all_specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
+        if len(all_specs) < 2:
+            return
+        rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "3"))
+        workers = int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4"))
+        for attempt in range(rounds + 1):
+            summary = self.run_specs(all_specs, workers=workers)
+            if summary.error:
+                log(f"[acceptance] full suite infrastructure error: {summary.error[:300]}")
+                return
+            grouped = nodes_for_failures(summary.results, self.spec_map)
+            log(f"[acceptance] full suite round {attempt}: {summary.passed}/{summary.total}; failing nodes "
+                f"{sorted(k for k in grouped if k)}")
+            for node_id, specs in self.spec_map.items():
+                if node_id and specs:
+                    self.record_tests(node_id, specs, RunSummary(results=[r for r in summary.results
+                                      if Path(r.file or "").name in {Path(p).name for p in specs}]))
+                    self.test_verdict[node_id] = node_id not in grouped
+            if not grouped:
+                self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} pass (parallel)")
+                return
+            if attempt == rounds or self.remaining() < 240:
+                break
+            failing = sorted(k for k in grouped if k) or ["(unmapped specs)"]
+            failures = failure_summaries(RunSummary(results=[r for rs in grouped.values() for r in rs]))
+            prompt = REPAIR_PROMPT.format(
+                node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
+                corrections=self.corrections_text() + "The grader runs all spec files IN PARALLEL against one "
+                "server; tests from different files must not interfere through shared server state "
+                "(e.g. a counter that every browser session shares). Keep persisted data only where the "
+                "requirement demands persistence.\n",
+                slow="", smoke=self.smoke_port, port=self.web_port)
+            self.turn(prompt, min(self.node_timeout, max(120, self.remaining() - 200)),
+                      f"full-suite repair {attempt + 1}/{rounds}")
+            self.commit(f"fix: full-suite repair {attempt + 1}")
+
     # -- skeleton ---------------------------------------------------------
     def skeleton(self, tree: dict) -> None:
         log("[flow] skeleton turn starting")
@@ -1161,6 +1203,9 @@ class Flow:
                         self.node_cycle(node, ordered, index, len(ordered))
                     self.driver.end_scope("node")
 
+                if not self.time_up():
+                    self.final_acceptance()
+                    self.driver.end_scope("node")
                 undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]
                 final_ok = None
                 if undecided and not self.time_up():
@@ -1181,6 +1226,11 @@ class Flow:
                 watchdog_stop.set()
                 if self.driver:
                     self.driver.close()
+            for node_id in node_ids:  # final per-node verdicts (full-suite run may have changed them)
+                if self.test_verdict.get(node_id) is True:
+                    self.mark("test_passed", node_id, "acceptance specs pass (node run and full parallel suite)")
+                elif self.test_verdict.get(node_id) is False:
+                    self.mark("test_failed", node_id, "acceptance specs failing")
             self.commit("chore: traceability and acceptance state")
             failed = [i for i in node_ids if self.test_verdict.get(i) is not True]
             if failed:
