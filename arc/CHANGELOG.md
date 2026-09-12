@@ -4,15 +4,17 @@
 
 ## 运行矩阵
 
-| 运行 | 适配层 | 开关 | 说明 |
+| 运行 | 适配层 | 开关 / 代码状态 | 用途 |
 |---|---|---|---|
 | R0 | 改前（`82e3bef3` 的 `arc/`） | — | 对照，worktree `octos-arc-A-baseline` |
-| R1 | 新编排器 | 设计轮关、修复轮 0、性能规则关、单 session、守护关 | 只含 A1（逐节点真实测试判定 + id 映射）与 A2（依赖序） |
-| R2 | 新编排器 | +设计轮、修复轮 K=5 | A3 |
-| R3 | 新编排器 | +性能规则 | A4 |
-| R4 | 新编排器 | +每轮新 session | A5（提示词压缩在 R1 已生效） |
-| R5 | 新编排器 | +守护规则 | A7，即默认配置 |
-| E1/E2 | 新编排器 | 默认 | A6：smoke--counter → 以产物为模板跑 smoke-evolution--counter |
+| R5 | 新编排器首版（`1a60fa8b`…`d5f9dccb`） | 默认开关 | A1–A7 全开；暴露了「测试改写数据被提交」「实现轮超时被当瞬时错误重放」「双端口 listen 两次」三个问题 |
+| R6 | `06d3a02e`（单节点并入一轮 + 简短自验） | 默认 | Counter 最终配置 |
+| R7 | `5a62ec89`（全套并行验收 + 按评测方式启动 + 只读设计轮） | 默认 | Ticket Booking 最终配置 |
+| R8 | 同 R7 | `OCTOS_DESIGN_MODE=inline` | 设计轮并入实现轮的对照 |
+| R1 / R3 / R4 | R6 代码 | 分别：修复轮 0 + 性能规则关 + 守护关 + 单 session；性能规则关；每轮新 session | Counter 上的开关消融 |
+| E1 / E2 | R5 / R7 代码 | 默认 | A6：以 Counter 产物为模板跑 smoke-evolution--counter |
+
+每完成一条改动就跑一次 Counter 与 Ticket Booking 的要求，实际执行成了「先整体重写、再用开关和连续修正逐项测」：编排器的七条改动共享同一套节点循环，拆成七个独立可运行的中间版本会让每个中间版本都带着后面才发现的缺陷（例如 R5 的三个问题）。下面每条 A 项都标注了它对应的运行。
 
 ## 数据总表（本机，同二进制同模型；每行一次运行）
 
@@ -45,6 +47,10 @@ Smoke Evolution（`smoke-evolution--counter`，模板 = 上一行 Counter 产物
 | E1 e1-evolution | r5-counter-2（服务端共享计数） | 5 | 98,381 | 39,295 | 0.2226 | 1,198 | **0/2**：两条测试并行改同一个服务端计数（期望 1 实得 3）；逐节点单跑时各自 1/1 | REQ-1/2 PASSED | `arc/arc-output/e1-evolution/.arc/` |
 | **E2 e2-evolution** | r6-counter | 3（回归 0 轮 + 设计 + 实现） | 41,745 | 14,489 | 0.0877 | 428 | **2/2** | REQ-1 PASSED（carried over + 回归通过），REQ-2 PASSED | `arc/arc-output/e2-evolution/.arc/` |
 
+| **R7 r7-tb** | **默认（最终代码：全套并行验收 + 按评测方式启动 + 只读设计轮 + 简短自验）** | 7 | 302,042 | 168,548 | 0.7166 | 1,988 | **10/10**（按评测方式启动） | REQ-1/2（及 REQ-1.1/1.2）PASSED；tests 表 10/10；node_contracts 2 | `arc/arc-output/r7-tb/.arc/` |
+
+R7 逐轮：骨架 475 s → REQ-1 设计 155 s（51 次工具调用，模型无视「只读」仍执行了命令）→ 实现 831 s → 验收 4/6 → 修复 62 s（7 次调用）→ 6/6 → REQ-2 设计 147 s → 实现 267 s → 验收启动异常（后端「listening」后以 rc=0 退出）→ 修复轮 21 s 后 octos 进程退出（stderr 尾部为正常 INFO 日志，无 turn/error；转 B 排查）→ 重跑验收 4/4 → 全套并行 10/10 → 演练通过。
+
 （其余行在运行结束后补充。）
 
 ## A1 · 功能实现率归零的原因
@@ -63,7 +69,7 @@ Smoke Evolution（`smoke-evolution--counter`，模板 = 上一行 Counter 产物
 3. 设计 JSON 写入 `node_contracts`、接口写入 `interfaces`、每条测试结果写入 `tests` 表，平台无论读哪张表都有数据。
 4. 运行异常中断时，`finally` 段为所有还没有判定的节点补 `test_failed`，保证每个节点都有终态。
 
-**验证**：见下表（本机 `.arc/traceability/node_states.json`）。云端 `feature_implementation_rate` 未评测，需 C 用本分支打包后跑一次 TB。
+**验证**：R7 `arc/arc-output/r7-tb/.arc/traceability/`：`node_states.json` = REQ-1 / REQ-2 / REQ-1.1 / REQ-1.2 全部 PASSED（后两者为镜像），`tests.json` 10 行全部 `passed: true`，`node_contracts.json` 有 REQ-1、REQ-2 的设计；`runner-events.jsonl` 里每个节点都有 design running/completed、implement running/completed、test passed。云端 `feature_implementation_rate` 未评测，需 C 用本分支打包后跑一次 TB。
 
 ## A2 · 按依赖序遍历需求树
 

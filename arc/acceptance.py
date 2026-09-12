@@ -372,7 +372,8 @@ class AppServer:
         try:
             fh = open(self.log_file, "w")
             self.proc = subprocess.Popen(["npm", "start"], cwd=self.project / "backend", env=env,
-                                         stdout=fh, stderr=subprocess.STDOUT, start_new_session=True)
+                                         stdin=subprocess.DEVNULL, stdout=fh, stderr=subprocess.STDOUT,
+                                         start_new_session=True)
         except OSError as exc:
             return f"backend `npm start` could not launch: {exc}"
         deadline = time.time() + wait_seconds
