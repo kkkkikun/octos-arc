@@ -41,7 +41,7 @@ Environment (all optional):
     OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
     OCTOS_ARC_TRIM_PROMPT     "0" keeps the kernel system prompt and all tool schemas (default: drop ARC-irrelevant sections/tools)
-    OCTOS_SESSION_SCOPE       node (default) | turn | run — when a fresh octos session starts
+    OCTOS_SESSION_SCOPE       turn (default) | node | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
     OCTOS_PERF_CONTRACT       "0" drops the performance rules from prompts
@@ -545,7 +545,11 @@ class OctosDriver:
         self.mode = os.environ.get("OCTOS_DRIVER", "stdio")
         # "turn": new session every turn; "node": one session per requirement
         # node (design -> implement -> repairs share context); "run": one session.
-        self.session_scope = os.environ.get("OCTOS_SESSION_SCOPE", "node")
+        # Default "turn" since specs are quoted into every prompt: a repair turn
+        # is self-contained, while a shared node session made each repair
+        # request carry the whole implement history (v8-tb: 49 requests, 1.1M
+        # prompt tokens for 7 repairs).
+        self.session_scope = os.environ.get("OCTOS_SESSION_SCOPE", "turn")
         if os.environ.get("OCTOS_SESSION_PER_TURN") == "0" and "OCTOS_SESSION_SCOPE" not in os.environ:
             self.session_scope = "run"
         self.octos_bin = octos_bin
