@@ -121,3 +121,11 @@ class FailureNormalizationTests(unittest.TestCase):
         a = "Observation: TIMED OUT after 4136 ms ... Expected: \"2\" Received: \"\""
         b = "Observation: TIMED OUT after 4144 ms ... Expected: \"2\" Received: \"\""
         self.assertEqual(re.sub(r"\d+", "#", a), re.sub(r"\d+", "#", b))
+
+
+class CodegenPromptTests(unittest.TestCase):
+    def test_should_format_without_placeholder_errors_and_keep_build_command(self):
+        import main as m
+        text = m.CODEGEN_PROMPT.format(node_id="REQ-1", node_spec="S", tests="T", port=3000)
+        self.assertIn("mkdirSync('dist',{recursive:true})", text)
+        self.assertIn("REQ-1", text)
