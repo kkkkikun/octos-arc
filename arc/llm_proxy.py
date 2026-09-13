@@ -90,7 +90,8 @@ def request_shape(body: bytes) -> dict | None:
         role = str(msg.get("role", "?"))
         content = msg.get("content")
         chars = len(content) if isinstance(content, str) else len(json.dumps(content or "", ensure_ascii=False))
-        chars += len(json.dumps(msg.get("tool_calls") or "", ensure_ascii=False))
+        if msg.get("tool_calls"):
+            chars += len(json.dumps(msg["tool_calls"], ensure_ascii=False))
         shape[f"{role}_chars"] = shape.get(f"{role}_chars", 0) + chars
     return shape
 
