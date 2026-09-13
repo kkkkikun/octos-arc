@@ -179,7 +179,25 @@ r11-tb 逐轮：骨架 89 s → REQ-1 设计 139 s → 实现 312 s → 验收 0
 | 题 | 改前（82e3bef3） | main@40a629a8 | main@f3f113e6 | main@9b0d3009 |
 |---|---|---|---|---|
 | Ticket Booking | b00c4ee7b568：7/10，功能 0/2，¥4.73，674 s | a6ccc437539f：0/10（自装 Playwright 污染评测环境），¥10.22 | 0a3cd1d66042：7/10，0/2，¥4.45，981 s | **ab4c98a6cb17：9/10，功能 1/2，¥1.99，1,051 s** |
+| Ticket Booking（main@0522db48） | — | — | — | cbbec51884de：8/10，¥2.49，1,352 s；2 条失败为 Chromium「Target crashed」及同一窗口内 reload 后的 evaluate 超时，同一代码路径上一轮通过，属平台侧随机 |
 | Smoke Evolution counter | 37fb13835049：2/2，¥0.55 | da9a64b32c09：0/2（同因） | b76aadf42e9b：2/2，¥0.60，209 s | — |
 | Smoke Evolution dice | a02d29a7064a：2/2，¥0.60，204 s | 16ea5178359a：0/2（同因） | 6c9ea2294ff6：2/2，¥1.48，283 s | — |
 
 ab4c98a6cb17 唯一失败：REQ-1.2「用户名密码登录」在注册辅助步骤等 `getByLabel(/证件号码/)` 可见、可用、可编辑直到 10 s 超时；同一 helper 在另外 5 条注册用例和本机自跑 10/10 中都通过，是并行 worker 下页面尚未就绪（表单由 JS 在请求后渲染或请求期间禁用控件）。本轮把 UI 契约改为「表单控件必须直接存在于服务端 HTML 中，请求期间不得禁用」。功能率 1/2：平台按测试标题/文件前缀匹配需求，REQ-1.1 命中 REQ-1，REQ-2 因有失败用例记 0。
+
+**Ticket Booking 收口**（2026-09-12）：四次云端 7/10 → 7/10 → 9/10 → 8/10，费用 ¥4.73 → ¥4.45 → ¥1.99 → ¥2.49；生成阶段自跑全套稳定 10/10。剩余失败是评测容器的渲染进程崩溃/内存压力（与 Web 大题评测被 SIGKILL 同源），适配层不再针对 TB 迭代。
+
+## ARC-Bench Web 六题的建议参数（供工作流 C 本机先跑 `arc-bench-web--keep` 校准）
+
+基于 TB 每节点实测（设计 60–213 s、实现 200–830 s、验收 + 一轮修复 150–200 s）与 C 用旧流程跑 keep 的数据（32 节点、26/32、83 min）：
+
+```sh
+OCTOS_SECONDS_PER_NODE=480      # 总预算 = 480 × 节点数（keep 32 节点 ≈ 4.3 h 上限，实际用不满）
+OCTOS_NODE_TIME_BUDGET=900      # 单节点含修复 ≤ 15 min，超时保留最优 commit 进入下一节点
+OCTOS_IMPLEMENT_FRACTION=0.6    # 实现轮 ≤ 540 s，留 6 min 给验收与修复
+OCTOS_REPAIR_ROUNDS=3           # 每节点最多 3 轮修复（TB 上 1 轮即够）
+OCTOS_DESIGN_MODE=inline        # 32 个独立设计轮约 80 min、明显的费用大头；inline 把设计 JSON 并入实现轮（R8：TB 费用 −23%）
+OCTOS_FINAL_REPAIR_ROUNDS=2     # 全套并行验收后的修复轮
+```
+
+预计单题 keep：约 32 × 8 min ≈ 4 h 上限、多数节点一轮过则 2–3 h；费用按 TB 每节点 ≈ ¥1.0–1.25 推算 ≈ ¥30–40，低于单次 ¥50 阈值。先本机跑到底，看每节点耗时与 Token 再定其余五题。
