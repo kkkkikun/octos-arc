@@ -43,6 +43,7 @@ Environment (all optional):
     OCTOS_ARC_TRIM_PROMPT     "0" keeps the kernel system prompt and all tool schemas (default: drop ARC-irrelevant sections/tools)
     OCTOS_ARC_DROP_SHELL      "0" leaves bash/shell available in minimal-verification turns (default: removed)
     OCTOS_ARC_IMPLEMENT_REQUESTS / OCTOS_ARC_REPAIR_REQUESTS  hard per-turn request caps enforced at the proxy (12 for small tasks / 10; 0 = off)
+    OCTOS_ARC_REWRITE_ON_ZERO "0" disables the single full-rewrite turn when round 0 passes nothing
     OCTOS_SESSION_SCOPE       turn (default) | node | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
@@ -1234,11 +1235,16 @@ class Flow:
         except Exception as exc:  # noqa: BLE001
             log(f"[trace] test rows not recorded: {exc}")
 
-    def acceptance_loop(self, node_id: str, specs: list[str], deadline: float) -> bool | None:
-        """Returns True/False for a real verdict, None when no local run happened."""
+    def acceptance_loop(self, node_id: str, specs: list[str], deadline: float,
+                        rebuild_prompt=None) -> bool | None:
+        """Returns True/False for a real verdict, None when no local run happened.
+        `rebuild_prompt(failures)` (optional) yields a full re-implementation
+        prompt; it is used once when round 0 passes nothing — rewriting beats
+        patching a structurally broken first attempt (v13-tb-a)."""
         if self.runner is None or not specs:
             return None
         best_passed, best_sha, regressions = -1, self.head(), 0
+        rewrite_used = False
         for attempt in range(self.repair_rounds + 1):
             summary = self.run_specs(specs)
             if summary.error:
@@ -1278,6 +1284,14 @@ class Flow:
             slow = summary.slow(int(os.environ.get("OCTOS_ARC_SLOW_MS", "3000")))
             slow_text = ("Also, these tests took over 3 s on this fast machine and will exceed the grader's "
                          "10 s budget: " + "; ".join(slow) + ". Remove the latency.\n" + self.perf_text()) if slow else ""
+            if passed == 0 and rebuild_prompt is not None and not rewrite_used \
+                    and os.environ.get("OCTOS_ARC_REWRITE_ON_ZERO", "1") != "0":
+                rewrite_used = True
+                log(f"[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch")
+                prompt = rebuild_prompt(failures or "(no detail)")
+                self.turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
+                          request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "12")))
+                continue
             prompt = REPAIR_PROMPT.format(node_id=node_id, passed=passed, total=summary.total,
                                           failures=failures or "(no detail)", corrections=self.corrections_text(),
                                           slow=slow_text, smoke=self.smoke_port, port=self.web_port)
@@ -1404,7 +1418,12 @@ class Flow:
         self.mark("implementation_done", node_id, (text[-500:] or None) if ok else "implement turn timed out; partial code")
         self.commit(f"{node_id} (implement): {node.get('name', '')}")
 
-        verdict = self.acceptance_loop(node_id, specs, deadline)
+        def rebuild_prompt(failures: str) -> str:
+            return (prompt + "\nYOUR PREVIOUS ATTEMPT FAILED EVERY ACCEPTANCE TEST — the failures (Feature / where / "
+                    "observation / steps):\n" + failures + "\nRewrite the files for this node completely (full "
+                    "write_file for each file, not edits), fixing the root causes above.\n")
+
+        verdict = self.acceptance_loop(node_id, specs, deadline, rebuild_prompt=rebuild_prompt)
         self.test_verdict[node_id] = verdict
         if verdict is True:
             self.mark("test_passed", node_id, f"{len(specs)} acceptance spec file(s) pass locally")
