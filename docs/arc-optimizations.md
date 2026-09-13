@@ -146,7 +146,7 @@ cargo build --locked -p octos-cli --no-default-features --features api
 
 ## 第三阶段：工作流 B · 真实 agent 成本与缓存
 
-本节对应目标书 2026-09-13 新增的第 7 节。当前候选实现位于提交 `08e10c05`（基于最新 `origin/main`）。本阶段没有修改 `legacy`，也没有把本地生成应用当作评测结果。
+本节对应目标书 2026-09-13 新增的第 7 节。实现已由 PR #31 squash 合入 main（`1de981aebe1915b8aeb9a6645b0fe91a63fb4d0a`）。本阶段没有修改 `legacy`，也没有把本地生成应用当作评测结果。
 
 ### 改动
 
@@ -180,4 +180,6 @@ Ticket Booking 的 8,192 上限版本曾运行到第二需求节点并被本地�
 - `context_manager::tests::default_tool_output_policy_keeps_eight_kibibytes_for_model`；
 - `cargo build --locked --release -p octos-cli --no-default-features --features api`。
 
-当前候选 macOS arm64 产物为 `octos 2.0.3-rc.11 (08e10c05 2026-09-13)`，SHA-256：`a856afaf88c1967ad95ec2268259665085aa9a9ef6adb27aef0c29a6558488b1`；rustc 为 `1.98.0 (88d9e12ae 2026-08-18)`。本候选尚未创建新的 GitHub Release，因此 `arc-runtime-lock.json.runtime_release` 和 `arc/main.py` 暂不改写。
+本地 macOS arm64 产物为 `octos 2.0.3-rc.11 (08e10c05 2026-09-13)`，SHA-256：`a856afaf88c1967ad95ec2268259665085aa9a9ef6adb27aef0c29a6558488b1`；rustc 为 `1.98.0 (88d9e12ae 2026-08-18)`。对应 main 的 Linux Release 已由 workflow run `34752867215` 发布为 [v2.0.3-rc.11-arc.11](https://github.com/octos-org/octos-arc/releases/tag/v2.0.3-rc.11-arc.11)，源码提交为 `1de981aebe1915b8aeb9a6645b0fe91a63fb4d0a`，归档 SHA-256 为 `ec7fb4c1c9a4885d4a00d9e4bcd3e0c382779bf449ee0aa20c0bfc4062e59ab8`，解包 Linux `octos` SHA-256 为 `05f41672f0b5fef8c3936aa56b72f1add8525961a928668abb34849d4595124e`；下载地址已同步到 `arc-runtime-lock.json` 和 `arc/main.py`。
+
+Release 后应由 C 使用新适配包重跑 Smoke Counter 与 Smoke Dice，并在日志确认 `2.0.3-rc.11`；本环境未提供跨会话 `send_to_session` 接口，因此对 C（`a63a5b17-2553-4c9d-9647-a5ae3b7d852c`）和 A（`04b003e2-ad06-4aa8-b56c-13c29a0d80c2`）的通知尚未实际发送，不能宣称云端已重跑。云端榜单成绩仍为“未评测”。
