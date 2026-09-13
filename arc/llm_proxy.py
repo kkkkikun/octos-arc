@@ -75,6 +75,26 @@ def _usage_from_body(response_body: bytes):
     return data.get("usage") if isinstance(data, dict) else None
 
 
+def request_shape(body: bytes) -> dict | None:
+    """Character counts per message role and tool schemas — what the prompt is
+    made of (kernel system prompt vs tool schemas vs conversation)."""
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict) or "messages" not in data:
+        return None
+    shape: dict = {"messages": len(data.get("messages") or []), "tools": len(data.get("tools") or []),
+                   "tools_chars": len(json.dumps(data.get("tools") or [], ensure_ascii=False))}
+    for msg in data.get("messages") or []:
+        role = str(msg.get("role", "?"))
+        content = msg.get("content")
+        chars = len(content) if isinstance(content, str) else len(json.dumps(content or "", ensure_ascii=False))
+        chars += len(json.dumps(msg.get("tool_calls") or "", ensure_ascii=False))
+        shape[f"{role}_chars"] = shape.get(f"{role}_chars", 0) + chars
+    return shape
+
+
 def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | None:
     usage = _usage_from_body(response_body)
     if not isinstance(usage, dict):
@@ -124,7 +144,7 @@ class LlmProxy:
                     status, payload, resp_headers = exc.code, exc.read(), exc.headers
                 except Exception as exc:  # noqa: BLE001
                     status, payload, resp_headers = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
-                proxy._log(payload, int((time.time() - t0) * 1000))
+                proxy._log(payload, int((time.time() - t0) * 1000), body)
                 self.send_response(status)
                 ctype = resp_headers.get("Content-Type", "application/json") if resp_headers else "application/json"
                 self.send_header("Content-Type", ctype)
@@ -144,12 +164,15 @@ class LlmProxy:
         self.base_url = f"http://{host}:{self.port}/v1"
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
-    def _log(self, payload: bytes, elapsed_ms: int) -> None:
+    def _log(self, payload: bytes, elapsed_ms: int, request_body: bytes = b"") -> None:
         if not self.log_path:
             return
         rec = usage_record(payload, elapsed_ms, self.mode)
         if rec is None:
             return
+        shape = request_shape(request_body)
+        if shape:
+            rec["request"] = shape
         with self._lock:
             try:
                 with self.log_path.open("a", encoding="utf-8") as fh:

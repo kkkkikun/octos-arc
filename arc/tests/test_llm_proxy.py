@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from llm_proxy import inject_reasoning, usage_record
+from llm_proxy import inject_reasoning, request_shape, usage_record
 
 
 class InjectTests(unittest.TestCase):
@@ -46,3 +46,13 @@ class SseTests(unittest.TestCase):
         self.assertEqual((rec["prompt_tokens"], rec["completion_tokens"]), (9, 3))
         out = json.loads(inject_reasoning(json.dumps({"model": "deepseek-v4-flash", "messages": [], "stream": True}).encode(), "low"))
         self.assertEqual(out["stream_options"], {"include_usage": True})
+
+
+class ShapeTests(unittest.TestCase):
+    def test_should_count_chars_per_role_and_tools(self):
+        body = json.dumps({"model": "x", "messages": [{"role": "system", "content": "abc"}, {"role": "user", "content": "de"},
+                                                       {"role": "assistant", "content": None, "tool_calls": [{"id": "1"}]}],
+                           "tools": [{"type": "function", "function": {"name": "f"}}]}).encode()
+        shape = request_shape(body)
+        self.assertEqual((shape["messages"], shape["tools"], shape["system_chars"], shape["user_chars"]), (3, 1, 3, 2))
+        self.assertGreater(shape["assistant_chars"], 0)
