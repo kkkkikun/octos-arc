@@ -96,11 +96,64 @@ def request_shape(body: bytes) -> dict | None:
     return shape
 
 
+def destream_request(body: bytes) -> tuple[bytes, bool]:
+    """Turn a streaming chat request into a non-streaming one. Returns
+    (new_body, was_streaming). The platform's meter sits between us and the
+    model and appears to sum the cumulative `usage` of every SSE chunk
+    (cloud cc066e8e11f6: provider 50.6k tokens, platform 613k); one JSON
+    response carries the usage exactly once."""
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return body, False
+    if not isinstance(data, dict) or not data.get("stream"):
+        return body, False
+    data["stream"] = False
+    data.pop("stream_options", None)
+    return json.dumps(data, ensure_ascii=False).encode("utf-8"), True
+
+
+def to_sse(response_body: bytes) -> bytes:
+    """Re-emit a non-streaming chat completion as the SSE the client asked
+    for: one delta chunk with the whole message (content, reasoning,
+    tool_calls), then a finish chunk carrying usage, then [DONE]."""
+    try:
+        data = json.loads(response_body)
+    except (ValueError, UnicodeDecodeError):
+        return response_body
+    if not isinstance(data, dict) or "choices" not in data:
+        return response_body  # error payloads pass through as-is
+    base = {"id": data.get("id"), "object": "chat.completion.chunk", "created": data.get("created"),
+            "model": data.get("model")}
+    lines = []
+    for choice in data.get("choices") or []:
+        msg = choice.get("message") or {}
+        delta = {"role": msg.get("role", "assistant")}
+        for key in ("content", "reasoning_content"):
+            if msg.get(key) is not None:
+                delta[key] = msg[key]
+        if msg.get("tool_calls"):
+            delta["tool_calls"] = [dict(tc, index=i) for i, tc in enumerate(msg["tool_calls"])]
+        lines.append(json.dumps(dict(base, choices=[{"index": choice.get("index", 0), "delta": delta,
+                                                      "finish_reason": None}]), ensure_ascii=False))
+        lines.append(json.dumps(dict(base, choices=[{"index": choice.get("index", 0), "delta": {},
+                                                      "finish_reason": choice.get("finish_reason", "stop")}]),
+                                ensure_ascii=False))
+    lines.append(json.dumps(dict(base, choices=[], usage=data.get("usage") or {}), ensure_ascii=False))
+    return "".join(f"data: {l}\n\n" for l in lines).encode("utf-8") + b"data: [DONE]\n\n"
+
+
 def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | None:
     usage = _usage_from_body(response_body)
     if not isinstance(usage, dict):
         return None
     rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "elapsed_ms": elapsed_ms, "mode": mode}
+    text = response_body.decode("utf-8", errors="replace")
+    if text.lstrip().startswith("data:"):
+        rec["sse_chunks"] = sum(1 for l in text.splitlines() if l.startswith("data:") and l.strip() != "data: [DONE]")
+        rec["sse_usage_chunks"] = text.count('"usage"')
+    else:
+        rec["sse_chunks"] = 0
     for key in ("prompt_tokens", "completion_tokens", "total_tokens", "prompt_cache_hit_tokens",
                 "prompt_cache_miss_tokens"):
         if key in usage:
@@ -113,9 +166,10 @@ def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | Non
 
 class LlmProxy:
     def __init__(self, upstream_base: str, mode: str, log_path: Path | None = None, host: str = "127.0.0.1",
-                 dump_dir: Path | None = None, dump_limit: int = 3) -> None:
+                 dump_dir: Path | None = None, dump_limit: int = 3, destream: bool = True) -> None:
         self.upstream = upstream_base.rstrip("/")
         self.mode = mode
+        self.destream = destream
         self.log_path = log_path
         self.dump_dir = dump_dir      # OCTOS_ARC_PROXY_DUMP=1: first N request bodies for prefix analysis
         self.dump_limit = dump_limit
@@ -132,8 +186,11 @@ class LlmProxy:
             def _forward(self, method: str) -> None:
                 length = int(self.headers.get("Content-Length") or 0)
                 body = self.rfile.read(length) if length else b""
+                was_streaming = False
                 if method == "POST" and self.path.rstrip("/").endswith("/chat/completions"):
                     body = inject_reasoning(body, proxy.mode)
+                    if proxy.destream:
+                        body, was_streaming = destream_request(body)
                     proxy._dump(body)
                 headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
                 headers["Content-Length"] = str(len(body))
@@ -151,8 +208,10 @@ class LlmProxy:
                 except Exception as exc:  # noqa: BLE001
                     status, payload, resp_headers = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
                 proxy._log(payload, int((time.time() - t0) * 1000), body)
-                self.send_response(status)
                 ctype = resp_headers.get("Content-Type", "application/json") if resp_headers else "application/json"
+                if was_streaming and status == 200:
+                    payload, ctype = to_sse(payload), "text/event-stream; charset=utf-8"
+                self.send_response(status)
                 self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()

@@ -39,6 +39,7 @@ Environment (all optional):
     OCTOS_VERIFY_MODE         auto (default) | minimal | full
     OCTOS_ARC_REASONING       low (default) | medium | high | none | passthrough — DeepSeek reasoning via local proxy
     OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
+    OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
     OCTOS_SESSION_SCOPE       node (default) | turn | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
@@ -1128,12 +1129,14 @@ class Flow:
             return
         try:
             dump = (self.output_dir / ".arc" / "llm-requests") if os.environ.get("OCTOS_ARC_PROXY_DUMP") == "1" else None
-            self.llm_proxy = LlmProxy(upstream, mode, self.output_dir / ".arc" / "llm-usage.jsonl", dump_dir=dump).start()
+            self.llm_proxy = LlmProxy(upstream, mode, self.output_dir / ".arc" / "llm-usage.jsonl", dump_dir=dump,
+                                      destream=os.environ.get("OCTOS_ARC_DESTREAM", "1") != "0").start()
         except OSError as exc:
             log(f"[proxy] could not start local LLM proxy ({exc}); using the endpoint directly")
             return
         os.environ["OPENAI_BASE_URL"] = self.llm_proxy.base_url
-        log(f"[proxy] LLM requests via {self.llm_proxy.base_url} -> {upstream} (reasoning={mode})")
+        log(f"[proxy] LLM requests via {self.llm_proxy.base_url} -> {upstream} (reasoning={mode}, "
+            f"destream={'on' if self.llm_proxy.destream else 'off'})")
 
     def stop_llm_proxy(self) -> None:
         proxy = getattr(self, "llm_proxy", None)

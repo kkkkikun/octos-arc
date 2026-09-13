@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from llm_proxy import inject_reasoning, request_shape, usage_record
+from llm_proxy import destream_request, inject_reasoning, request_shape, to_sse, usage_record
 
 
 class InjectTests(unittest.TestCase):
@@ -56,3 +56,26 @@ class ShapeTests(unittest.TestCase):
         shape = request_shape(body)
         self.assertEqual((shape["messages"], shape["tools"], shape["system_chars"], shape["user_chars"]), (3, 1, 3, 2))
         self.assertGreater(shape["assistant_chars"], 0)
+
+
+class DestreamTests(unittest.TestCase):
+    def test_should_turn_streaming_request_into_json_and_back_into_sse(self):
+        body, was = destream_request(json.dumps({"model": "m", "messages": [], "stream": True, "stream_options": {"include_usage": True}}).encode())
+        self.assertTrue(was)
+        self.assertEqual(json.loads(body)["stream"], False)
+        self.assertNotIn("stream_options", json.loads(body))
+        _, was2 = destream_request(json.dumps({"model": "m", "messages": []}).encode())
+        self.assertFalse(was2)
+        resp = json.dumps({"id": "x", "created": 1, "model": "m", "choices": [{"index": 0, "finish_reason": "tool_calls",
+                           "message": {"role": "assistant", "content": None, "reasoning_content": "hm",
+                                       "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "write_file", "arguments": "{}"}}]}}],
+                           "usage": {"prompt_tokens": 5, "completion_tokens": 2}}).encode()
+        sse = to_sse(resp).decode()
+        chunks = [json.loads(l[5:]) for l in sse.splitlines() if l.startswith("data:") and l != "data: [DONE]"]
+        self.assertEqual(chunks[0]["choices"][0]["delta"]["tool_calls"][0]["function"]["name"], "write_file")
+        self.assertEqual(chunks[0]["choices"][0]["delta"]["tool_calls"][0]["index"], 0)
+        self.assertEqual(chunks[1]["choices"][0]["finish_reason"], "tool_calls")
+        self.assertEqual(chunks[2]["usage"]["prompt_tokens"], 5)
+        self.assertTrue(sse.endswith("data: [DONE]\n\n"))
+        rec = usage_record(resp, 1, "low")
+        self.assertEqual(rec["sse_chunks"], 0)
