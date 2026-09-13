@@ -108,6 +108,7 @@ class RunSummary:
     results: list[TestOutcome] = field(default_factory=list)
     stdout_tail: str = ""
     error: str | None = None  # infrastructure error (no report)
+    killed: bool = False      # the test runner itself was killed (OOM); not a verdict
     load_errors: list[str] = field(default_factory=list)  # Playwright top-level errors
 
     def slow(self, threshold_ms: int) -> list[str]:
@@ -351,6 +352,29 @@ def free_port(port: int) -> None:
             pass
 
 
+def container_memory_limit() -> int | None:
+    """cgroup memory limit in bytes (v2 memory.max or v1 limit_in_bytes), None
+    when unlimited/unknown. The ARC runner container has 512 MiB (cloud
+    29c840566f36: memory.max=536870912, 4 Chromium workers -> OOM, rc=-9)."""
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = Path(path).read_text().strip()
+        except OSError:
+            continue
+        if raw.isdigit():
+            value = int(raw)
+            if value < 1 << 50:  # v1 reports a huge number when unlimited
+                return value
+    return None
+
+
+def workers_for_memory(limit: int | None, requested: int) -> int:
+    """One Chromium worker per ~700 MiB of container memory, at least 1."""
+    if not limit:
+        return requested
+    return max(1, min(requested, limit // (700 * 1024 * 1024)))
+
+
 def free_owned_ports(ports: list[int], root: Path) -> None:
     """Kill listeners on `ports` that were started from inside `root` (our own
     leftovers), leaving foreign processes alone. Works on macOS and Linux."""
@@ -577,7 +601,11 @@ class AcceptanceRunner:
         except OSError as exc:
             return RunSummary(error=f"playwright could not start: {exc}")
         if not report_path.exists():
-            return RunSummary(error=f"playwright produced no report (rc={r.returncode}): {_ANSI.sub('', tail)[-600:]}")
+            killed = r.returncode < 0 or "Killed" in tail
+            return RunSummary(error=(f"playwright was killed (rc={r.returncode}); likely out of memory — "
+                                     f"not an application failure" if killed else
+                                     f"playwright produced no report (rc={r.returncode}): {_ANSI.sub('', tail)[-600:]}"),
+                              killed=killed)
         try:
             summary = summarize_report(json.loads(report_path.read_text()))
         except (OSError, json.JSONDecodeError) as exc:

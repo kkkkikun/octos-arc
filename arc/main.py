@@ -74,7 +74,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arcbench_agent_runtime import AgentRuntime  # noqa: E402
 from acceptance import (  # noqa: E402
-    AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, ensure_playwright,
+    workers_for_memory,
+    AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, container_memory_limit, ensure_playwright,
     failure_summaries, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
     restore_worktree, snapshot_worktree, tree_digest,
@@ -1158,11 +1159,14 @@ class Flow:
         if root is None:
             log("[acceptance] Playwright unavailable; nodes will be judged by the final check only")
             return
+        limit = container_memory_limit()
+        self.mem_limit = limit
+        workers = workers_for_memory(limit, int(os.environ.get("OCTOS_ARC_TEST_WORKERS", "2")))
         self.runner = AcceptanceRunner(root, self.tests_dir, acceptance_work_dir(root), log,
                                        timeout_ms=int(os.environ.get("OCTOS_ARC_TEST_TIMEOUT_MS", "10000")),
-                                       workers=int(os.environ.get("OCTOS_ARC_TEST_WORKERS", "2")),
-                                       env_extra=env_extra)
-        log(f"[acceptance] using Playwright at {root}")
+                                       workers=workers, env_extra=env_extra)
+        log(f"[acceptance] using Playwright at {root}; workers={workers}"
+            + (f" (container memory limit {limit // (1024 * 1024)} MiB)" if limit else ""))
 
     def snapshot_protected(self) -> None:
         """Copy the official tests dir (and requirements) so any edit the model
@@ -1290,6 +1294,9 @@ class Flow:
         rewrite_used = False
         for attempt in range(self.repair_rounds + 1):
             summary = self.run_specs(specs)
+            if summary.error and summary.killed:
+                log(f"[acceptance] {node_id}: test runner killed ({summary.error[:120]}); no verdict from this round")
+                return None
             if summary.error:
                 log(f"[acceptance] {node_id} infrastructure error: {summary.error[:300]}")
                 failures = f"- Feature: app startup\n  Failed at: build/start\n  Observation: {summary.error[:600]}\n  Steps: npm run build -> npm start"
@@ -1533,10 +1540,15 @@ class Flow:
         if len(all_specs) < 2 and not unverified:
             return  # single spec already judged by the node run
         rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "2"))
-        workers = int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4"))
+        workers = workers_for_memory(getattr(self, "mem_limit", None), int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
         previous_failing: set[str] | None = None
         for attempt in range(rounds + 1):
             summary = self.run_specs(all_specs, workers=workers, grader_like=True)
+            if summary.error and summary.killed:
+                # Cloud 29c840566f36: the runner was OOM-killed under a 512 MiB
+                # cgroup; two repair rounds were wasted on a non-failure.
+                log(f"[acceptance] full suite could not run ({summary.error[:120]}); keeping per-node verdicts")
+                return
             if summary.error:
                 # The app does not even start the way the grader starts it: every node fails.
                 log(f"[acceptance] full suite (grader-like start) failed: {summary.error[:300]}")

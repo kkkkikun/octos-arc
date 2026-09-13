@@ -11,6 +11,7 @@ from acceptance import (
     nodes_for_failures,
     restore_tree,
     restore_worktree,
+    workers_for_memory,
     snapshot_worktree,
     tree_digest,
     spec_node_id,
@@ -190,3 +191,11 @@ class HelperLocationTests(unittest.TestCase):
         grouped = nodes_for_failures(summary.results, {"REQ-2.3.1": ["REQ-2.3.1-x.spec.ts"], None: []})
         self.assertEqual(list(grouped), ["REQ-2.3.1"])
         self.assertIn("Failed at: e2e.ts:48 (called from REQ-2.3.1-x.spec.ts)", failure_summaries(summary))
+
+
+class MemoryWorkersTests(unittest.TestCase):
+    def test_should_scale_workers_to_container_memory(self):
+        self.assertEqual(workers_for_memory(None, 4), 4)
+        self.assertEqual(workers_for_memory(512 * 1024 * 1024, 4), 1)
+        self.assertEqual(workers_for_memory(2 * 1024 * 1024 * 1024, 4), 2)
+        self.assertEqual(workers_for_memory(8 * 1024 * 1024 * 1024, 4), 4)
