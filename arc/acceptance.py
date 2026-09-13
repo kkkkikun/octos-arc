@@ -516,6 +516,13 @@ class AppServer:
                 rc, out = self._run(["npm", "install", "--no-audit", "--no-fund"], part, 600)
                 if rc != 0:
                     return f"{part.name} `npm install` failed:\n{out}"
+        # Cloud c17bc1b44d26: a one-line copy build failed because dist/ did not
+        # exist yet. The grader builds from a fresh checkout too, so make the
+        # target directory exist before every build (harmless when it does).
+        try:
+            (frontend / "dist").mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
         rc, out = self._run(["npm", "run", "build"], frontend, 600)
         if rc != 0:
             return f"frontend `npm run build` failed:\n{out}"
