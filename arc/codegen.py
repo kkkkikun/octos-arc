@@ -1,0 +1,57 @@
+"""Single-response code generation for one-node tasks (A5).
+
+With tools stripped at the proxy, the model answers ONE request with the
+whole application as delimited file blocks; the harness writes them, then
+the normal acceptance loop runs. Two tool-protocol round trips (write, then
+final answer) become one request, and no tool schemas travel with it.
+
+Format (chosen so it never collides with code or markdown fences):
+
+    <<<FILE backend/server.js>>>
+    ...file contents...
+    <<<END FILE>>>
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+FILE_BLOCK = re.compile(r"<<<FILE\s+(?P<path>[^\n>]+?)\s*>>>\r?\n(?P<body>.*?)(?:\r?\n)?<<<END FILE>>>", re.S)
+
+FORMAT_INSTRUCTIONS = """\
+OUTPUT FORMAT — this turn has no tools. Reply with the complete files only, each as one block:
+<<<FILE relative/path>>>
+file contents
+<<<END FILE>>>
+Rules: paths relative to the project root (frontend/..., backend/...); every file complete (no "..." or omitted parts); no markdown fences around the blocks; no text outside the blocks except an optional one-line note at the very end. Include every file the app needs (package.json files with the build/start scripts, sources, build script).
+"""
+
+
+def parse_file_blocks(text: str) -> dict[str, str]:
+    """Extract path -> contents; a later block for the same path wins.
+    Paths are normalised and confined to the project (no absolute, no `..`)."""
+    files: dict[str, str] = {}
+    for m in FILE_BLOCK.finditer(text or ""):
+        raw = m.group("path").strip().strip("`'\"")
+        parts = [p for p in raw.replace("\\", "/").split("/") if p not in ("", ".")]
+        if not parts or ".." in parts or raw.startswith("/"):
+            continue
+        body = m.group("body")
+        # tolerate a stray fence the model wrapped around the body
+        stripped = body.strip("\n")
+        if stripped.startswith("```") and stripped.rstrip().endswith("```"):
+            inner = stripped.split("\n", 1)[1] if "\n" in stripped else ""
+            body = inner.rsplit("```", 1)[0]
+        files["/".join(parts)] = body.rstrip("\n") + "\n"
+    return files
+
+
+def write_files(root: Path, files: dict[str, str]) -> list[str]:
+    written = []
+    for rel, body in files.items():
+        dest = root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(body, encoding="utf-8")
+        written.append(rel)
+    return written

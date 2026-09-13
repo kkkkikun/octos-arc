@@ -47,6 +47,7 @@ Environment (all optional):
     OCTOS_ARC_REWRITE_ON_ZERO "0" disables the single full-rewrite turn when round 0 passes nothing
     OCTOS_ARC_INLINE_SOURCE_CHARS  budget for quoting the app's sources into repair/rewrite prompts (40000; 0 = off)
     OCTOS_ARC_MAX_TOKENS      minimum max_tokens the proxy enforces on chat requests (32768; kernel arc.11 sends 4096)
+    OCTOS_ARC_CODEGEN         "0" disables one-request codegen turns for one-node tasks (default on)
     OCTOS_SESSION_SCOPE       turn (default) | node | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
@@ -80,6 +81,7 @@ from acceptance import (  # noqa: E402
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
     restore_worktree, snapshot_worktree, tree_digest,
 )
+from codegen import FORMAT_INSTRUCTIONS, parse_file_blocks, write_files  # noqa: E402
 from guard import TurnMonitor  # noqa: E402
 from llm_proxy import LlmProxy  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, topo_order  # noqa: E402
@@ -1082,6 +1084,30 @@ class Flow:
             proxy.extra_drop_tools = set(self.SHELL_TOOLS) if minimal else set()
         return VERIFY_MINIMAL if minimal else VERIFY_FULL.format(smoke=self.smoke_port)
 
+    def codegen_mode(self) -> bool:
+        """One-request generation for one-node tasks (OCTOS_ARC_CODEGEN=0 disables)."""
+        return (os.environ.get("OCTOS_ARC_CODEGEN", "1") != "0" and getattr(self, "llm_proxy", None) is not None
+                and getattr(self, "nodes_to_implement", 2) <= 1 and getattr(self, "n_nodes", 99) <= 2)
+
+    def codegen_turn(self, prompt: str, timeout: int, label: str) -> tuple[bool, str]:
+        """Run a tool-less turn; parse and write the file blocks from the reply."""
+        proxy = self.llm_proxy
+        proxy.no_tools = True
+        try:
+            ok, text = self.turn(prompt + "\n" + FORMAT_INSTRUCTIONS, timeout, label, expect_verification=False,
+                                 request_budget=int(os.environ.get("OCTOS_ARC_CODEGEN_REQUESTS", "3")))
+        finally:
+            proxy.no_tools = False
+        files = parse_file_blocks(text) if ok else {}
+        if files:
+            written = write_files(self.output_dir, files)
+            log(f"[codegen] {label}: wrote {len(written)} file(s): {written[:8]}")
+            return True, text
+        if ok:
+            log(f"[codegen] {label}: reply contained no file blocks")
+            return False, "codegen reply contained no <<<FILE>>> blocks"
+        return ok, text
+
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
         if not self.tests_dir:
             return ""
@@ -1342,14 +1368,21 @@ class Flow:
                 rewrite_used = True
                 log(f"[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch")
                 prompt = rebuild_prompt(failures or "(no detail)")
-                self.turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
-                          request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20")))
+                if self.codegen_mode():
+                    self.codegen_turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})")
+                else:
+                    self.turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
+                              request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20")))
                 continue
             prompt = REPAIR_PROMPT.format(node_id=node_id, passed=passed, total=summary.total,
                                           failures=failures or "(no detail)", corrections=self.corrections_text(),
                                           slow=slow_text, smoke=self.smoke_port, port=self.web_port,
                                           sources=self.sources_text())
-            self.turn(prompt, min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}")
+            if self.codegen_mode():
+                self.codegen_turn(prompt + "\nReturn every file you change as a complete file block.",
+                                  min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}")
+            else:
+                self.turn(prompt, min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}")
         if best_passed > 0 and best_sha and self.head() != best_sha:
             self.restore_app(best_sha)
             self.commit(f"{node_id}: keep best acceptance state {best_passed}")
@@ -1438,7 +1471,10 @@ class Flow:
                                     performance=self.perf_text(), ui=self.ui_contract(), verify=self.verify_text(total))
         prompt = self.corrections_text() + prompt
         implement_timeout = min(self.node_timeout, self.implement_fraction * node_budget, deadline - time.time())
-        ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
+        if self.codegen_mode():
+            ok, text = self.codegen_turn(prompt, implement_timeout, f"{node_id} implement")
+        else:
+            ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
         if not ok and "truncated" in text.lower():
             # Cloud 76fb32a69d81: output cut by max_tokens, nothing written. Retry
             # once, one file per response (fresh session, same prompt).

@@ -209,6 +209,18 @@ def ensure_max_tokens(body: bytes, minimum: int) -> bytes:
     return body
 
 
+def strip_all_tools(body: bytes) -> bytes:
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return body
+    if not isinstance(data, dict) or "messages" not in data:
+        return body
+    data.pop("tools", None)
+    data.pop("tool_choice", None)
+    return json.dumps(data, ensure_ascii=False).encode("utf-8")
+
+
 def destream_request(body: bytes) -> tuple[bytes, bool]:
     """Turn a streaming chat request into a non-streaming one. Returns
     (new_body, was_streaming). The platform's meter sits between us and the
@@ -294,6 +306,7 @@ class LlmProxy:
         # Tools removed from every request in addition to DROP_TOOLS (mutable:
         # the flow can take the shell away for one-turn tasks and give it back).
         self.extra_drop_tools: set[str] = set(extra_drop_tools or ())
+        self.no_tools = False  # codegen turns: strip every tool schema
         # Per-turn request cap (0 = unlimited); the flow calls begin_turn().
         self.turn_budget = 0
         self.turn_requests = 0
@@ -327,6 +340,8 @@ class LlmProxy:
                     body = capped
                     if proxy.trim or proxy.extra_drop_tools:
                         body = trim_request(body, (DROP_TOOLS if proxy.trim else set()) | proxy.extra_drop_tools)
+                    if proxy.no_tools:
+                        body = strip_all_tools(body)
                     if proxy.destream:
                         body, was_streaming = destream_request(body)
                     proxy._dump(body)
