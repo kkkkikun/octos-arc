@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from llm_proxy import destream_request, inject_reasoning, request_shape, to_sse, usage_record
+from llm_proxy import destream_request, inject_reasoning, request_shape, to_sse, trim_request, trim_system_prompt, usage_record
 
 
 class InjectTests(unittest.TestCase):
@@ -79,3 +79,27 @@ class DestreamTests(unittest.TestCase):
         self.assertTrue(sse.endswith("data: [DONE]\n\n"))
         rec = usage_record(resp, 1, "low")
         self.assertEqual(rec["sse_chunks"], 0)
+
+
+class TrimTests(unittest.TestCase):
+    SYS = ("You are Octos.\n\n## Formatting Rules\nkeep f\n\n## Research & Search Rules\ndrop r\n### sub\ndrop too\n\n"
+           "## Coding And Shell Rules\nkeep c\n### Output shape\nkeep o\n\n## Active Skills\n\n# Cron Scheduling\ndrop\n## Actions\ndrop\n"
+           "# Skill Store\ndrop\n\n## Tool use discipline\nkeep t\n")
+
+    def test_should_drop_listed_sections_including_subsections_and_skill_block(self):
+        out = trim_system_prompt(self.SYS)
+        for kept in ("You are Octos.", "## Formatting Rules", "keep f", "## Coding And Shell Rules", "keep c", "keep o", "## Tool use discipline", "keep t"):
+            self.assertIn(kept, out)
+        for dropped in ("Research", "drop r", "drop too", "Cron Scheduling", "Skill Store", "## Actions"):
+            self.assertNotIn(dropped, out)
+
+    def test_should_leave_unknown_prompts_untouched(self):
+        self.assertEqual(trim_system_prompt("plain text\n## Something else\nbody"), "plain text\n## Something else\nbody")
+
+    def test_should_remove_unused_tools_and_keep_coding_tools(self):
+        body = json.dumps({"model": "m", "messages": [{"role": "system", "content": self.SYS}, {"role": "user", "content": "x"}],
+                           "tools": [{"type": "function", "function": {"name": n}} for n in ("spawn", "bash", "write_file", "update_plan", "read_file")]}).encode()
+        out = json.loads(trim_request(body))
+        self.assertEqual([t["function"]["name"] for t in out["tools"]], ["bash", "write_file", "read_file"])
+        self.assertNotIn("Research", out["messages"][0]["content"])
+        self.assertEqual(out["messages"][1]["content"], "x")
