@@ -112,10 +112,14 @@ def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | Non
 
 
 class LlmProxy:
-    def __init__(self, upstream_base: str, mode: str, log_path: Path | None = None, host: str = "127.0.0.1") -> None:
+    def __init__(self, upstream_base: str, mode: str, log_path: Path | None = None, host: str = "127.0.0.1",
+                 dump_dir: Path | None = None, dump_limit: int = 3) -> None:
         self.upstream = upstream_base.rstrip("/")
         self.mode = mode
         self.log_path = log_path
+        self.dump_dir = dump_dir      # OCTOS_ARC_PROXY_DUMP=1: first N request bodies for prefix analysis
+        self.dump_limit = dump_limit
+        self._dumped = 0
         self._lock = threading.Lock()
         proxy = self
 
@@ -130,6 +134,7 @@ class LlmProxy:
                 body = self.rfile.read(length) if length else b""
                 if method == "POST" and self.path.rstrip("/").endswith("/chat/completions"):
                     body = inject_reasoning(body, proxy.mode)
+                    proxy._dump(body)
                 headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
                 headers["Content-Length"] = str(len(body))
                 path = self.path
@@ -164,6 +169,16 @@ class LlmProxy:
         self.port = self.server.server_address[1]
         self.base_url = f"http://{host}:{self.port}/v1"
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def _dump(self, body: bytes) -> None:
+        if not self.dump_dir or self._dumped >= self.dump_limit:
+            return
+        try:
+            self.dump_dir.mkdir(parents=True, exist_ok=True)
+            self._dumped += 1
+            (self.dump_dir / f"request-{self._dumped:02d}.json").write_bytes(body)
+        except OSError:
+            pass
 
     def _log(self, payload: bytes, elapsed_ms: int, request_body: bytes = b"") -> None:
         if not self.log_path:

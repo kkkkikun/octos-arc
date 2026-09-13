@@ -1098,7 +1098,8 @@ class Flow:
         if mode == "passthrough" or not upstream.startswith("http"):
             return
         try:
-            self.llm_proxy = LlmProxy(upstream, mode, self.output_dir / ".arc" / "llm-usage.jsonl").start()
+            dump = (self.output_dir / ".arc" / "llm-requests") if os.environ.get("OCTOS_ARC_PROXY_DUMP") == "1" else None
+            self.llm_proxy = LlmProxy(upstream, mode, self.output_dir / ".arc" / "llm-usage.jsonl", dump_dir=dump).start()
         except OSError as exc:
             log(f"[proxy] could not start local LLM proxy ({exc}); using the endpoint directly")
             return
