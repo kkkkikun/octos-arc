@@ -94,8 +94,9 @@ class TestOutcome:
     ok: bool
     status: str
     duration_ms: int
-    file: str = ""
+    file: str = ""          # the SPEC file the test lives in (node ownership)
     line: int | None = None
+    location: str = ""      # where the error was raised (may be a helper file)
     message: str = ""
     steps: list[str] = field(default_factory=list)
 
@@ -132,11 +133,16 @@ def summarize_report(report: dict) -> RunSummary:
                 err = last.get("error") or (last.get("errors") or [{}])[0] or {}
                 loc = err.get("location") or {}
                 steps = [s.get("title", "") for s in last.get("steps", []) if s.get("title")]
+                loc_file = Path(loc.get("file") or "").name
+                # keep-local-4: failures raised inside support/e2e.ts were
+                # attributed to the helper, so no node owned them.
                 summary.results.append(TestOutcome(
                     title=spec.get("title", "?"), ok=ok, status=last.get("status", "unknown"),
                     duration_ms=int(sum(r.get("duration", 0) for r in results)),
-                    file=Path(loc.get("file") or spec.get("file") or file or "").name,
-                    line=loc.get("line"), message=_ANSI.sub("", str(err.get("message") or "")),
+                    file=Path(spec.get("file") or file or loc_file or "").name,
+                    line=loc.get("line"),
+                    location=f"{loc_file}:{loc.get('line')}" if loc_file and loc.get("line") else loc_file,
+                    message=_ANSI.sub("", str(err.get("message") or "")),
                     steps=steps))
             walk(suite.get("suites", []), file)
 
@@ -190,7 +196,9 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
             observation = (f"TIMED OUT after {r.duration_ms} ms (the grader kills a test at 10 s; the "
                            f"page or a request never settled). " + observation)
         observation = observation[:max_observation]
-        where = f"{r.file}:{r.line}" if r.line else (r.file or "?")
+        where = r.location or r.file or "?"
+        if r.location and r.file and not r.location.startswith(r.file):
+            where = f"{r.location} (called from {r.file})"
         steps_src = r.steps or _call_log_steps(r.message)
         steps = " -> ".join(steps_src[-max_steps:]) if steps_src else "(no step trace)"
         blocks.append(f"- Feature: {r.title}\n  Failed at: {where}\n  Observation: {observation}\n  Steps: {steps}")

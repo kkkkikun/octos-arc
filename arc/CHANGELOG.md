@@ -203,3 +203,5 @@ OCTOS_FINAL_REPAIR_ROUNDS=2     # 全套并行验收后的修复轮
 预计单题 keep：约 32 × 8 min ≈ 4 h 上限、多数节点一轮过则 2–3 h；费用按 TB 每节点 ≈ ¥1.0–1.25 推算 ≈ ¥30–40，低于单次 ¥50 阈值。先本机跑到底，看每节点耗时与 Token 再定其余五题。
 
 **keep-local-3 的校正**（C，2026-09-12）：按 480 s/节点跑到第 10 个节点，17 个实现/修复轮里 16 个在 283 s（0.6×预算）被截断，只有一轮正常结束；截断后剩余不到 200 s 的修复轮同样超时；grade-local 中途评分 8/32、79 min。Web 节点的实现轮需要 10–20 min。据此把默认 `OCTOS_SECONDS_PER_NODE` 从 480 改为 1500（实现轮 ≤ 900 s），新增 `OCTOS_MIN_REPAIR_SECONDS=300`：剩余不足 5 min 不再开修复轮而直接保留最优状态。另外超时的轮没有 `turn/completed`，`metrics.py` 改为从累计的 `token_cost_update` 取 Token 数（费用估算以平台计费为准）。
+
+**keep-local-4（C，main@803f14c3 + 1500 s/节点 + inline + 2 轮修复）：grade-local 32/32，5 h 01 min**，骨架 312 s，平均 519 s/节点，30 个节点首轮通过，4 个实现轮触顶 900 s，全套并行 28/32 → 一轮修复 → 32/32，内核累计费用 ¥5.42（平台按完整输入计费会更高）。暴露的 bug：全套失败「failing nodes []」——错误抛在 `support/e2e.ts` 时按错误位置归属文件，没有节点认领，修复轮只能拿全量信息。已改为按测试所在 spec 文件归属节点，摘要里同时给出错误位置（`e2e.ts:48 (called from REQ-2.3.1-x.spec.ts)`）。

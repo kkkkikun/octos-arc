@@ -179,3 +179,14 @@ class ProtectedTreeTests(unittest.TestCase):
         summary = summarize_report({"suites": [], "errors": [{"message": "SyntaxError: Unexpected token"}]})
         self.assertEqual(summary.total, 0)
         self.assertEqual(summary.load_errors, ["SyntaxError: Unexpected token"])
+
+
+class HelperLocationTests(unittest.TestCase):
+    def test_should_attribute_failure_raised_in_helper_to_the_spec_file(self):
+        rep = {"suites": [{"title": "REQ-2.3.1-x.spec.ts", "file": "REQ-2.3.1-x.spec.ts", "specs": [
+            {"title": "REQ-2.3.1: trash view", "file": "REQ-2.3.1-x.spec.ts", "tests": [{"status": "unexpected", "results": [
+                {"status": "failed", "duration": 900, "error": {"message": "boom", "location": {"file": "/w/tests/support/e2e.ts", "line": 48}}}]}]}]}]}
+        summary = summarize_report(rep)
+        grouped = nodes_for_failures(summary.results, {"REQ-2.3.1": ["REQ-2.3.1-x.spec.ts"], None: []})
+        self.assertEqual(list(grouped), ["REQ-2.3.1"])
+        self.assertIn("Failed at: e2e.ts:48 (called from REQ-2.3.1-x.spec.ts)", failure_summaries(summary))
