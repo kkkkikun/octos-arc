@@ -37,7 +37,7 @@ Environment (all optional):
     OCTOS_SKELETON_MIN_NODES  separate skeleton turn only for trees with at least this many nodes (3)
     OCTOS_SMALL_TASK_NODES    trees up to this size get the minimal self-verification text (2)
     OCTOS_VERIFY_MODE         auto (default) | minimal | full
-    OCTOS_ARC_REASONING       low (default) | medium | high | none | passthrough — DeepSeek reasoning via local proxy
+    OCTOS_ARC_REASONING       auto (default: none for <=1 node to implement, else low) | low | medium | high | none | passthrough
     OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
     OCTOS_ARC_TRIM_PROMPT     "0" keeps the kernel system prompt and all tool schemas (default: drop ARC-irrelevant sections/tools)
@@ -1141,7 +1141,12 @@ class Flow:
         """Front the model endpoint with llm_proxy so DeepSeek reasoning is
         capped (`OCTOS_ARC_REASONING`: low (default) | medium | high | none |
         passthrough) and exact per-request usage lands in .arc/llm-usage.jsonl."""
-        mode = os.environ.get("OCTOS_ARC_REASONING", "low")
+        mode = os.environ.get("OCTOS_ARC_REASONING", "auto")
+        if mode == "auto":
+            # Thinking off is safe for one-node builds and one-node evolutions
+            # (v10: Counter/Dice/Evolution all pass, completion 0.5-1.9k tokens)
+            # but TB repairs without thinking looped 22 calls with no write.
+            mode = "none" if getattr(self, "nodes_to_implement", 2) <= 1 else "low"
         upstream = os.environ.get("OPENAI_BASE_URL", "")
         if mode == "passthrough" or not upstream.startswith("http"):
             return
@@ -1560,6 +1565,7 @@ class Flow:
                 unchanged = unchanged_node_ids(ordered, previous)
                 log(f"[flow] evolution mode: existing app detected; unchanged nodes {sorted(unchanged)}, "
                     f"to implement {[i for i in node_ids if i not in unchanged]}")
+            self.nodes_to_implement = len([n for n in node_ids if n not in unchanged])
 
             self.tests_dir = locate_acceptance_tests(tree, BUNDLE_DIR)
             if self.tests_dir:
