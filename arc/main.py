@@ -712,7 +712,7 @@ Verify briefly before you finish — the harness runs the official acceptance te
 """
 
 VERIFY_MINIMAL = """\
-Do NOT start the server, curl, run node, or write your own tests — the harness builds the frontend, starts the backend and runs the official Playwright spec right after your turn and hands you any failure. Tool budget for this turn: at most 8 write_file/edit_file calls (one backend file backend/server.js plus at most 4 frontend files; write each file once, complete), at most 2 read_file calls, and exactly one shell command: `cd frontend && npm run build`. Do not list directories or re-read files you just wrote; the file listing above is authoritative.
+Do NOT start the server, curl, run node, or write your own tests — the harness builds the frontend, starts the backend and runs the official Playwright spec right after your turn and hands you any failure. Tool budget for this turn: at most 8 write_file/edit_file calls (one backend file backend/server.js plus at most 4 frontend files; write each file once, complete), at most 2 read_file calls, and exactly one shell command: `cd frontend && npm run build`. Batch: emit ALL write_file calls together in ONE response (parallel tool calls), then the single build command in the next response, then finish — every extra round trip resends the whole context and is billed. Do not list directories or re-read files you just wrote; the file listing above is authoritative.
 """
 
 PORT_RULES = """\
