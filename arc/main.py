@@ -721,7 +721,7 @@ UI_CONTRACT_CORE = """\
 UI contract (the hidden Playwright tests depend on these; a violation scores 0):
 - Buttons are real <button> elements, links are <a href>, every form control has a visible <label for=id>; their texts are copied VERBATIM from the requirement/spec (anchored regexes like /^name$/i reject "Full Name"). Use plain text/password/email inputs, native <select>/checkbox/radio; NEVER type="date"/"number". All controls exist in the served HTML itself and stay visible, enabled and editable at all times; no CSS transitions/animations and no JavaScript that re-renders or re-creates form controls after load (Playwright waits for elements to be "stable" — cloud run 954a231a3d23 timed out on a checkbox that kept changing).
 - No native HTML5 validation attributes; validate in JavaScript and show ONE inline error element (role="alert") naming the problem (required / invalid / match / terms / duplicate). On error stay on the page and create no record.
-- Strict mode: every echoed value (username, city, date) appears in EXACTLY ONE element per page; never both a short and a long form of one entity, never a per-field error plus a summary. Serve a SEPARATE HTML document per route (`/`, `/register`, `/login`, ...) — never several forms in one document with hidden views: hidden inputs and labels still collide in getByLabel/getByRole.
+- Strict mode: every echoed value (username, city, date) appears in EXACTLY ONE element per page; every link target appears in EXACTLY ONE <a> per page (one "Register" link, one "Login" link — never a nav link plus a call-to-action to the same href; the specs click `a[href="/register"]` and fail on two matches); never both a short and a long form of one entity, never a per-field error plus a summary. Serve a SEPARATE HTML document per route (`/`, `/register`, `/login`, ...) — never several forms in one document with hidden views: hidden inputs and labels still collide in getByLabel/getByRole.
 - State: persist ONLY what the requirement says is persisted and reproduce that seed on EVERY fresh start; a page's initial state (e.g. "the count is initially 0") is per-page-load client state, never a shared server value — the grader runs several test files in parallel against ONE server.
 - Zero external requests (no CDN, fonts, analytics); assets small and same-origin.
 - Text only: never OCR reference images. Write files in your first actions.
@@ -1335,7 +1335,7 @@ class Flow:
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
             for line in (failures or "").splitlines():
                 if line.strip().startswith("Observation:"):
-                    log(f"[acceptance]   {line.strip()[:220]}")
+                    log(f"[acceptance]   {' '.join(line.strip().split())[:360]}")
             if summary.total and passed == summary.total:
                 self.commit(f"{node_id} (accepted): {passed}/{summary.total} acceptance tests pass")
                 return True
