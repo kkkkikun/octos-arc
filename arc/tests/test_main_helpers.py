@@ -1,6 +1,6 @@
 import unittest
 
-from main import OctosDriver, describe_node, folder_descendants, inline_spec_text, unchanged_node_ids
+from main import OctosDriver, describe_node, folder_descendants, inline_sources, inline_spec_text, unchanged_node_ids
 
 
 def node(node_id, description, deps=()):
@@ -99,3 +99,17 @@ class InlineSpecTests(unittest.TestCase):
             self.assertIn("--- REQ-1.spec.ts ---\nspec body", text)
             self.assertIn("--- support/e2e.ts ---\nhelper", text)
             self.assertEqual(inline_spec_text(tests, ["REQ-1.spec.ts", "support/e2e.ts"], 10), "")
+
+
+class InlineSourcesTests(unittest.TestCase):
+    def test_should_quote_small_files_and_omit_those_over_budget(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); (root / "backend").mkdir(); (root / "frontend" / "src").mkdir(parents=True)
+            (root / "backend" / "server.js").write_text("x" * 100); (root / "frontend" / "src" / "index.html").write_text("<p>hi</p>")
+            (root / "frontend" / "node_modules").mkdir(); (root / "frontend" / "node_modules" / "a.js").write_text("no")
+            text = inline_sources(root, max_chars=50)
+            self.assertIn("--- frontend/src/index.html ---\n<p>hi</p>", text)
+            self.assertIn("backend/server.js --- (omitted, 100 chars", text)
+            self.assertNotIn("node_modules", text)

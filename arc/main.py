@@ -44,6 +44,7 @@ Environment (all optional):
     OCTOS_ARC_DROP_SHELL      "0" leaves bash/shell available in minimal-verification turns (default: removed)
     OCTOS_ARC_IMPLEMENT_REQUESTS / OCTOS_ARC_REPAIR_REQUESTS  hard per-turn request caps enforced at the proxy (12 for small tasks / 10; 0 = off)
     OCTOS_ARC_REWRITE_ON_ZERO "0" disables the single full-rewrite turn when round 0 passes nothing
+    OCTOS_ARC_INLINE_SOURCE_CHARS  budget for quoting the app's sources into repair/rewrite prompts (40000; 0 = off)
     OCTOS_SESSION_SCOPE       turn (default) | node | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
@@ -300,6 +301,34 @@ def unchanged_node_ids(nodes: list[dict], previous: dict[str, dict]) -> set[str]
         if prev and node_fingerprint(prev) == node_fingerprint(node):
             out.add(str(node.get("id")))
     return out
+
+
+def inline_sources(output_dir: Path, max_chars: int = 40000) -> str:
+    """Quote the app's source files (frontend sources, backend JS) so a repair
+    turn edits immediately instead of spending its request budget on reads.
+    Bounded; largest files first are skipped when they would not fit."""
+    files: list[Path] = []
+    for part in ("frontend", "backend"):
+        base = output_dir / part
+        if base.is_dir():
+            for path in sorted(base.rglob("*")):
+                rel = path.relative_to(output_dir)
+                if any(seg in ("node_modules", "dist", ".git", "data") for seg in rel.parts):
+                    continue
+                if path.is_file() and path.suffix in (".js", ".mjs", ".cjs", ".html", ".css", ".json"):
+                    files.append(path)
+    parts, total = [], 0
+    for path in sorted(files, key=lambda p: p.stat().st_size):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if total + len(text) > max_chars:
+            parts.append(f"--- {path.relative_to(output_dir)} --- (omitted, {len(text)} chars; read it if you must change it)\n")
+            continue
+        total += len(text)
+        parts.append(f"--- {path.relative_to(output_dir)} ---\n{text.rstrip()}\n")
+    return ("Current source files (quoted; edit them directly, no need to read):\n" + "".join(parts)) if parts else ""
 
 
 def source_listing(output_dir: Path, limit: int = 60) -> str:
@@ -790,7 +819,7 @@ Read the files you need before changing them, keep every existing route, label a
 REPAIR_PROMPT = """\
 The official acceptance tests for requirement node {node_id} just ran against your app: {passed}/{total} passed. Failing tests (Feature / where it failed / what was observed / the last steps before failure):
 {failures}
-{corrections}{slow}
+{corrections}{slow}{sources}
 Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. You have about 10 requests: in the FIRST response read at most two files (only the ones you will change), in the SECOND response emit every edit_file/write_file call together, then finish — do not read more files afterwards. No shell commands. The harness rebuilds and re-runs the official tests right after your turn. The spec files are read-only ground truth.
 """ + PORT_RULES
 
@@ -971,6 +1000,10 @@ class Flow:
         if self.tests_dir:
             prefixes.append(str(self.tests_dir))
         return prefixes
+
+    def sources_text(self) -> str:
+        limit = int(os.environ.get("OCTOS_ARC_INLINE_SOURCE_CHARS", "40000"))
+        return inline_sources(self.output_dir, limit) + "\n" if limit > 0 else ""
 
     def corrections_text(self) -> str:
         if not self.pending_corrections:
@@ -1294,7 +1327,8 @@ class Flow:
                 continue
             prompt = REPAIR_PROMPT.format(node_id=node_id, passed=passed, total=summary.total,
                                           failures=failures or "(no detail)", corrections=self.corrections_text(),
-                                          slow=slow_text, smoke=self.smoke_port, port=self.web_port)
+                                          slow=slow_text, smoke=self.smoke_port, port=self.web_port,
+                                          sources=self.sources_text())
             self.turn(prompt, min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}")
         if best_passed > 0 and best_sha and self.head() != best_sha:
             self.restore_app(best_sha)
@@ -1420,8 +1454,9 @@ class Flow:
 
         def rebuild_prompt(failures: str) -> str:
             return (prompt + "\nYOUR PREVIOUS ATTEMPT FAILED EVERY ACCEPTANCE TEST — the failures (Feature / where / "
-                    "observation / steps):\n" + failures + "\nRewrite the files for this node completely (full "
-                    "write_file for each file, not edits), fixing the root causes above.\n")
+                    "observation / steps):\n" + failures + "\n" + self.sources_text()
+                    + "Rewrite the files for this node completely (full write_file for each file, not edits), "
+                    "fixing the root causes above.\n")
 
         verdict = self.acceptance_loop(node_id, specs, deadline, rebuild_prompt=rebuild_prompt)
         self.test_verdict[node_id] = verdict
@@ -1513,6 +1548,7 @@ class Flow:
             failing = sorted(k for k in grouped if k) or ["all nodes"]
             prompt = REPAIR_PROMPT.format(
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
+                sources=self.sources_text(),
                 corrections=self.corrections_text() + "The grader runs all spec files IN PARALLEL against one "
                 "server; tests from different files must not interfere through shared server state "
                 "(e.g. a counter that every browser session shares). Keep persisted data only where the "
