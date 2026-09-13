@@ -38,6 +38,7 @@ Environment (all optional):
     OCTOS_SMALL_TASK_NODES    trees up to this size get the minimal self-verification text (2)
     OCTOS_VERIFY_MODE         auto (default) | minimal | full
     OCTOS_ARC_REASONING       low (default) | medium | high | none | passthrough — DeepSeek reasoning via local proxy
+    OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
     OCTOS_SESSION_SCOPE       node (default) | turn | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
@@ -800,8 +801,30 @@ Fix the project so this sequence works (typical causes: a require() path that do
 """
 
 ACCEPTANCE_TESTS_PROMPT = """\
-OFFICIAL ACCEPTANCE TESTS (ground truth; when prose and spec disagree, the spec wins) live under {tests_dir}. Files: {files}. Read them and their support helpers before writing code: they define routes, hrefs, accessible names, option labels, exact texts, error wording and action order. Never modify, copy or delete them.
+OFFICIAL ACCEPTANCE TESTS (ground truth; when prose and spec disagree, the spec wins) live under {tests_dir}. Files: {files}. They define routes, hrefs, accessible names, option labels, exact texts, error wording and action order. Never modify, copy or delete them.
 """
+
+INLINE_SPEC_HEADER = """\
+The spec files are quoted below in full — do NOT spend tool calls reading them or the requirement again:
+"""
+
+
+def inline_spec_text(tests_dir: Path, files: list[str], max_chars: int) -> str:
+    """Quote spec + helper files into the prompt (bounded). Each read_file the
+    model would otherwise issue is a full-context round trip (~11k tokens)."""
+    parts = []
+    total = 0
+    for rel in files:
+        path = tests_dir / rel
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if total + len(text) > max_chars:
+            return ""  # too big to inline; let the model read selectively
+        total += len(text)
+        parts.append(f"--- {rel} ---\n{text.rstrip()}\n")
+    return INLINE_SPEC_HEADER + "".join(parts) if parts else ""
 
 
 def locate_acceptance_tests(tree: dict, bundle_dir: Path) -> Path | None:
@@ -849,12 +872,14 @@ def spec_base_ports(tests_dir: Path | None) -> list[int]:
 
 
 def acceptance_tests_prompt(tests_dir: Path | None, web_port: int, smoke_port: int,
-                            files: list[str] | None = None) -> str:
+                            files: list[str] | None = None, inline: bool = False) -> str:
     if not tests_dir:
         return ""
     if files is None:
         files = sorted(str(p.relative_to(tests_dir)) for p in tests_dir.rglob("*.ts"))
     text = ACCEPTANCE_TESTS_PROMPT.format(tests_dir=tests_dir, files=", ".join(files[:40]) or "(none)")
+    if inline:
+        text += inline_spec_text(tests_dir, files, int(os.environ.get("OCTOS_ARC_INLINE_SPEC_CHARS", "24000")))
     extra = [p for p in spec_base_ports(tests_dir) if p != web_port]
     if extra:
         ports = ", ".join(map(str, extra))
@@ -999,7 +1024,8 @@ class Flow:
                          if not p.name.endswith(".spec.ts"))
         if not files:  # node without its own spec: show everything
             files = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
-        return acceptance_tests_prompt(self.tests_dir, self.web_port, self.smoke_port, files + support)
+        return acceptance_tests_prompt(self.tests_dir, self.web_port, self.smoke_port, files + support,
+                                       inline=os.environ.get("OCTOS_ARC_INLINE_SPECS", "1") != "0")
 
     def ancestors_text(self, node_id: str, ordered: list[dict]) -> str:
         anc = ancestors_of(node_id, ordered)

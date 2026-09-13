@@ -1,6 +1,6 @@
 import unittest
 
-from main import OctosDriver, describe_node, folder_descendants, unchanged_node_ids
+from main import OctosDriver, describe_node, folder_descendants, inline_spec_text, unchanged_node_ids
 
 
 def node(node_id, description, deps=()):
@@ -86,3 +86,16 @@ class SetupPlaywrightTests(unittest.TestCase):
             self.assertTrue(private.exists())
             flow.cleanup_playwright()
             self.assertFalse(private.exists())
+
+
+class InlineSpecTests(unittest.TestCase):
+    def test_should_quote_files_within_budget_and_bail_when_too_big(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            tests = Path(tmp); (tests / "support").mkdir()
+            (tests / "REQ-1.spec.ts").write_text("spec body"); (tests / "support" / "e2e.ts").write_text("helper")
+            text = inline_spec_text(tests, ["REQ-1.spec.ts", "support/e2e.ts"], 1000)
+            self.assertIn("--- REQ-1.spec.ts ---\nspec body", text)
+            self.assertIn("--- support/e2e.ts ---\nhelper", text)
+            self.assertEqual(inline_spec_text(tests, ["REQ-1.spec.ts", "support/e2e.ts"], 10), "")
