@@ -763,7 +763,10 @@ Implement requirement node {node_id} in the existing application (frontend/ buil
 NODE_PREAMBLE_CREATE = """\
 Build a full-stack web application in the current working directory that implements requirement node {node_id} (the whole requirement tree is at {req_dir}; further nodes, if any, come in later turns — leave room for them but implement only this one).
 
-""" + ARCHITECTURE_CONTRACT
+""" + ARCHITECTURE_CONTRACT + """
+Mandatory files (all in this turn): frontend/package.json (with the `build` script), the frontend page sources plus the tiny build script that fills frontend/dist/, backend/package.json (with the `start` script, empty dependencies) and backend/server.js.
+"""
+
 
 INLINE_DESIGN_NOTE = """\
 Before writing code, write your design for this node as ONE JSON object to .arc/design/{node_id}.json ({{"routes": [...], "pages": [{{"path", "elements": [{{"role", "name"}}]}}], "data_model": {{}}, "files": [...], "notes": ""}}; accessible names copied verbatim from the specs), then implement it.
@@ -1332,7 +1335,12 @@ class Flow:
         ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
         timed_out = (not ok) and "timed out" in text.lower()
         if ok and not self.has_app():
-            ok, text = False, "turn ended without frontend/package.json and backend/package.json on disk"
+            # v6-counter: one package.json missing after the turn. Do not give
+            # up — the acceptance loop's build error becomes the repair prompt.
+            log(f"[flow] {node_id}: app layout incomplete after the turn; acceptance loop will drive the repair")
+            self.pending_corrections.append(
+                "Your turn ended without both frontend/package.json and backend/package.json (with `build` and "
+                "`start` scripts) on disk; the harness could not even build the app. Create the missing files.")
         if not ok and not timed_out:
             self.mark("implementation_failed", node_id, text[-500:])
             self.impl_failed.append(node_id)
@@ -1406,8 +1414,10 @@ class Flow:
         if self.runner is None or not self.tests_dir:
             return
         all_specs = sorted(str(p.relative_to(self.tests_dir)) for p in self.tests_dir.rglob("*.spec.ts"))
-        if len(all_specs) < 2:
-            return
+        unverified = [n for n, v in self.test_verdict.items() if v is not True] or \
+            [n for n in self.spec_map if n and self.spec_map[n] and n not in self.test_verdict]
+        if len(all_specs) < 2 and not unverified:
+            return  # single spec already judged by the node run
         rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "2"))
         workers = int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4"))
         previous_failing: set[str] | None = None
