@@ -272,3 +272,17 @@ OCTOS_FINAL_REPAIR_ROUNDS=2     # 全套并行验收后的修复轮
 **云端 v6（main@2363aadd，C 运行）**：smoke--dice fab88d27c1d0 1 请求 / 2,999 tokens / ¥0.061 / 19 s（榜首 ¥0.07）；smoke-evolution counter/dice 2/2、¥0.164 / ¥0.165；smoke--counter 91aaecaf31af **0/1**（单响应模式三轮同一失败：初始计数未在 HTML 中直接给出，toHaveText 超时）；TB 2e4802e9cb97 9/10、¥1.668（REQ-1.2 第 16 行 evaluate 超时；首轮 0/6 → 重写 → 修复，22 请求、推理 27k）。
 
 **第六版**（`f2df6005`）：两轮同一失败摘要 → 该节点修复切回工具模式并注入换方法纠正；Observation 900 字符（含 Expected/Received/Locator）；UI 契约新增：初始状态直接在服务端 HTML 里、每个链接目标每页只一个 <a>、页面服务端渲染且加载后无 XHR、无过渡动画与表单重建。本机（arc.11 内核）：Counter codegen ×2 各 1 请求 / ~3.5k tokens / 11 s / 1/1；TB x3-a 36 请求 10/10（首轮 4/6，4 轮修复）、x3-b 20 请求 10/10（两节点首轮全过）。TB 首轮通过率在加入「一个链接一个 <a>」后两次分别 4/6、6/6（此前多为 0/6）。
+
+## 云端结论（2026-09-13，main@027c2456，C 串行、key 空闲）
+
+平台按 API key 计量；此前本机验证与云端共用同一把 key，云端账单被高估 4–12 倍。串行、key 空闲下的五题：
+
+| 题 | 运行 | 结果 | 平台费用 | 耗时 | 真实 agent 榜首 |
+|---|---|---|---|---|---|
+| smoke--counter | 1365151c2cf7 | 1/1 | ¥0.0194（3,721 token） | 23 s | Smoke 提交合计 ¥0.039 vs 榜首 ¥0.07 |
+| smoke--dice | 549b16afca23 | 1/1 | ¥0.0199 | 23 s | |
+| smoke-evolution--counter | 96e2c8aaac3d | 2/2 | ¥0.0487 | 38 s | Evolution 合计 ¥0.090 vs 榜首 ¥0.20 |
+| smoke-evolution--dice | 497502f1aefd | 2/2 | ¥0.0416 | 37 s | |
+| ticket-booking | 060a3debc450 | 9/10，功能 1/2 | ¥0.365 | 216 s | 榜首 90% / ¥0.81；同通过率下费用更低 |
+
+对照第一阶段起点（榜上旧条目）：Smoke ¥2.66 / 234 s → ¥0.019 / 23 s；Evolution ¥1.15 / 190 s → ¥0.045 / 38 s；TB ¥1.99 / 1,051 s（9/10）→ ¥0.365 / 216 s（9/10）。TB 10/10 仍是目标：本机连续 10/10，云端 9/10 的失败每次不同（Target crashed、复选框不 stable、evaluate 超时），集中在平台 512 MiB / 2 worker 的评测环境；本轮已加入服务端渲染、无 XHR、无动画、崩溃兜底与 favicon 探测。
