@@ -79,6 +79,12 @@ def summarize(output_dir: Path) -> dict:
         node_states = {k: v.get("state") for k, v in json.loads((arc / "traceability" / "node_states.json").read_text()).items()}
     except (OSError, json.JSONDecodeError, AttributeError):
         pass
+    billed = {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "cache_hit": 0}
+    for rec in _iter_jsonl(arc / "llm-usage.jsonl"):
+        billed["requests"] += 1
+        billed["prompt_tokens"] += int(rec.get("prompt_tokens") or 0)
+        billed["completion_tokens"] += int(rec.get("completion_tokens") or 0)
+        billed["cache_hit"] += int(rec.get("prompt_cache_hit_tokens") or 0)
     grade = None
     grade_file = arc / "local-grade.json"
     if grade_file.is_file():
@@ -91,7 +97,7 @@ def summarize(output_dir: Path) -> dict:
         "tokens_in": tokens_in, "tokens_out": tokens_out,
         "tokens_in_all": sum(in_by_session.values()), "tokens_out_all": sum(out_by_session.values()),
         "cost": round(sum(cost_by_session.values()), 6), "duration_s": duration,
-        "node_states": node_states, "last_events": states, "grade": grade,
+        "node_states": node_states, "last_events": states, "grade": grade, "billed": billed,
     }
 
 
@@ -105,8 +111,10 @@ def main(argv: list[str]) -> int:
         return 0
     g = data["grade"] or {}
     grade = f"{g.get('passed')}/{g.get('total')}" if g else "n/a"
+    b = data["billed"]
     print(f"| {Path(data['output_dir']).name} | {data['turns']} | {data['tokens_in_all']} | {data['tokens_out_all']} | "
-          f"{data['cost']} | {data['duration_s']} | {grade} | {data['node_states']} |")
+          f"{data['cost']} | {data['duration_s']} | {grade} | {data['node_states']} | "
+          f"billed req={b['requests']} prompt={b['prompt_tokens']} (cache {b['cache_hit']}) completion={b['completion_tokens']} |")
     return 0
 
 

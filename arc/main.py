@@ -32,7 +32,12 @@ Environment (all optional):
     OCTOS_NODE_TIME_BUDGET    cap per node incl. repairs (default 1500)
     OCTOS_REPAIR_ROUNDS       K, acceptance repair rounds per node (default 5)
     OCTOS_DESIGN_TURN         "0" disables the design turn
-    OCTOS_DESIGN_MODE         separate (default) | inline (design JSON written inside the implement turn)
+    OCTOS_DESIGN_MODE         inline (default) | separate (own read-only design turn)
+    OCTOS_DESIGN_MIN_NODES    design only for trees with at least this many nodes (3)
+    OCTOS_SKELETON_MIN_NODES  separate skeleton turn only for trees with at least this many nodes (3)
+    OCTOS_SMALL_TASK_NODES    trees up to this size get the minimal self-verification text (2)
+    OCTOS_VERIFY_MODE         auto (default) | minimal | full
+    OCTOS_ARC_REASONING       low (default) | medium | high | none | passthrough — DeepSeek reasoning via local proxy
     OCTOS_SESSION_SCOPE       node (default) | turn | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
@@ -66,6 +71,7 @@ from acceptance import (  # noqa: E402
     restore_worktree, snapshot_worktree, tree_digest,
 )
 from guard import TurnMonitor  # noqa: E402
+from llm_proxy import LlmProxy  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, topo_order  # noqa: E402
 
 BUNDLE_DIR = Path(__file__).resolve().parent
@@ -667,22 +673,28 @@ class OctosDriver:
 # Prompt text is deliberately static (no timestamps, fixed section order) so
 # that identical turns share the provider's prefix cache.
 
-UI_CONTRACT = """\
+UI_CONTRACT_CORE = """\
 UI contract (the hidden Playwright tests depend on these; a violation scores 0):
-- Form fields are plain <input type="text"|"password"|"email"> or native <select>/<input type=checkbox|radio>; NEVER type="date"/"number". Every control has a visible <label for=id> whose text is the field's exact name from the requirement/spec — anchored regexes like /^name$/i reject "Full Name" or "Your Name". Every control is present in the served HTML itself (no form built by JavaScript after a fetch) and stays visible, enabled and editable at all times — never disable inputs or the submit button while a request is in flight (cloud run ab4c98a6cb17: a parallel worker waited 10 s for 证件号码 to become editable).
-- Buttons are real <button> elements and links are <a href> elements carrying the EXACT visible text from the requirement/spec (e.g. "Register", "Login", "Sign out", "下一步"). Headings/option labels/messages are copied verbatim too.
-- Concrete example values in the requirement (seed records, option labels, sample accounts, nationalities, seat classes) are FIXTURE DATA: they must exist verbatim as <option>s / seed rows. When a control's values are described but not listed, offer a broad standard set.
-- No native HTML5 validation (no required/pattern/min/max attributes). Validate in JavaScript and show ONE inline error element (role="alert") whose text names the problem with words like required / invalid / match / terms / duplicate / already exists. On error stay on the page, keep the anonymous header, create no record.
-- Strict mode: every echoed value (username, city, date, station) appears in EXACTLY ONE visible element per page. Never render both a short and a long form of one entity, never a per-field error plus a summary error.
-- Sessions: after register/login navigate to `/`, show the exact username in one element and a "Sign out" link; the session survives reload.
-- State: persist ONLY what the requirement says is persisted (accounts, sessions, orders, published records) and reproduce that seed on EVERY fresh start; never ship mutated runtime data. Anything the requirement describes as a page's initial state (e.g. "the count is initially 0") is per-page-load client state, never a shared server value — the grader runs several test files in parallel against ONE server, so tests must not see each other's mutations.
-- Text only: never OCR reference images or install tools for that.
-- Write files in your first actions; a turn that only analyses is a failed turn.
+- Buttons are real <button> elements, links are <a href>, every form control has a visible <label for=id>; their texts are copied VERBATIM from the requirement/spec (anchored regexes like /^name$/i reject "Full Name"). Use plain text/password/email inputs, native <select>/checkbox/radio; NEVER type="date"/"number". All controls exist in the served HTML itself and stay visible, enabled and editable at all times.
+- No native HTML5 validation attributes; validate in JavaScript and show ONE inline error element (role="alert") naming the problem (required / invalid / match / terms / duplicate). On error stay on the page and create no record.
+- Strict mode: every echoed value (username, city, date) appears in EXACTLY ONE visible element per page; never both a short and a long form of one entity, never a per-field error plus a summary.
+- State: persist ONLY what the requirement says is persisted and reproduce that seed on EVERY fresh start; a page's initial state (e.g. "the count is initially 0") is per-page-load client state, never a shared server value — the grader runs several test files in parallel against ONE server.
+- Zero external requests (no CDN, fonts, analytics); assets small and same-origin.
+- Text only: never OCR reference images. Write files in your first actions.
 """
+
+UI_CONTRACT_DATA = """\
+- Concrete example values in the requirement (seed records, option labels, sample accounts, nationalities, seat classes) are FIXTURE DATA: they must exist verbatim as <option>s / seed rows. When a control's values are described but not listed, offer a broad standard set.
+"""
+
+UI_CONTRACT_SESSION = """\
+- Sessions: after register/login navigate to `/`, show the exact username in one element and a "Sign out" link; the session survives reload. Failed login/registration shows one generic error, keeps the anonymous header, creates nothing.
+"""
+
+UI_CONTRACT = UI_CONTRACT_CORE + UI_CONTRACT_DATA + UI_CONTRACT_SESSION  # full set (multi-node tasks)
 
 PERFORMANCE_CONTRACT = """\
 Performance & robustness (the grader is a slow container, tests run in parallel, EACH TEST HAS A 10 s BUDGET including reloads):
-- Zero external requests: no CDN scripts, web fonts, analytics, or images from other hosts; every asset is same-origin and small, so `load` fires within ~200 ms.
 - The grader CPU is 5–10x slower than a laptop and runs 4 browsers at once, so budget CPU per request at 30 ms: hash passwords with crypto.scryptSync(password, salt, 64, {N: 4096, r: 8, p: 1}) or pbkdf2Sync with <= 10000 iterations — never the default scrypt cost, never bcrypt; keep the JSON store small and rewrite it only on mutation.
 - Session cookie: HttpOnly; Path=/; SameSite=Lax; Max-Age at least 7 days; NO `Secure`, NO `Domain` attribute (tests run on http://127.0.0.1). On reload restore the signed-in header from that cookie with at most ONE same-origin request (or render it server-side).
 - Persistence: the in-memory store is the single source of truth; never re-read the JSON file per request. Mutations update memory first and then write the whole file synchronously (writeFileSync to a temp file, then rename) — never an async read-modify-write, because the grader runs 2–4 test files in parallel against ONE backend and a concurrent register/login pair must never lose a user. No setTimeout delays, polling, service workers, beforeunload handlers, or debounced writes.
@@ -693,6 +705,14 @@ Architecture (the runner depends on this EXACT layout; violation = 0 score):
 - frontend/ — package.json with a working `npm run build` that produces frontend/dist/ (a plain HTML/CSS/JS app plus a tiny Node copy script is ideal; no TypeScript, no framework needed).
 - backend/  — Node.js, package.json with `npm run start`, ZERO npm dependencies: `http.createServer` + a hand-written router, `fs`, `path`, `url`, `crypto` only. It reads PORT (default {port}), serves frontend/dist/ at `/` and JSON APIs under /api/. Persistence is a JSON file (backend/data/db.json) loaded at startup and rewritten on every mutation. Never better-sqlite3/sqlite3/bcrypt or any native module.
 - If a package is truly unavoidable, install it only with `npm install --registry=https://registry.npmmirror.com <pkg>` and write `registry=https://registry.npmmirror.com` into that folder's .npmrc.
+"""
+
+VERIFY_FULL = """\
+Verify briefly before you finish — the harness runs the official acceptance tests for this node right after your turn and hands you the failures, so do not build your own test suite: `npm run build` in frontend/, start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`, one curl per new endpoint (one success, one error case), stop the server.
+"""
+
+VERIFY_MINIMAL = """\
+Do NOT start the server, curl, or write your own tests — the harness builds the frontend, starts the backend and runs the official Playwright spec right after your turn and hands you any failure. Finish in as few tool calls as possible: write each file with one write_file call, do not re-read files you just wrote, run `npm run build` in frontend/ once, then stop.
 """
 
 PORT_RULES = """\
@@ -731,8 +751,8 @@ NODE_PROMPT = """\
 {node_spec}
 {design}{ancestors}
 {tests}
-""" + UI_CONTRACT + """{performance}
-Verify briefly before you finish — the harness runs the official acceptance tests for this node right after your turn and hands you the failures, so do not build your own test suite: `npm run build` in frontend/, start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`, one curl per new endpoint (one success, one error case), stop the server.
+{ui}{performance}
+{verify}
 """ + PORT_RULES
 
 NODE_PREAMBLE_EXTEND = """\
@@ -740,7 +760,7 @@ Implement requirement node {node_id} in the existing application (frontend/ buil
 """
 
 NODE_PREAMBLE_CREATE = """\
-Build a full-stack web application in the current working directory that implements requirement node {node_id} (the whole requirement tree is at {req_dir}; this is its only feature node).
+Build a full-stack web application in the current working directory that implements requirement node {node_id} (the whole requirement tree is at {req_dir}; further nodes, if any, come in later turns — leave room for them but implement only this one).
 
 """ + ARCHITECTURE_CONTRACT
 
@@ -758,7 +778,7 @@ REPAIR_PROMPT = """\
 The official acceptance tests for requirement node {node_id} just ran against your app: {passed}/{total} passed. Failing tests (Feature / where it failed / what was observed / the last steps before failure):
 {failures}
 {corrections}{slow}
-Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. Reproduce the failing behaviour first (curl the endpoint or fetch the page on port {smoke}), fix the root cause, rebuild the frontend, re-check with one curl, stop your server. The harness re-runs the official tests right after your turn. The spec files are read-only ground truth.
+Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. Read the failing assertion in the spec, fix the root cause with as few tool calls as possible, run `npm run build` in frontend/ once. The harness re-runs the official tests right after your turn; do not start servers or write your own tests. The spec files are read-only ground truth.
 """ + PORT_RULES
 
 FINAL_CHECK_PROMPT = """\
@@ -767,7 +787,7 @@ Final end-to-end check of the web application in the current directory:
 2. Kill leftover servers, start the backend with `ARC_EXTRA_PORTS=0 PORT={smoke} npm start`, confirm `curl http://127.0.0.1:{smoke}/` serves the app and every API endpoint answers (success and error cases).
 3. Audit every page against the contracts below and fix violations; run a mechanical strict-mode check: for each value the pages echo, count the elements containing it (`curl -s <page> | grep -o '<value>' | wc -l` for server-rendered pages, or read the render code) — the count must be 1.
 {tests}
-""" + UI_CONTRACT + """{performance}
+{ui}{performance}
 """ + PORT_RULES
 
 REHEARSAL_REPAIR_PROMPT = """\
@@ -869,10 +889,12 @@ class Flow:
         self.node_budget_cap = int(os.environ.get("OCTOS_NODE_TIME_BUDGET", "1500"))
         self.repair_rounds = int(os.environ.get("OCTOS_REPAIR_ROUNDS", "5"))
         self.design_enabled = os.environ.get("OCTOS_DESIGN_TURN", "1") != "0"
-        self.design_min_nodes = int(os.environ.get("OCTOS_DESIGN_MIN_NODES", "2"))
+        self.design_min_nodes = int(os.environ.get("OCTOS_DESIGN_MIN_NODES", "3"))
+        self.skeleton_min_nodes = int(os.environ.get("OCTOS_SKELETON_MIN_NODES", "3"))
+        self.small_task_nodes = int(os.environ.get("OCTOS_SMALL_TASK_NODES", "2"))
         # "separate": own read-only turn before implementing; "inline": the
         # implement turn writes .arc/design/<node>.json first, then codes.
-        self.design_mode = os.environ.get("OCTOS_DESIGN_MODE", "separate")
+        self.design_mode = os.environ.get("OCTOS_DESIGN_MODE", "inline")
         self.implement_fraction = float(os.environ.get("OCTOS_IMPLEMENT_FRACTION", "0.6"))
         self.alias_states = os.environ.get("OCTOS_ARC_ALIAS_SPEC_IDS", "1") != "0"
         self.perf_contract = os.environ.get("OCTOS_PERF_CONTRACT", "1") != "0"
@@ -939,7 +961,26 @@ class Flow:
         return ok, text
 
     def perf_text(self) -> str:
-        return PERFORMANCE_CONTRACT if self.perf_contract else ""
+        return PERFORMANCE_CONTRACT if self.perf_contract and self.needs_session else ""
+
+    def classify_tree(self, tree: dict) -> None:
+        """Keyword-gate the optional contract blocks so a counter never reads
+        session/hashing rules; the hidden specs only test what the tree says."""
+        text = json.dumps(tree, ensure_ascii=False).lower()
+        self.needs_session = bool(re.search(r"login|log in|sign in|password|session|register|注册|登录|密码|会话", text))
+        self.needs_data = bool(re.search(r"seed|published|fixture|option|select|dropdown|nationalit|车次|train|选项|下拉|预置", text))
+
+    def ui_contract(self) -> str:
+        blocks = [UI_CONTRACT_CORE]
+        if getattr(self, "needs_data", True):
+            blocks.append(UI_CONTRACT_DATA)
+        if getattr(self, "needs_session", True):
+            blocks.append(UI_CONTRACT_SESSION)
+        return "".join(blocks)
+
+    def verify_text(self, total_nodes: int) -> str:
+        minimal = total_nodes <= self.small_task_nodes and os.environ.get("OCTOS_VERIFY_MODE", "auto") != "full"
+        return VERIFY_MINIMAL if minimal or os.environ.get("OCTOS_VERIFY_MODE") == "minimal" else VERIFY_FULL.format(smoke=self.smoke_port)
 
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
         if not self.tests_dir:
@@ -1047,6 +1088,27 @@ class Flow:
                 log(f"[guard] restored {len(fixed)} protected file(s) under {live}: {fixed[:5]}")
                 fixed_all.extend(f"{live}/{rel}" for rel in fixed)
         return fixed_all
+
+    def start_llm_proxy(self) -> None:
+        """Front the model endpoint with llm_proxy so DeepSeek reasoning is
+        capped (`OCTOS_ARC_REASONING`: low (default) | medium | high | none |
+        passthrough) and exact per-request usage lands in .arc/llm-usage.jsonl."""
+        mode = os.environ.get("OCTOS_ARC_REASONING", "low")
+        upstream = os.environ.get("OPENAI_BASE_URL", "")
+        if mode == "passthrough" or not upstream.startswith("http"):
+            return
+        try:
+            self.llm_proxy = LlmProxy(upstream, mode, self.output_dir / ".arc" / "llm-usage.jsonl").start()
+        except OSError as exc:
+            log(f"[proxy] could not start local LLM proxy ({exc}); using the endpoint directly")
+            return
+        os.environ["OPENAI_BASE_URL"] = self.llm_proxy.base_url
+        log(f"[proxy] LLM requests via {self.llm_proxy.base_url} -> {upstream} (reasoning={mode})")
+
+    def stop_llm_proxy(self) -> None:
+        proxy = getattr(self, "llm_proxy", None)
+        if proxy:
+            proxy.stop()
 
     def cleanup_playwright(self) -> None:
         private = getattr(self, "private_playwright", None)
@@ -1215,7 +1277,7 @@ class Flow:
         prompt = NODE_PROMPT.format(node_id=node_id, node_spec=describe_node(node), design=design_text,
                                     preamble=preamble, ancestors=self.ancestors_text(node_id, ordered),
                                     tests=self.tests_prompt_for(node_id), smoke=self.smoke_port, port=self.web_port,
-                                    performance=self.perf_text())
+                                    performance=self.perf_text(), ui=self.ui_contract(), verify=self.verify_text(total))
         prompt = self.corrections_text() + prompt
         implement_timeout = min(self.node_timeout, self.implement_fraction * node_budget, deadline - time.time())
         ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
@@ -1402,6 +1464,7 @@ class Flow:
             ordered = topo_order(tree)
             if not ordered:
                 raise ValueError("no ATOMIC requirement nodes found")
+            self.classify_tree(tree)
             node_ids = [str(n.get("id")) for n in ordered]
             if not self.budget_explicit:
                 # 32-node trees need hours, not the 1-hour smoke default.
@@ -1433,6 +1496,7 @@ class Flow:
             data_dir = Path(tempfile.mkdtemp(prefix="octos-data-"))
             protected = [p for p in (self.tests_dir, self.req_dir) if p and p.is_dir()]
             config_dir = Path(tempfile.mkdtemp(prefix="octos-config-"))
+            self.start_llm_proxy()
             env = build_octos_env(config_dir, protected)
             write_profile_defaults(data_dir, config_dir, protected_hooks(protected))
             self.snapshot_protected()
@@ -1444,11 +1508,12 @@ class Flow:
             threading.Thread(target=_port_watchdog, args=(self.web_port, self.output_dir, watchdog_stop),
                              daemon=True).start()
             try:
-                if not self.evolution and (len(ordered) > 1 or os.environ.get("OCTOS_SKELETON_ALWAYS") == "1"):
+                if not self.evolution and (len(ordered) >= self.skeleton_min_nodes
+                                           or os.environ.get("OCTOS_SKELETON_ALWAYS") == "1"):
                     self.skeleton(tree)
                     self.driver.end_scope("node")
                 elif not self.evolution:
-                    log("[flow] single-node tree: skeleton folded into the node turn")
+                    log(f"[flow] {len(ordered)}-node tree: skeleton folded into the first node turn")
                 for index, node in enumerate(ordered, 1):
                     node_id = str(node.get("id"))
                     if self.time_up():
@@ -1472,7 +1537,7 @@ class Flow:
                     log(f"[flow] final check turn for nodes without a local verdict: {undecided}")
                     final_ok, _ = self.turn(FINAL_CHECK_PROMPT.format(smoke=self.smoke_port, port=self.web_port,
                                                                       tests=self.tests_prompt_for(None),
-                                                                      performance=self.perf_text()),
+                                                                      performance=self.perf_text(), ui=self.ui_contract()),
                                             self.node_timeout, "final check")
                     self.commit("chore: final verification pass")
                 rehearsed = self.rehearsal()
@@ -1487,6 +1552,7 @@ class Flow:
                 if self.driver:
                     self.driver.close()
                 self.cleanup_playwright()
+                self.stop_llm_proxy()
             for node_id in node_ids:  # final per-node verdicts (full-suite run may have changed them)
                 if self.test_verdict.get(node_id) is True:
                     self.mark("test_passed", node_id, "acceptance specs pass (node run and full parallel suite)")
@@ -1510,6 +1576,7 @@ class Flow:
             if self.driver:
                 self.driver.close()
             self.cleanup_playwright()
+            self.stop_llm_proxy()
             for node in ordered:
                 node_id = str(node.get("id"))
                 if node_id not in self.test_verdict:
