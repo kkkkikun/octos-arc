@@ -64,8 +64,8 @@ def summarize(output_dir: Path) -> dict:
     for ev in _iter_jsonl(arc / "runner-events.jsonl"):
         if ev.get("type") == "runner_state":
             ts = ev.get("timestamp")
-            if ev.get("state") == "running" and started is None:
-                started = ts
+            if ev.get("state") == "running":
+                started, completed = ts, None  # last run in the file wins
             elif ev.get("state") in ("completed", "failed"):
                 completed = ts
         elif ev.get("type") == "requirement_state":

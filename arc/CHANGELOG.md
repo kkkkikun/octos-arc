@@ -205,3 +205,19 @@ OCTOS_FINAL_REPAIR_ROUNDS=2     # 全套并行验收后的修复轮
 **keep-local-3 的校正**（C，2026-09-12）：按 480 s/节点跑到第 10 个节点，17 个实现/修复轮里 16 个在 283 s（0.6×预算）被截断，只有一轮正常结束；截断后剩余不到 200 s 的修复轮同样超时；grade-local 中途评分 8/32、79 min。Web 节点的实现轮需要 10–20 min。据此把默认 `OCTOS_SECONDS_PER_NODE` 从 480 改为 1500（实现轮 ≤ 900 s），新增 `OCTOS_MIN_REPAIR_SECONDS=300`：剩余不足 5 min 不再开修复轮而直接保留最优状态。另外超时的轮没有 `turn/completed`，`metrics.py` 改为从累计的 `token_cost_update` 取 Token 数（费用估算以平台计费为准）。
 
 **keep-local-4（C，main@803f14c3 + 1500 s/节点 + inline + 2 轮修复）：grade-local 32/32，5 h 01 min**，骨架 312 s，平均 519 s/节点，30 个节点首轮通过，4 个实现轮触顶 900 s，全套并行 28/32 → 一轮修复 → 32/32，内核累计费用 ¥5.42（平台按完整输入计费会更高）。暴露的 bug：全套失败「failing nodes []」——错误抛在 `support/e2e.ts` 时按错误位置归属文件，没有节点认领，修复轮只能拿全量信息。已改为按测试所在 spec 文件归属节点，摘要里同时给出错误位置（`e2e.ts:48 (called from REQ-2.3.1-x.spec.ts)`）。
+
+## 第二阶段（2026-09-13）· 目标：真实 agent 第 1（Smoke < ¥0.10、Evolution < ¥0.15、TB 10/10 且 < ¥0.70）
+
+改动（`469ed3ac`、`15ec1549`）：
+1. **DeepSeek 推理预算**：内核只对 api.deepseek.com 发 `reasoning_effort`/`thinking`，而 arc-bench 代理同样接受（同一提示：默认 455 completion tokens，`reasoning_effort: low` 279，`thinking: disabled` 132）。适配层起一个本机 stdlib 透传代理 `llm_proxy.py`，对 chat/completions 注入 `reasoning_effort=low`（`OCTOS_ARC_REASONING`：low/medium/high/none/passthrough），并把每次请求的 `usage`（prompt/completion/cache_hit/reasoning tokens，SSE 也解析）记到 `.arc/llm-usage.jsonl`——这是与平台计费同口径的数字。
+2. **小题只跑一轮**：≤2 节点不再单开骨架轮（第一个节点轮建应用），< 3 节点不做设计轮，设计默认 inline；≤2 节点的实现轮用「最小自验」：不起服务、不 curl、不写自测，一次 `npm run build`，每个文件一次 write_file，不回读——harness 随后跑官方 spec，失败才进修复轮。
+3. **契约按关键词裁剪**：核心块（标签/角色逐字、无 HTML5 校验、单错误元素、strict mode、按页状态、零外部请求）始终在；「fixture 数据」块和「会话」块只在需求文本出现相应关键词时加入；性能契约只在有登录/密码/会话的题目加入。Counter 的节点提示词从 ~3.5k 字符降到 ~2.4k。
+
+本机（二进制 `octos 2.0.3-rc.11 (151fa447)`，与云端 Release 同源）：
+
+| 题 | 之前最好 | 本次 | 公开测试 |
+|---|---|---|---|
+| Counter | ¥0.0211 / 63 s（r6） | **¥0.0074 / 28 s**，1 轮，13,757 in / 2,124 out（v2-counter） | 1/1 |
+| Dice | — | **¥0.0203 / 184 s**，1 轮，17,946 in / 4,492 out（v2-dice） | 1/1 |
+| Evolution | ¥0.0877 / 428 s（e2） | **≈¥0.008 / 27 s**，1 轮 21 s（v2-evolution；metrics 曾把模板里带过来的 Counter 事件一起算成 ¥0.0157 / 282 s，已修） | 2/2 |
+| TB | ¥0.577 / 1,346 s（r9） | 见下 | |
