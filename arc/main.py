@@ -724,7 +724,18 @@ UI contract (the hidden Playwright tests depend on these; a violation scores 0):
 - Strict mode: every echoed value (username, city, date) appears in EXACTLY ONE element per page; every link target appears in EXACTLY ONE <a> per page (one "Register" link, one "Login" link — never a nav link plus a call-to-action to the same href; the specs click `a[href="/register"]` and fail on two matches); never both a short and a long form of one entity, never a per-field error plus a summary. Serve a SEPARATE HTML document per route (`/`, `/register`, `/login`, ...) — never several forms in one document with hidden views: hidden inputs and labels still collide in getByLabel/getByRole.
 - State: persist ONLY what the requirement says is persisted and reproduce that seed on EVERY fresh start; a page's initial state (e.g. "the count is initially 0") is per-page-load client state, never a shared server value — the grader runs several test files in parallel against ONE server. The initial state must already be in the served HTML (e.g. the element contains `0` in the markup); never leave it empty until a fetch completes — the tests assert immediately after load.
 - Zero external requests (no CDN, fonts, analytics); assets small and same-origin.
+- Live indicators (password-strength meters, counters, previews) update their OWN element's text/attributes synchronously in the `input` event handler — never on change/blur, never debounced, never only a wrapper's class (specs compare the element's outerHTML before and after typing).
 - Text only: never OCR reference images. Write files in your first actions.
+"""
+
+CODEGEN_PROMPT = """\
+Build a tiny full-stack web app implementing requirement node {node_id}:
+
+{node_spec}
+{tests}
+Layout (exact): frontend/package.json with a `build` script (one line: copy or write frontend/dist/index.html), frontend/dist is what gets served; backend/package.json with `start` = `node server.js`, no dependencies; backend/server.js = Node `http` server on process.env.PORT (default {port}) serving frontend/dist at `/` and JSON APIs under /api/, unknown paths 404, missing files 404, never crashes (try/catch, uncaughtException handler).
+Rules: copy every visible text, button name, label and test id from the spec verbatim; the initial state is already in the served HTML (e.g. the element literally contains 0); per-page client state unless the requirement says it is persisted; no external resources; no HTML5 validation attributes.
+Output minimal code: no CSS, no comments, no README, no styling, package.json only name + scripts, one inline <script> of at most 15 lines; the whole reply under 120 lines.
 """
 
 UI_CONTRACT_DATA = """\
@@ -1497,7 +1508,11 @@ class Flow:
         prompt = self.corrections_text() + prompt
         implement_timeout = min(self.node_timeout, self.implement_fraction * node_budget, deadline - time.time())
         if self.codegen_mode():
-            ok, text = self.codegen_turn(prompt, implement_timeout, f"{node_id} implement")
+            compact = CODEGEN_PROMPT.format(node_id=node_id, node_spec=describe_node(node),
+                                            tests=self.tests_prompt_for(node_id), port=self.web_port)
+            if self.has_app():  # evolution: the app exists, quote it
+                compact = compact.replace("Build a tiny full-stack web app implementing", "Extend the existing app (quoted below) to implement", 1) + self.sources_text()
+            ok, text = self.codegen_turn(compact, implement_timeout, f"{node_id} implement")
         else:
             ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
         if not ok and "truncated" in text.lower():
