@@ -33,6 +33,11 @@ def summarize(output_dir: Path) -> dict:
     turns = tokens_in = tokens_out = 0
     tool_calls = 0
     cost_by_session: dict[str, float] = {}
+    # token_cost_update carries cumulative per-session input/output tokens; a
+    # turn that hits the wall-clock cap never emits turn/completed, so these
+    # are the complete count (keep-local-3: only 2 of 19 turns completed).
+    in_by_session: dict[str, int] = {}
+    out_by_session: dict[str, int] = {}
     sessions: set[str] = set()
     for ev in _iter_jsonl(arc / "octos-events.jsonl"):
         method, params = ev.get("method"), ev.get("params") or {}
@@ -48,9 +53,12 @@ def summarize(output_dir: Path) -> dict:
         elif method == "progress/updated":
             meta = params.get("metadata") or {}
             if meta.get("kind") == "token_cost_update":
-                cost = (meta.get("token_cost") or {}).get("session_cost")
+                tc = meta.get("token_cost") or {}
+                cost = tc.get("session_cost")
                 if isinstance(cost, (int, float)):
                     cost_by_session[sid] = max(cost_by_session.get(sid, 0.0), float(cost))
+                in_by_session[sid] = max(in_by_session.get(sid, 0), int(tc.get("input_tokens") or 0))
+                out_by_session[sid] = max(out_by_session.get(sid, 0), int(tc.get("output_tokens") or 0))
     started = completed = None
     states: dict[str, str] = {}
     for ev in _iter_jsonl(arc / "runner-events.jsonl"):
@@ -81,6 +89,7 @@ def summarize(output_dir: Path) -> dict:
     return {
         "output_dir": str(output_dir), "turns": turns, "sessions": len(sessions), "tool_calls": tool_calls,
         "tokens_in": tokens_in, "tokens_out": tokens_out,
+        "tokens_in_all": sum(in_by_session.values()), "tokens_out_all": sum(out_by_session.values()),
         "cost": round(sum(cost_by_session.values()), 6), "duration_s": duration,
         "node_states": node_states, "last_events": states, "grade": grade,
     }
@@ -96,7 +105,7 @@ def main(argv: list[str]) -> int:
         return 0
     g = data["grade"] or {}
     grade = f"{g.get('passed')}/{g.get('total')}" if g else "n/a"
-    print(f"| {Path(data['output_dir']).name} | {data['turns']} | {data['tokens_in']} | {data['tokens_out']} | "
+    print(f"| {Path(data['output_dir']).name} | {data['turns']} | {data['tokens_in_all']} | {data['tokens_out_all']} | "
           f"{data['cost']} | {data['duration_s']} | {grade} | {data['node_states']} |")
     return 0
 

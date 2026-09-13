@@ -26,8 +26,9 @@ Environment (all optional):
     OPENAI_API_KEY / OPENAI_BASE_URL / MODEL   OpenAI-compatible endpoint
     OCTOS_BIN                 octos binary (default: ./bin/octos, PATH, download)
     OCTOS_NODE_TIMEOUT        seconds per model turn (default 1200)
-    OCTOS_TIME_BUDGET         seconds for the whole generation (default max(3600, 480 x nodes))
-    OCTOS_SECONDS_PER_NODE    per-node allowance used for that default (480)
+    OCTOS_TIME_BUDGET         seconds for the whole generation (default max(3600, 1500 x nodes))
+    OCTOS_SECONDS_PER_NODE    per-node allowance used for that default (1500)
+    OCTOS_MIN_REPAIR_SECONDS  do not start a repair turn with less than this left (300)
     OCTOS_NODE_TIME_BUDGET    cap per node incl. repairs (default 1500)
     OCTOS_REPAIR_ROUNDS       K, acceptance repair rounds per node (default 5)
     OCTOS_DESIGN_TURN         "0" disables the design turn
@@ -861,7 +862,10 @@ class Flow:
         self.design_timeout = int(os.environ.get("OCTOS_DESIGN_TIMEOUT", "420"))
         self.budget = int(os.environ["OCTOS_TIME_BUDGET"]) if os.environ.get("OCTOS_TIME_BUDGET") else 3600
         self.budget_explicit = bool(os.environ.get("OCTOS_TIME_BUDGET"))
-        self.seconds_per_node = int(os.environ.get("OCTOS_SECONDS_PER_NODE", "480"))
+        # keep-local-3 (workflow C): with 480 s/node, 16 of 17 implement/repair
+        # turns were cut at 283 s; Web nodes need 10-20 min of implementation.
+        self.seconds_per_node = int(os.environ.get("OCTOS_SECONDS_PER_NODE", "1500"))
+        self.min_repair_seconds = int(os.environ.get("OCTOS_MIN_REPAIR_SECONDS", "300"))
         self.node_budget_cap = int(os.environ.get("OCTOS_NODE_TIME_BUDGET", "1500"))
         self.repair_rounds = int(os.environ.get("OCTOS_REPAIR_ROUNDS", "5"))
         self.design_enabled = os.environ.get("OCTOS_DESIGN_TURN", "1") != "0"
@@ -1116,8 +1120,11 @@ class Flow:
             if attempt == self.repair_rounds:
                 break
             left = deadline - time.time()
-            if left < 90 or self.time_up():
-                log(f"[flow] {node_id}: node budget exhausted before repair {attempt + 1}")
+            if left < self.min_repair_seconds or self.time_up():
+                # A repair turn that starts with only a couple of minutes left
+                # times out too (keep-local-3); keep the best state instead.
+                log(f"[flow] {node_id}: {left:.0f}s left, below the {self.min_repair_seconds}s a repair needs; "
+                    f"keeping the best state")
                 break
             slow = summary.slow(int(os.environ.get("OCTOS_ARC_SLOW_MS", "3000")))
             slow_text = ("Also, these tests took over 3 s on this fast machine and will exceed the grader's "
