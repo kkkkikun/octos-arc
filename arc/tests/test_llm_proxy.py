@@ -37,3 +37,12 @@ class UsageTests(unittest.TestCase):
     def test_should_return_none_without_usage(self):
         self.assertIsNone(usage_record(b'{"choices": []}', 1, "low"))
         self.assertIsNone(usage_record(b"garbage", 1, "low"))
+
+
+class SseTests(unittest.TestCase):
+    def test_should_read_usage_from_last_sse_chunk_and_request_include_usage(self):
+        sse = b'data: {"choices":[{"delta":{"content":"O"}}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":3}}\n\ndata: [DONE]\n'
+        rec = usage_record(sse, 5, "low")
+        self.assertEqual((rec["prompt_tokens"], rec["completion_tokens"]), (9, 3))
+        out = json.loads(inject_reasoning(json.dumps({"model": "deepseek-v4-flash", "messages": [], "stream": True}).encode(), "low"))
+        self.assertEqual(out["stream_options"], {"include_usage": True})

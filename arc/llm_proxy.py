@@ -45,15 +45,38 @@ def inject_reasoning(body: bytes, mode: str) -> bytes:
     else:
         data.setdefault("reasoning_effort", mode)
         data.setdefault("thinking", {"type": "enabled"})
+    if data.get("stream"):
+        opts = data.get("stream_options") if isinstance(data.get("stream_options"), dict) else {}
+        opts.setdefault("include_usage", True)
+        data["stream_options"] = opts
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
 
 
-def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | None:
+def _usage_from_body(response_body: bytes):
+    """JSON body -> its usage dict; SSE body -> usage of the last chunk carrying one."""
+    text = response_body.decode("utf-8", errors="replace")
+    if text.lstrip().startswith("data:"):
+        usage = None
+        for line in text.splitlines():
+            line = line.strip()
+            if not line.startswith("data:") or line == "data: [DONE]":
+                continue
+            try:
+                chunk = json.loads(line[5:].strip())
+            except ValueError:
+                continue
+            if isinstance(chunk, dict) and isinstance(chunk.get("usage"), dict):
+                usage = chunk["usage"]
+        return usage
     try:
-        data = json.loads(response_body)
-    except (ValueError, UnicodeDecodeError):
+        data = json.loads(text)
+    except ValueError:
         return None
-    usage = data.get("usage") if isinstance(data, dict) else None
+    return data.get("usage") if isinstance(data, dict) else None
+
+
+def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | None:
+    usage = _usage_from_body(response_body)
     if not isinstance(usage, dict):
         return None
     rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()), "elapsed_ms": elapsed_ms, "mode": mode}
