@@ -164,6 +164,32 @@ def trim_request(body: bytes, drop_tools: set[str] = DROP_TOOLS) -> bytes:
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
 
 
+BUDGET_NOTICE = ("Tool budget for this turn is exhausted. Do not call any more tools: reply now with a one-line "
+                 "summary of what you changed. The harness will build and test the app.")
+
+
+def enforce_turn_budget(body: bytes, used: int, budget: int) -> bytes:
+    """Once `used` requests have been made in the current turn, strip the tool
+    schemas and append a user notice so the model must answer (ending the turn).
+    A hard cap the model cannot ignore, unlike prompt budgets (v11-tb: 20-call
+    repair turns)."""
+    if budget <= 0 or used < budget:
+        return body
+    try:
+        data = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return body
+    if not isinstance(data, dict) or "messages" not in data:
+        return body
+    data.pop("tools", None)
+    data.pop("tool_choice", None)
+    msgs = list(data.get("messages") or [])
+    if not msgs or msgs[-1].get("role") != "user" or msgs[-1].get("content") != BUDGET_NOTICE:
+        msgs.append({"role": "user", "content": BUDGET_NOTICE})
+    data["messages"] = msgs
+    return json.dumps(data, ensure_ascii=False).encode("utf-8")
+
+
 def destream_request(body: bytes) -> tuple[bytes, bool]:
     """Turn a streaming chat request into a non-streaming one. Returns
     (new_body, was_streaming). The platform's meter sits between us and the
@@ -243,6 +269,10 @@ class LlmProxy:
         # Tools removed from every request in addition to DROP_TOOLS (mutable:
         # the flow can take the shell away for one-turn tasks and give it back).
         self.extra_drop_tools: set[str] = set(extra_drop_tools or ())
+        # Per-turn request cap (0 = unlimited); the flow calls begin_turn().
+        self.turn_budget = 0
+        self.turn_requests = 0
+        self.budget_hits = 0
         self.log_path = log_path
         self.dump_dir = dump_dir      # OCTOS_ARC_PROXY_DUMP=1: first N request bodies for prefix analysis
         self.dump_limit = dump_limit
@@ -262,6 +292,13 @@ class LlmProxy:
                 was_streaming = False
                 if method == "POST" and self.path.rstrip("/").endswith("/chat/completions"):
                     body = inject_reasoning(body, proxy.mode)
+                    with proxy._lock:
+                        used = proxy.turn_requests
+                        proxy.turn_requests += 1
+                    capped = enforce_turn_budget(body, used, proxy.turn_budget)
+                    if capped is not body:
+                        proxy.budget_hits += 1
+                    body = capped
                     if proxy.trim or proxy.extra_drop_tools:
                         body = trim_request(body, (DROP_TOOLS if proxy.trim else set()) | proxy.extra_drop_tools)
                     if proxy.destream:
@@ -303,6 +340,11 @@ class LlmProxy:
         self.port = self.server.server_address[1]
         self.base_url = f"http://{host}:{self.port}/v1"
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def begin_turn(self, budget: int) -> None:
+        with self._lock:
+            self.turn_budget = int(budget)
+            self.turn_requests = 0
 
     def _dump(self, body: bytes) -> None:
         if not self.dump_dir or self._dumped >= self.dump_limit:

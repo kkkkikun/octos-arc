@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from llm_proxy import destream_request, inject_reasoning, request_shape, to_sse, trim_request, trim_system_prompt, usage_record
+from llm_proxy import BUDGET_NOTICE, destream_request, enforce_turn_budget, inject_reasoning, request_shape, to_sse, trim_request, trim_system_prompt, usage_record
 
 
 class InjectTests(unittest.TestCase):
@@ -112,3 +112,15 @@ class ExtraDropTests(unittest.TestCase):
         from llm_proxy import DROP_TOOLS
         out = json.loads(trim_request(body, DROP_TOOLS | {"bash", "shell"}))
         self.assertEqual([t["function"]["name"] for t in out["tools"]], ["write_file"])
+
+
+class TurnBudgetTests(unittest.TestCase):
+    def test_should_strip_tools_and_append_notice_once_budget_is_used(self):
+        body = json.dumps({"model": "m", "messages": [{"role": "user", "content": "x"}], "tools": [{"type": "function", "function": {"name": "bash"}}]}).encode()
+        self.assertIs(enforce_turn_budget(body, 3, 6), body)
+        self.assertIs(enforce_turn_budget(body, 99, 0), body)
+        out = json.loads(enforce_turn_budget(body, 6, 6))
+        self.assertNotIn("tools", out)
+        self.assertEqual(out["messages"][-1], {"role": "user", "content": BUDGET_NOTICE})
+        again = json.loads(enforce_turn_budget(json.dumps(out).encode(), 7, 6))
+        self.assertEqual(sum(1 for m in again["messages"] if m.get("content") == BUDGET_NOTICE), 1)

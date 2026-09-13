@@ -42,6 +42,7 @@ Environment (all optional):
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
     OCTOS_ARC_TRIM_PROMPT     "0" keeps the kernel system prompt and all tool schemas (default: drop ARC-irrelevant sections/tools)
     OCTOS_ARC_DROP_SHELL      "0" leaves bash/shell available in minimal-verification turns (default: removed)
+    OCTOS_ARC_IMPLEMENT_REQUESTS / OCTOS_ARC_REPAIR_REQUESTS  hard per-turn request caps enforced at the proxy (12 for small tasks / 6; 0 = off)
     OCTOS_SESSION_SCOPE       turn (default) | node | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
@@ -977,13 +978,22 @@ class Flow:
         self.pending_corrections = []
         return text
 
-    def turn(self, prompt: str, timeout: int, label: str, expect_verification: bool = True) -> tuple[bool, str]:
+    def turn(self, prompt: str, timeout: int, label: str, expect_verification: bool = True,
+             request_budget: int | None = None) -> tuple[bool, str]:
         monitor = TurnMonitor(self.protected_prefixes(), expect_verification=expect_verification,
                               allowed_prefixes=[".arc/design/", str(self.output_dir / ".arc" / "design")])
+        proxy = getattr(self, "llm_proxy", None)
+        if proxy is not None:
+            if request_budget is None:
+                request_budget = int(os.environ.get("OCTOS_ARC_REPAIR_REQUESTS", "6")) if "repair" in label else \
+                    int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "12" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"))
+            proxy.begin_turn(request_budget)
         t0 = time.time()
         ok, text = self.driver.run(prompt, max(60, int(timeout)), monitor)
         log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {time.time()-t0:.0f}s "
             f"(tools={monitor.tool_calls} wrote={monitor.wrote_files} verified={monitor.verified}): {text[-240:]!r}")
+        if proxy is not None and proxy.turn_budget and proxy.turn_requests > proxy.turn_budget:
+            log(f"[guard] {label}: request budget {proxy.turn_budget} hit; turn forced to finish")
         for c in monitor.corrections():
             log(f"[guard] {label}: {c[:160]}")
             if self.guard_enabled:
@@ -1566,6 +1576,7 @@ class Flow:
                 log(f"[flow] evolution mode: existing app detected; unchanged nodes {sorted(unchanged)}, "
                     f"to implement {[i for i in node_ids if i not in unchanged]}")
             self.nodes_to_implement = len([n for n in node_ids if n not in unchanged])
+            self.n_nodes = len(ordered)
 
             self.tests_dir = locate_acceptance_tests(tree, BUNDLE_DIR)
             if self.tests_dir:
