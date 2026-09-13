@@ -343,7 +343,7 @@ impl OpenAIProvider {
         // don't emit DeepSeek-specific fields there by default. Operators opt in
         // per route via `model_hints` (with_hints, applied after this, still wins).
         if self.hints.reasoning_style == ReasoningStyle::EffortAndThinkingToggle
-            && !url.contains("api.deepseek.com")
+            && !deepseek_v4_reasoning_endpoint(&url)
         {
             self.hints.reasoning_style = ReasoningStyle::None;
         }
@@ -804,6 +804,14 @@ impl OpenAIProvider {
             self.prompt_cache_input_manifest(request, config).trace();
         }
     }
+}
+
+/// ARC-Bench exposes DeepSeek V4 through an OpenAI-compatible gateway.  It
+/// implements the same `reasoning_effort`/`thinking` fields as the official
+/// endpoint, so keep the provider controls enabled there as well.  Other
+/// custom endpoints remain opt-in through explicit `model_hints`.
+fn deepseek_v4_reasoning_endpoint(url: &str) -> bool {
+    url.contains("api.deepseek.com") || url.contains("api.arc-bench.com")
 }
 
 /// Request keys octos sets via dedicated `OpenAIRequest` fields; if an operator
@@ -1915,6 +1923,13 @@ mod tests {
             .with_base_url("https://api.deepseek.com/v1");
         assert_eq!(
             official.hints.reasoning_style,
+            ReasoningStyle::EffortAndThinkingToggle
+        );
+        // ARC-Bench's gateway implements the same DeepSeek V4 controls.
+        let arc = OpenAIProvider::new("k", "deepseek-v4-flash")
+            .with_base_url("https://api.arc-bench.com/v1");
+        assert_eq!(
+            arc.hints.reasoning_style,
             ReasoningStyle::EffortAndThinkingToggle
         );
         // The same model name on a non-DeepSeek endpoint must not inherit it.

@@ -776,7 +776,11 @@ pub(crate) fn configured_agent_defaults(profile: &ProfileRuntime) -> AgentConfig
                         .primary_model_id
                         .to_ascii_lowercase()
                         .contains("deepseek"))
-                .then_some(8_192)
+                // ARC's coding turns are tool-driven; a smaller per-request
+                // ceiling prevents DeepSeek's hidden reasoning from consuming
+                // a full default completion allowance. The loop can continue
+                // with the next tool turn when more output is genuinely needed.
+                .then_some(4_096)
             }),
         max_tokens: profile.config.gateway.as_ref().and_then(|g| g.token_budget),
         max_timeout: profile
