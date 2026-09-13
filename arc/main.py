@@ -715,7 +715,7 @@ Verify briefly before you finish — the harness runs the official acceptance te
 """
 
 VERIFY_MINIMAL = """\
-Do NOT start the server, curl, run node, or write your own tests — the harness builds the frontend, starts the backend and runs the official Playwright spec right after your turn and hands you any failure. Tool budget for this turn: at most 8 write_file/edit_file calls (one backend file backend/server.js plus at most 4 frontend files; write each file once, complete), at most 2 read_file calls, and exactly one shell command: `cd frontend && npm run build`. Batch: emit ALL write_file calls together in ONE response (parallel tool calls), then the single build command in the next response, then finish — every extra round trip resends the whole context and is billed. Do not list directories or re-read files you just wrote; the file listing above is authoritative.
+Do NOT run any shell command, start the server, curl, or write your own tests — the harness runs `npm run build`, starts the backend and runs the official Playwright spec right after your turn and hands you any failure. Tool budget for this turn: at most 8 write_file/edit_file calls (one backend file backend/server.js plus at most 4 frontend files; write each file once, complete) and at most 2 read_file calls. Emit ALL write_file calls together in ONE response (parallel tool calls), then finish with a one-line summary — every extra round trip resends the whole context and is billed. Do not list directories or re-read files you just wrote; the file listing above is authoritative. Double-check syntax mentally before writing: a build or start failure costs a repair round.
 """
 
 PORT_RULES = """\
@@ -784,7 +784,7 @@ REPAIR_PROMPT = """\
 The official acceptance tests for requirement node {node_id} just ran against your app: {passed}/{total} passed. Failing tests (Feature / where it failed / what was observed / the last steps before failure):
 {failures}
 {corrections}{slow}
-Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. Read the failing assertion in the spec, fix the root cause with as few tool calls as possible, run `npm run build` in frontend/ once. The harness re-runs the official tests right after your turn; do not start servers or write your own tests. The spec files are read-only ground truth.
+Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. Read the failing assertion in the spec quoted earlier, fix the root cause with as few tool calls as possible (ideally one edit_file per file, all in one response), no shell commands. The harness rebuilds and re-runs the official tests right after your turn; do not start servers or write your own tests. The spec files are read-only ground truth.
 """ + PORT_RULES
 
 FINAL_CHECK_PROMPT = """\
