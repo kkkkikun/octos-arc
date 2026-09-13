@@ -1109,6 +1109,25 @@ class Flow:
         proxy = getattr(self, "llm_proxy", None)
         if proxy:
             proxy.stop()
+        self.log_usage_summary()
+
+    def log_usage_summary(self) -> None:
+        """Provider-reported usage totals (same numbers the platform bills on),
+        printed so the runner log carries them even when .arc/ is not exported."""
+        path = self.output_dir / ".arc" / "llm-usage.jsonl"
+        if not path.is_file():
+            return
+        tot = {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0,
+               "prompt_cache_hit_tokens": 0, "total_tokens": 0}
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            tot["requests"] += 1
+            for k in list(tot)[1:]:
+                tot[k] += int(rec.get(k) or 0)
+        log(f"[usage] provider totals: {json.dumps(tot)}")
 
     def cleanup_playwright(self) -> None:
         private = getattr(self, "private_playwright", None)
