@@ -38,12 +38,12 @@ Environment (all optional):
     OCTOS_SMALL_TASK_NODES    trees up to this size get the minimal self-verification text (2)
     OCTOS_VERIFY_MODE         auto (default) | minimal | full
     OCTOS_ARC_REASONING       auto (default: none for <=1 node to implement, else low) | low | medium | high | none | passthrough
-    OCTOS_ARC_IMPLEMENT_REASONING  reasoning for first implement turns of small tasks (default none); rewrite/repair keep the base mode
+    OCTOS_ARC_IMPLEMENT_REASONING  optional override for first implement turns of small tasks (default: base mode)
     OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
     OCTOS_ARC_TRIM_PROMPT     "0" keeps the kernel system prompt and all tool schemas (default: drop ARC-irrelevant sections/tools)
     OCTOS_ARC_DROP_SHELL      "0" leaves bash/shell available in minimal-verification turns (default: removed)
-    OCTOS_ARC_IMPLEMENT_REQUESTS / OCTOS_ARC_REPAIR_REQUESTS  hard per-turn request caps enforced at the proxy (12 for small tasks / 10; 0 = off)
+    OCTOS_ARC_IMPLEMENT_REQUESTS / OCTOS_ARC_REPAIR_REQUESTS  hard per-turn request caps enforced at the proxy (20 for small tasks / 10; 0 = off)
     OCTOS_ARC_REWRITE_ON_ZERO "0" disables the single full-rewrite turn when round 0 passes nothing
     OCTOS_ARC_INLINE_SOURCE_CHARS  budget for quoting the app's sources into repair/rewrite prompts (40000; 0 = off)
     OCTOS_ARC_MAX_TOKENS      minimum max_tokens the proxy enforces on chat requests (32768; kernel arc.11 sends 4096)
@@ -1023,12 +1023,12 @@ class Flow:
             # Per-turn reasoning: OCTOS_ARC_IMPLEMENT_REASONING (e.g. "none") applies
             # to first implement turns of small tasks; rewrite/repair keep the base mode.
             base_mode = getattr(self, "base_reasoning_mode", proxy.mode)
-            impl_mode = os.environ.get("OCTOS_ARC_IMPLEMENT_REASONING", "none")
+            impl_mode = os.environ.get("OCTOS_ARC_IMPLEMENT_REASONING", "")  # auto already gives "none" to 1-node tasks
             is_implement = label.endswith(" implement") or label.startswith("skeleton")
             proxy.mode = impl_mode if (impl_mode and is_implement and self.minimal_mode(getattr(self, "n_nodes", 99))) else base_mode
             if request_budget is None:
                 request_budget = int(os.environ.get("OCTOS_ARC_REPAIR_REQUESTS", "10")) if "repair" in label else \
-                    int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "12" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"))
+                    int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"))
             proxy.begin_turn(request_budget)
         t0 = time.time()
         ok, text = self.driver.run(prompt, max(60, int(timeout)), monitor)
@@ -1300,6 +1300,9 @@ class Flow:
                 failures = failure_summaries(summary)
                 self.record_tests(node_id, specs, summary)
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
+            for line in (failures or "").splitlines():
+                if line.strip().startswith("Observation:"):
+                    log(f"[acceptance]   {line.strip()[:220]}")
             if summary.total and passed == summary.total:
                 self.commit(f"{node_id} (accepted): {passed}/{summary.total} acceptance tests pass")
                 return True
@@ -1333,7 +1336,7 @@ class Flow:
                 log(f"[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch")
                 prompt = rebuild_prompt(failures or "(no detail)")
                 self.turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
-                          request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "12")))
+                          request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20")))
                 continue
             prompt = REPAIR_PROMPT.format(node_id=node_id, passed=passed, total=summary.total,
                                           failures=failures or "(no detail)", corrections=self.corrections_text(),
