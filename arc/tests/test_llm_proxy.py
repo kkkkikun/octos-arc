@@ -103,3 +103,12 @@ class TrimTests(unittest.TestCase):
         self.assertEqual([t["function"]["name"] for t in out["tools"]], ["bash", "write_file", "read_file"])
         self.assertNotIn("Research", out["messages"][0]["content"])
         self.assertEqual(out["messages"][1]["content"], "x")
+
+
+class ExtraDropTests(unittest.TestCase):
+    def test_should_drop_extra_tools_on_top_of_defaults(self):
+        body = json.dumps({"model": "m", "messages": [{"role": "user", "content": "x"}],
+                           "tools": [{"type": "function", "function": {"name": n}} for n in ("bash", "write_file", "spawn", "shell")]}).encode()
+        from llm_proxy import DROP_TOOLS
+        out = json.loads(trim_request(body, DROP_TOOLS | {"bash", "shell"}))
+        self.assertEqual([t["function"]["name"] for t in out["tools"]], ["write_file"])

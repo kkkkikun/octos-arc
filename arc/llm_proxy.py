@@ -234,11 +234,15 @@ def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | Non
 
 class LlmProxy:
     def __init__(self, upstream_base: str, mode: str, log_path: Path | None = None, host: str = "127.0.0.1",
-                 dump_dir: Path | None = None, dump_limit: int = 3, destream: bool = True, trim: bool = True) -> None:
+                 dump_dir: Path | None = None, dump_limit: int = 3, destream: bool = True, trim: bool = True,
+                 extra_drop_tools: set[str] | None = None) -> None:
         self.upstream = upstream_base.rstrip("/")
         self.mode = mode
         self.destream = destream
         self.trim = trim
+        # Tools removed from every request in addition to DROP_TOOLS (mutable:
+        # the flow can take the shell away for one-turn tasks and give it back).
+        self.extra_drop_tools: set[str] = set(extra_drop_tools or ())
         self.log_path = log_path
         self.dump_dir = dump_dir      # OCTOS_ARC_PROXY_DUMP=1: first N request bodies for prefix analysis
         self.dump_limit = dump_limit
@@ -258,8 +262,8 @@ class LlmProxy:
                 was_streaming = False
                 if method == "POST" and self.path.rstrip("/").endswith("/chat/completions"):
                     body = inject_reasoning(body, proxy.mode)
-                    if proxy.trim:
-                        body = trim_request(body)
+                    if proxy.trim or proxy.extra_drop_tools:
+                        body = trim_request(body, (DROP_TOOLS if proxy.trim else set()) | proxy.extra_drop_tools)
                     if proxy.destream:
                         body, was_streaming = destream_request(body)
                     proxy._dump(body)

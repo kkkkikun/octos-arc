@@ -41,6 +41,7 @@ Environment (all optional):
     OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
     OCTOS_ARC_TRIM_PROMPT     "0" keeps the kernel system prompt and all tool schemas (default: drop ARC-irrelevant sections/tools)
+    OCTOS_ARC_DROP_SHELL      "0" leaves bash/shell available in minimal-verification turns (default: removed)
     OCTOS_SESSION_SCOPE       turn (default) | node | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
@@ -719,7 +720,7 @@ Verify briefly before you finish — the harness runs the official acceptance te
 """
 
 VERIFY_MINIMAL = """\
-Do NOT run any shell command, start the server, curl, or write your own tests — the harness runs `npm run build`, starts the backend and runs the official Playwright spec right after your turn and hands you any failure. Tool budget for this turn: at most 8 write_file/edit_file calls (one backend file backend/server.js plus at most 4 frontend files; write each file once, complete) and at most 2 read_file calls. Emit ALL write_file calls together in ONE response (parallel tool calls), then finish with a one-line summary — every extra round trip resends the whole context and is billed. Do not list directories or re-read files you just wrote; the file listing above is authoritative. Double-check syntax mentally before writing: a build or start failure costs a repair round.
+You have no shell in this turn — the harness runs `npm run build`, starts the backend and runs the official Playwright spec right after your turn and hands you any failure. Tool budget for this turn: at most 8 write_file/edit_file calls (one backend file backend/server.js plus at most 4 frontend files; write each file once, complete) and at most 2 read_file calls. Emit ALL write_file calls together in ONE response (parallel tool calls), then finish with a one-line summary — every extra round trip resends the whole context and is billed. Do not list directories or re-read files you just wrote; the file listing above is authoritative. Double-check syntax mentally before writing: a build or start failure costs a repair round.
 """
 
 PORT_RULES = """\
@@ -1012,9 +1013,21 @@ class Flow:
             blocks.append(UI_CONTRACT_SESSION)
         return "".join(blocks)
 
+    SHELL_TOOLS = {"bash", "shell", "exec_command"}
+
+    def minimal_mode(self, total_nodes: int) -> bool:
+        mode = os.environ.get("OCTOS_VERIFY_MODE", "auto")
+        return mode == "minimal" or (mode != "full" and total_nodes <= self.small_task_nodes)
+
     def verify_text(self, total_nodes: int) -> str:
-        minimal = total_nodes <= self.small_task_nodes and os.environ.get("OCTOS_VERIFY_MODE", "auto") != "full"
-        return VERIFY_MINIMAL if minimal or os.environ.get("OCTOS_VERIFY_MODE") == "minimal" else VERIFY_FULL.format(smoke=self.smoke_port)
+        minimal = self.minimal_mode(total_nodes)
+        # Prompt budgets alone are ignored often enough (v9-tb-a: 41 tool calls
+        # incl. servers in a "no shell" repair turn); in minimal mode the proxy
+        # removes the shell tools so commands are impossible, the harness builds.
+        proxy = getattr(self, "llm_proxy", None)
+        if proxy is not None and os.environ.get("OCTOS_ARC_DROP_SHELL", "1") != "0":
+            proxy.extra_drop_tools = set(self.SHELL_TOOLS) if minimal else set()
+        return VERIFY_MINIMAL if minimal else VERIFY_FULL.format(smoke=self.smoke_port)
 
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
         if not self.tests_dir:
