@@ -207,7 +207,7 @@ class LlmProxy:
                     status, payload, resp_headers = exc.code, exc.read(), exc.headers
                 except Exception as exc:  # noqa: BLE001
                     status, payload, resp_headers = 502, json.dumps({"error": {"message": f"proxy: {exc}"}}).encode(), {}
-                proxy._log(payload, int((time.time() - t0) * 1000), body)
+                proxy._log(payload, int((time.time() - t0) * 1000), body, len(body), len(payload))
                 ctype = resp_headers.get("Content-Type", "application/json") if resp_headers else "application/json"
                 if was_streaming and status == 200:
                     payload, ctype = to_sse(payload), "text/event-stream; charset=utf-8"
@@ -239,12 +239,14 @@ class LlmProxy:
         except OSError:
             pass
 
-    def _log(self, payload: bytes, elapsed_ms: int, request_body: bytes = b"") -> None:
+    def _log(self, payload: bytes, elapsed_ms: int, request_body: bytes = b"", req_bytes: int = 0,
+             resp_bytes: int = 0) -> None:
         if not self.log_path:
             return
         rec = usage_record(payload, elapsed_ms, self.mode)
         if rec is None:
             return
+        rec["request_bytes"], rec["response_bytes"] = req_bytes, resp_bytes
         shape = request_shape(request_body)
         if shape:
             rec["request"] = shape

@@ -1151,7 +1151,8 @@ class Flow:
         if not path.is_file():
             return
         tot = {"requests": 0, "prompt_tokens": 0, "completion_tokens": 0, "reasoning_tokens": 0,
-               "prompt_cache_hit_tokens": 0, "total_tokens": 0}
+               "prompt_cache_hit_tokens": 0, "total_tokens": 0, "request_bytes": 0, "response_bytes": 0,
+               "sse_chunks": 0}
         for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
                 rec = json.loads(line)
