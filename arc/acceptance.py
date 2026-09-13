@@ -186,7 +186,7 @@ def _call_log_steps(message: str) -> list[str]:
     return steps
 
 
-def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: int = 500) -> str:
+def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: int = 900) -> str:
     """Four-field digest of every failed test — the only thing the model sees."""
     blocks = []
     for r in summary.results:

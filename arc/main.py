@@ -722,7 +722,7 @@ UI contract (the hidden Playwright tests depend on these; a violation scores 0):
 - Buttons are real <button> elements, links are <a href>, every form control has a visible <label for=id>; their texts are copied VERBATIM from the requirement/spec (anchored regexes like /^name$/i reject "Full Name"). Use plain text/password/email inputs, native <select>/checkbox/radio; NEVER type="date"/"number". All controls exist in the served HTML itself and stay visible, enabled and editable at all times; no CSS transitions/animations and no JavaScript that re-renders or re-creates form controls after load (Playwright waits for elements to be "stable" — cloud run 954a231a3d23 timed out on a checkbox that kept changing).
 - No native HTML5 validation attributes; validate in JavaScript and show ONE inline error element (role="alert") naming the problem (required / invalid / match / terms / duplicate). On error stay on the page and create no record.
 - Strict mode: every echoed value (username, city, date) appears in EXACTLY ONE element per page; every link target appears in EXACTLY ONE <a> per page (one "Register" link, one "Login" link — never a nav link plus a call-to-action to the same href; the specs click `a[href="/register"]` and fail on two matches); never both a short and a long form of one entity, never a per-field error plus a summary. Serve a SEPARATE HTML document per route (`/`, `/register`, `/login`, ...) — never several forms in one document with hidden views: hidden inputs and labels still collide in getByLabel/getByRole.
-- State: persist ONLY what the requirement says is persisted and reproduce that seed on EVERY fresh start; a page's initial state (e.g. "the count is initially 0") is per-page-load client state, never a shared server value — the grader runs several test files in parallel against ONE server.
+- State: persist ONLY what the requirement says is persisted and reproduce that seed on EVERY fresh start; a page's initial state (e.g. "the count is initially 0") is per-page-load client state, never a shared server value — the grader runs several test files in parallel against ONE server. The initial state must already be in the served HTML (e.g. the element contains `0` in the markup); never leave it empty until a fetch completes — the tests assert immediately after load.
 - Zero external requests (no CDN, fonts, analytics); assets small and same-origin.
 - Text only: never OCR reference images. Write files in your first actions.
 """
@@ -740,7 +740,7 @@ UI_CONTRACT = UI_CONTRACT_CORE + UI_CONTRACT_DATA + UI_CONTRACT_SESSION  # full 
 PERFORMANCE_CONTRACT = """\
 Performance & robustness (the grader is a slow container, tests run in parallel, EACH TEST HAS A 10 s BUDGET including reloads):
 - The grader CPU is 5–10x slower than a laptop and runs 4 browsers at once, so budget CPU per request at 30 ms: hash passwords with crypto.scryptSync(password, salt, 64, {N: 4096, r: 8, p: 1}) or pbkdf2Sync with <= 10000 iterations — never the default scrypt cost, never bcrypt; keep the JSON store small and rewrite it only on mutation.
-- Session cookie: HttpOnly; Path=/; SameSite=Lax; Max-Age at least 7 days; NO `Secure`, NO `Domain` attribute (tests run on http://127.0.0.1). On reload restore the signed-in header from that cookie with at most ONE same-origin request (or render it server-side).
+- Session cookie: HttpOnly; Path=/; SameSite=Lax; Max-Age at least 7 days; NO `Secure`, NO `Domain` attribute (tests run on http://127.0.0.1). Render every page server-side from the cookie (signed-in header, username) so a page needs NO XHR after load; keep pages tiny (one small inline script, no separate JS bundles) — the grader's browsers are slow and memory-starved.
 - Persistence: the in-memory store is the single source of truth; never re-read the JSON file per request. Mutations update memory first and then write the whole file synchronously (writeFileSync to a temp file, then rename) — never an async read-modify-write, because the grader runs 2–4 test files in parallel against ONE backend and a concurrent register/login pair must never lose a user. No setTimeout delays, polling, service workers, beforeunload handlers, or debounced writes.
 """
 
@@ -1087,6 +1087,7 @@ class Flow:
     def codegen_mode(self) -> bool:
         """One-request generation for one-node tasks (OCTOS_ARC_CODEGEN=0 disables)."""
         return (os.environ.get("OCTOS_ARC_CODEGEN", "1") != "0" and getattr(self, "llm_proxy", None) is not None
+                and not getattr(self, "codegen_blocked", False)
                 and getattr(self, "nodes_to_implement", 2) <= 1 and getattr(self, "n_nodes", 99) <= 2)
 
     def codegen_turn(self, prompt: str, timeout: int, label: str) -> tuple[bool, str]:
@@ -1318,6 +1319,8 @@ class Flow:
             return None
         best_passed, best_sha, regressions = -1, self.head(), 0
         rewrite_used = False
+        previous_failures = None
+        self.codegen_blocked = False  # same failure twice in codegen mode -> tool mode for this node
         for attempt in range(self.repair_rounds + 1):
             summary = self.run_specs(specs)
             if summary.error and summary.killed:
@@ -1333,6 +1336,15 @@ class Flow:
                 failures = failure_summaries(summary)
                 self.record_tests(node_id, specs, summary)
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
+            if failures and failures == previous_failures:
+                # Cloud 91aaecaf31af: three codegen rounds, identical observation.
+                self.codegen_blocked = True
+                self.pending_corrections.append(
+                    "Your last two attempts produced EXACTLY the same failure. The same logic will fail again: read the "
+                    "Expected/Received values in the observation, change the approach (e.g. render the initial state in "
+                    "the served HTML instead of after a fetch), and check the spec's locator against your markup.")
+                log(f"[flow] {node_id}: identical failure twice; switching repairs to tool mode")
+            previous_failures = failures
             for line in (failures or "").splitlines():
                 if line.strip().startswith("Observation:"):
                     log(f"[acceptance]   {' '.join(line.strip().split())[:360]}")
