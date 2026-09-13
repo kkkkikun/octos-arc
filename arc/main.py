@@ -1336,7 +1336,8 @@ class Flow:
                 failures = failure_summaries(summary)
                 self.record_tests(node_id, specs, summary)
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
-            if failures and failures == previous_failures:
+            normalized = re.sub(r"\d+", "#", failures or "")
+            if normalized and normalized == previous_failures:
                 # Cloud 91aaecaf31af: three codegen rounds, identical observation.
                 self.codegen_blocked = True
                 self.pending_corrections.append(
@@ -1344,7 +1345,12 @@ class Flow:
                     "Expected/Received values in the observation, change the approach (e.g. render the initial state in "
                     "the served HTML instead of after a fetch), and check the spec's locator against your markup.")
                 log(f"[flow] {node_id}: identical failure twice; switching repairs to tool mode")
-            previous_failures = failures
+            previous_failures = normalized
+            if attempt == 0 and passed < summary.total and self.codegen_mode():
+                # Cloud 91aaecaf31af / 5747e6bcf530: codegen repairs re-emit the same files.
+                # Repairs need tools (inspect the served page, targeted edits).
+                self.codegen_blocked = True
+                log(f"[flow] {node_id}: codegen first attempt failed; repairs use tool mode")
             for line in (failures or "").splitlines():
                 if line.strip().startswith("Observation:"):
                     log(f"[acceptance]   {' '.join(line.strip().split())[:360]}")

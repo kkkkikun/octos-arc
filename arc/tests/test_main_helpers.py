@@ -113,3 +113,11 @@ class InlineSourcesTests(unittest.TestCase):
             self.assertIn("--- frontend/src/index.html ---\n<p>hi</p>", text)
             self.assertIn("backend/server.js --- (omitted, 100 chars", text)
             self.assertNotIn("node_modules", text)
+
+
+class FailureNormalizationTests(unittest.TestCase):
+    def test_should_treat_digests_differing_only_in_numbers_as_identical(self):
+        import re
+        a = "Observation: TIMED OUT after 4136 ms ... Expected: \"2\" Received: \"\""
+        b = "Observation: TIMED OUT after 4144 ms ... Expected: \"2\" Received: \"\""
+        self.assertEqual(re.sub(r"\d+", "#", a), re.sub(r"\d+", "#", b))
