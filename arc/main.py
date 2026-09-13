@@ -38,7 +38,7 @@ Environment (all optional):
     OCTOS_SMALL_TASK_NODES    trees up to this size get the minimal self-verification text (2)
     OCTOS_VERIFY_MODE         auto (default) | minimal | full
     OCTOS_ARC_REASONING       auto (default: none for <=1 node to implement, else low) | low | medium | high | none | passthrough
-    OCTOS_ARC_IMPLEMENT_REASONING  override for first implement turns of small tasks (e.g. none); rewrite/repair keep the base mode
+    OCTOS_ARC_IMPLEMENT_REASONING  reasoning for first implement turns of small tasks (default none); rewrite/repair keep the base mode
     OCTOS_ARC_INLINE_SPECS    "0" stops quoting the node's spec files into the prompt (default: quote up to 24k chars)
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
     OCTOS_ARC_TRIM_PROMPT     "0" keeps the kernel system prompt and all tool schemas (default: drop ARC-irrelevant sections/tools)
@@ -1022,7 +1022,7 @@ class Flow:
             # Per-turn reasoning: OCTOS_ARC_IMPLEMENT_REASONING (e.g. "none") applies
             # to first implement turns of small tasks; rewrite/repair keep the base mode.
             base_mode = getattr(self, "base_reasoning_mode", proxy.mode)
-            impl_mode = os.environ.get("OCTOS_ARC_IMPLEMENT_REASONING", "")
+            impl_mode = os.environ.get("OCTOS_ARC_IMPLEMENT_REASONING", "none")
             is_implement = label.endswith(" implement") or label.startswith("skeleton")
             proxy.mode = impl_mode if (impl_mode and is_implement and self.minimal_mode(getattr(self, "n_nodes", 99))) else base_mode
             if request_budget is None:
