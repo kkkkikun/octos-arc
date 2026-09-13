@@ -451,6 +451,30 @@ def restore_worktree(git_run: Callable[[list[str]], object], parts: tuple[str, .
     git_run(["clean", "-fdq", "-e", "node_modules", "-e", "dist", "--", *parts])
 
 
+def robustness_probe(port: int, proc: subprocess.Popen | None = None, timeout: float = 5.0) -> str | None:
+    """Hit paths a browser or grader will request; the server must answer
+    (any status) and stay alive. Cloud f9f0026819f1: an unhandled ENOENT on
+    GET /favicon.ico killed the backend and 8 of 10 tests saw ECONNREFUSED."""
+    import http.client
+    for path in ("/favicon.ico", "/this-path-does-not-exist", "/api/this-route-does-not-exist"):
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+            conn.request("GET", path)
+            resp = conn.getresponse()
+            resp.read()
+            conn.close()
+        except Exception as exc:  # noqa: BLE001
+            alive = proc is None or proc.poll() is None
+            return (f"GET {path} got no HTTP response ({exc.__class__.__name__}); "
+                    f"backend {'still running' if alive else 'CRASHED (process exited)'} — unknown paths must "
+                    f"return 404, never throw")
+        time.sleep(0.2)
+        if proc is not None and proc.poll() is not None:
+            return f"backend process exited (rc={proc.returncode}) right after GET {path} — an unhandled exception " \
+                   f"in the static/API handler; missing files must return 404 and the process must never die"
+    return None
+
+
 class AppServer:
     """Build the frontend once and run the backend on the smoke port."""
 
@@ -519,6 +543,11 @@ class AppServer:
                 return (f"backend `npm start` exited early (rc={self.proc.returncode}):\n"
                         f"{self.log_file.read_text(errors='replace')[-1500:]}")
             if port_open(self.port):
+                err = robustness_probe(self.port, self.proc)
+                if err:
+                    tail = self.tail(800)
+                    self.stop()
+                    return f"{err}\nserver log tail:\n{tail}"
                 return None
             time.sleep(0.5)
         self.stop()

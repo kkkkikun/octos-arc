@@ -11,6 +11,7 @@ from acceptance import (
     nodes_for_failures,
     restore_tree,
     restore_worktree,
+    robustness_probe,
     workers_for_memory,
     snapshot_worktree,
     tree_digest,
@@ -199,3 +200,22 @@ class MemoryWorkersTests(unittest.TestCase):
         self.assertEqual(workers_for_memory(512 * 1024 * 1024, 4), 1)
         self.assertEqual(workers_for_memory(2 * 1024 * 1024 * 1024, 4), 2)
         self.assertEqual(workers_for_memory(8 * 1024 * 1024 * 1024, 4), 4)
+
+
+class RobustnessProbeTests(unittest.TestCase):
+    def test_should_pass_for_a_server_that_answers_404_and_fail_for_a_dead_port(self):
+        import http.server, socket, threading
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(404); self.end_headers()
+            def log_message(self, *a): pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), H); port = srv.server_address[1]
+        th = threading.Thread(target=srv.serve_forever, daemon=True); th.start()
+        try:
+            self.assertIsNone(robustness_probe(port, None, timeout=3))
+        finally:
+            srv.shutdown()
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0)); free = s.getsockname()[1]
+        err = robustness_probe(free, None, timeout=2)
+        self.assertIn("no HTTP response", err)

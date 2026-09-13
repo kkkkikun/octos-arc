@@ -748,6 +748,7 @@ ARCHITECTURE_CONTRACT = """\
 Architecture (the runner depends on this EXACT layout; violation = 0 score):
 - frontend/ — package.json with a working `npm run build` that produces frontend/dist/ (a plain HTML/CSS/JS app plus a tiny Node copy script is ideal; no TypeScript, no framework needed).
 - backend/  — Node.js, package.json with `npm run start`, ZERO npm dependencies: `http.createServer` + a hand-written router, `fs`, `path`, `url`, `crypto` only. It reads PORT (default {port}), serves frontend/dist/ at `/` and JSON APIs under /api/. Persistence is a JSON file (backend/data/db.json) loaded at startup and rewritten on every mutation. Never better-sqlite3/sqlite3/bcrypt or any native module.
+- Crash safety: the process must never exit on a request. Wrap every request handler in try/catch (respond 500 JSON), return 404 for unknown paths and missing static files (browsers request /favicon.ico — an unhandled ENOENT there kills the server and fails every test), and register process.on('uncaughtException') / process.on('unhandledRejection') handlers that log and keep serving.
 - If a package is truly unavoidable, install it only with `npm install --registry=https://registry.npmmirror.com <pkg>` and write `registry=https://registry.npmmirror.com` into that folder's .npmrc.
 """
 
@@ -1317,7 +1318,7 @@ class Flow:
         patching a structurally broken first attempt (v13-tb-a)."""
         if self.runner is None or not specs:
             return None
-        best_passed, best_sha, regressions = -1, self.head(), 0
+        best_passed, best_sha, regressions, stalls = -1, self.head(), 0, 0
         rewrite_used = False
         previous_failures = None
         self.codegen_blocked = False  # same failure twice in codegen mode -> tool mode for this node
@@ -1360,7 +1361,13 @@ class Flow:
             if passed > best_passed:
                 if best_passed >= 0:
                     self.commit(f"{node_id} (repair {attempt}): {passed}/{summary.total} pass")
-                best_passed, best_sha, regressions = passed, self.head(), 0
+                best_passed, best_sha, regressions, stalls = passed, self.head(), 0, 0
+            elif passed == best_passed and attempt > 0:
+                stalls += 1
+                if stalls >= 2:
+                    # Cloud f9f0026819f1: six rounds oscillating 4/6 <-> 3/6.
+                    log(f"[flow] {node_id}: no improvement for two repairs; keeping the best state")
+                    break
             elif passed < best_passed:
                 regressions += 1
                 if regressions >= 2 and best_sha:
