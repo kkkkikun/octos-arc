@@ -159,14 +159,16 @@ cargo build --locked -p octos-cli --no-default-features --features api
 
 | 任务/请求 | 改前事件流 | 改后事件流 | input tokens | output tokens | cache_hit | 公开测试 |
 |---|---|---|---:|---:|---:|---:|
-| Counter（旧 8 KiB/8,192 上限） | `arc/arc-output/kernel-v2-baseline-counter/.arc/octos-events.jsonl` | `arc/arc-output/kernel-v2-final2-counter/.arc/octos-events.jsonl` | 20,627 → 21,614 | 8,300 → 6,950 | 235,520 → 186,624 | 未重新运行 grader |
+| Counter（旧 8 KiB/8,192 上限） | `arc/arc-output/kernel-v2-baseline-counter/.arc/octos-events.jsonl` | `arc/arc-output/kernel-v2-final2-counter/.arc/octos-events.jsonl` | 20,627 → 21,614 | 8,300 → 6,950 | 235,520 → 186,624 | runner 通过；公开 grader 未重复 |
 | Counter 首轮（同一流程） | 同上 | 同上首个 `turn/completed` | 20,627 → 15,674 | 8,300 → 4,262（−48.7%） | 235,520 → 110,336 | 工作流完成，测试结果以完整 runner 产物为准 |
 | `Reply exactly OK.` | 官方证据 17,205、62 工具 | 新二进制直接 stdio/solo | 17,205 → 5,420 | — → 2 | — → 0（单轮） | OK |
 | 同一 serve 会话第二次 `Reply exactly OK.` | — | 临时协议驱动器事件 | — | 2 | 5,120/5,420（约 94.5%） | OK |
 
 同一 serve 会话的第二次请求采用 append-only 前缀，`turn/completed.cache_hit` 为 5,120；整段 prompt hash 随新增 transcript 改变，因此不能把整段 hash 当作“完全相同”，缓存命中字段才是本项证据。短请求的新二进制实测输入已低于 6,000；Counter 的全流程总量受模型是否额外发起需求回合影响，不能把首轮降幅误报为整题降幅。
 
-Ticket Booking 的 8,192 上限版本曾运行到第二需求节点并被本地工具长尾中止，事件流保留在 `arc/arc-output/kernel-v2-lean-ticket/.arc/octos-events.jsonl`，不作为完成对照；4,096 上限版本的本地运行正在收尾，完成后补入同一表格。以上单元测试和本机 agent 运行均不等于 ARC-Bench 云端评测，云端成绩仍为“未评测”。
+Ticket Booking 的 8,192 上限版本曾运行到第二需求节点并被本地工具长尾中止，事件流保留在 `arc/arc-output/kernel-v2-lean-ticket/.arc/octos-events.jsonl`，不作为完成对照。4,096 上限版本已完成 6 个回合：`tokens_in=183,600`、`tokens_out=51,140`、`cache_hit=2,694,144`、费用 `0.13794452`，耗时 911 秒；对照基线为 7 个回合、`321,933/162,988`、`cache_hit=4,435,712`、费用 `0.25352586`、耗时 2,319 秒。官方公开 Playwright spec 重新执行为 10/10（使用 `grade-local.py` 的原始 spec，grader 进程清理采用等价的直接 runner 以避开 macOS 进程组权限错误）。
+
+以上单元测试和本机 agent 运行均不等于 ARC-Bench 云端评测，云端成绩仍为“未评测”。
 
 ### 验证
 
