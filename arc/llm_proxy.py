@@ -274,6 +274,11 @@ def usage_record(response_body: bytes, elapsed_ms: int, mode: str) -> dict | Non
     details = usage.get("completion_tokens_details") or {}
     if isinstance(details, dict) and "reasoning_tokens" in details:
         rec["reasoning_tokens"] = details["reasoning_tokens"]
+    # The ARC endpoint reports cache hits OpenAI-style (prompt_tokens_details.
+    # cached_tokens), not DeepSeek-style; fold either into one field.
+    pdetails = usage.get("prompt_tokens_details") or {}
+    if "prompt_cache_hit_tokens" not in rec and isinstance(pdetails, dict) and "cached_tokens" in pdetails:
+        rec["prompt_cache_hit_tokens"] = pdetails["cached_tokens"]
     return rec
 
 

@@ -135,3 +135,10 @@ class MaxTokensTests(unittest.TestCase):
         large = json.dumps({"model": "m", "messages": [], "max_tokens": 65536}).encode()
         self.assertIs(ensure_max_tokens(large, 32768), large)
         self.assertIs(ensure_max_tokens(small, 0), small)
+
+
+class CachedTokensTests(unittest.TestCase):
+    def test_should_read_openai_style_cached_tokens(self):
+        payload = json.dumps({"usage": {"prompt_tokens": 4014, "completion_tokens": 2,
+                                        "prompt_tokens_details": {"cached_tokens": 3840}}}).encode()
+        self.assertEqual(usage_record(payload, 1, "low")["prompt_cache_hit_tokens"], 3840)

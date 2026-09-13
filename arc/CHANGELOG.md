@@ -262,3 +262,7 @@ OCTOS_FINAL_REPAIR_ROUNDS=2     # 全套并行验收后的修复轮
 结论：TB 首轮 6/6 的概率约一半、与裁剪无关；决定费用的是（1）失败后的恢复路径——一次整体重写 + 内嵌源码的修复优于多轮盲修；（2）推理 Token（¥/M 约为输入的 10 倍，由 C 的五张云端账单拟合：输入 ≈ ¥3/M、输出 ≈ ¥30/M）。默认改为：小题实现轮关闭推理，修复/重写 low；每轮请求硬上限（实现 12、修复 10）由代理执行；Counter/Dice/Evolution 全程关闭推理（v10/v12：2 次请求、9–10k prompt、1.6–1.9k completion、1/1 与 2/2）。
 
 平台计量：C 校准 cc066e8e11f6 → 53a91acea453，去流式化后 token_count 613k → 165k（12× → 4×），费用 ¥0.373 → ¥0.171；剩余约 4× 与请求字节数同量级（Counter 一次请求约 45k 字节；裁剪后 15.5k）。
+
+**更正 · 前缀缓存**（2026-09-13）：此前各处写的 `cache_hit = 0` 是记录 bug。arc-bench 端点按 OpenAI 风格在 `usage.prompt_tokens_details.cached_tokens` 报告命中，而代理只读 DeepSeek 风格的 `prompt_cache_hit_tokens`。直接探测：同一 4,014 token 前缀连发三次，cached_tokens = 0 / 2,048 / 3,840，命中正常，与 B 的 94% 结论一致。`llm_proxy.usage_record` 现兼容两种字段；之前所有 `[usage]` 行的 cache_hit 数字作废，各运行的真实命中要看 `.arc/llm-usage.jsonl` 里新字段（本轮之后的运行）。
+
+**kernel arc.11 回归修正**（云端 76fb32a69d81，TB 0/0）：arc.11 给 DeepSeek 请求设单次输出上限 4096，与「一次响应写全部文件」叠加导致两个实现轮 output_truncated、无文件落盘。修：代理把 `max_tokens` 抬到 ≥32768（`OCTOS_ARC_MAX_TOKENS`）；实现轮截断即新会话按文件重写；实现轮请求上限 12→20；TB 实现轮保持 low 推理（auto 仍对单节点题关闭推理）；每轮验收打印失败 Observation。本机 arc.11 二进制（`b2134836`）：Counter 2 请求 / 8,121 prompt / 1,701 completion / 13 s / 1/1；TB w2-a 20 请求 10/10（首轮 6 条超时 → 重写 3/6 → 修复 6/6）、w2-b 13 请求 10/10（两节点首轮全过）。
