@@ -46,6 +46,7 @@ Environment (all optional):
     OCTOS_ARC_IMPLEMENT_REQUESTS / OCTOS_ARC_REPAIR_REQUESTS  hard per-turn request caps enforced at the proxy (12 for small tasks / 10; 0 = off)
     OCTOS_ARC_REWRITE_ON_ZERO "0" disables the single full-rewrite turn when round 0 passes nothing
     OCTOS_ARC_INLINE_SOURCE_CHARS  budget for quoting the app's sources into repair/rewrite prompts (40000; 0 = off)
+    OCTOS_ARC_MAX_TOKENS      minimum max_tokens the proxy enforces on chat requests (32768; kernel arc.11 sends 4096)
     OCTOS_SESSION_SCOPE       turn (default) | node | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
@@ -752,7 +753,7 @@ Verify briefly before you finish — the harness runs the official acceptance te
 """
 
 VERIFY_MINIMAL = """\
-You have no shell in this turn — the harness runs `npm run build`, starts the backend and runs the official Playwright spec right after your turn and hands you any failure. Tool budget for this turn: at most 8 write_file/edit_file calls (one backend file backend/server.js plus at most 4 frontend files; write each file once, complete) and at most 2 read_file calls. Emit ALL write_file calls together in ONE response (parallel tool calls), then finish with a one-line summary — every extra round trip resends the whole context and is billed. Do not list directories or re-read files you just wrote; the file listing above is authoritative. Double-check syntax mentally before writing: a build or start failure costs a repair round.
+You have no shell in this turn — the harness runs `npm run build`, starts the backend and runs the official Playwright spec right after your turn and hands you any failure. Tool budget for this turn: at most 8 write_file/edit_file calls (one backend file backend/server.js plus at most 4 frontend files; write each file once, complete) and at most 2 read_file calls. Group the write_file calls into as few responses as possible — small files together, but a large file (more than ~150 lines) alone in its own response — then finish with a one-line summary; every extra round trip resends the whole context and is billed, and an oversized response gets truncated and loses everything in it. Do not list directories or re-read files you just wrote; the file listing above is authoritative. Double-check syntax mentally before writing: a build or start failure costs a repair round.
 """
 
 PORT_RULES = """\
@@ -1205,7 +1206,8 @@ class Flow:
             dump = (self.output_dir / ".arc" / "llm-requests") if os.environ.get("OCTOS_ARC_PROXY_DUMP") == "1" else None
             self.llm_proxy = LlmProxy(upstream, mode, self.output_dir / ".arc" / "llm-usage.jsonl", dump_dir=dump,
                                       destream=os.environ.get("OCTOS_ARC_DESTREAM", "1") != "0",
-                                      trim=os.environ.get("OCTOS_ARC_TRIM_PROMPT", "1") != "0").start()
+                                      trim=os.environ.get("OCTOS_ARC_TRIM_PROMPT", "1") != "0",
+                                      min_max_tokens=int(os.environ.get("OCTOS_ARC_MAX_TOKENS", "32768"))).start()
         except OSError as exc:
             log(f"[proxy] could not start local LLM proxy ({exc}); using the endpoint directly")
             return
@@ -1427,6 +1429,15 @@ class Flow:
         prompt = self.corrections_text() + prompt
         implement_timeout = min(self.node_timeout, self.implement_fraction * node_budget, deadline - time.time())
         ok, text = self.turn(prompt, implement_timeout, f"{node_id} implement")
+        if not ok and "truncated" in text.lower():
+            # Cloud 76fb32a69d81: output cut by max_tokens, nothing written. Retry
+            # once, one file per response (fresh session, same prompt).
+            log(f"[flow] {node_id}: output truncated; retrying with one file per response")
+            self.driver.close()
+            retry = prompt + ("\nYOUR PREVIOUS RESPONSE WAS TRUNCATED BY THE OUTPUT LIMIT AND NOTHING WAS SAVED. "
+                              "Write exactly ONE file per response (one write_file call, complete file), "
+                              "starting with backend/server.js, then finish.\n")
+            ok, text = self.turn(retry, min(self.node_timeout, deadline - time.time()), f"{node_id} implement (retry)")
         timed_out = (not ok) and "timed out" in text.lower()
         if ok and not self.has_app():
             # v6-counter: one package.json missing after the turn. Do not give

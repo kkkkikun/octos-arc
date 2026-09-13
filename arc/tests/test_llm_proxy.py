@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from llm_proxy import BUDGET_NOTICE, destream_request, enforce_turn_budget, inject_reasoning, request_shape, to_sse, trim_request, trim_system_prompt, usage_record
+from llm_proxy import BUDGET_NOTICE, destream_request, enforce_turn_budget, ensure_max_tokens, inject_reasoning, request_shape, to_sse, trim_request, trim_system_prompt, usage_record
 
 
 class InjectTests(unittest.TestCase):
@@ -124,3 +124,14 @@ class TurnBudgetTests(unittest.TestCase):
         self.assertEqual(out["messages"][-1], {"role": "user", "content": BUDGET_NOTICE})
         again = json.loads(enforce_turn_budget(json.dumps(out).encode(), 7, 6))
         self.assertEqual(sum(1 for m in again["messages"] if m.get("content") == BUDGET_NOTICE), 1)
+
+
+class MaxTokensTests(unittest.TestCase):
+    def test_should_raise_small_or_missing_max_tokens_and_keep_large(self):
+        small = json.dumps({"model": "m", "messages": [], "max_tokens": 4096}).encode()
+        self.assertEqual(json.loads(ensure_max_tokens(small, 32768))["max_tokens"], 32768)
+        missing = json.dumps({"model": "m", "messages": []}).encode()
+        self.assertEqual(json.loads(ensure_max_tokens(missing, 32768))["max_tokens"], 32768)
+        large = json.dumps({"model": "m", "messages": [], "max_tokens": 65536}).encode()
+        self.assertIs(ensure_max_tokens(large, 32768), large)
+        self.assertIs(ensure_max_tokens(small, 0), small)
