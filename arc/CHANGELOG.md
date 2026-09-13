@@ -286,3 +286,5 @@ OCTOS_FINAL_REPAIR_ROUNDS=2     # 全套并行验收后的修复轮
 | ticket-booking | 060a3debc450 | 9/10，功能 1/2 | ¥0.365 | 216 s | 榜首 90% / ¥0.81；同通过率下费用更低 |
 
 对照第一阶段起点（榜上旧条目）：Smoke ¥2.66 / 234 s → ¥0.019 / 23 s；Evolution ¥1.15 / 190 s → ¥0.045 / 38 s；TB ¥1.99 / 1,051 s（9/10）→ ¥0.365 / 216 s（9/10）。TB 10/10 仍是目标：本机连续 10/10，云端 9/10 的失败每次不同（Target crashed、复选框不 stable、evaluate 超时），集中在平台 512 MiB / 2 worker 的评测环境；本轮已加入服务端渲染、无 XHR、无动画、崩溃兜底与 favicon 探测。
+
+**第七版（Smoke 冲榜首）**：刷榜后 Evolution、TB 已是真实 agent 第 1，Smoke 第 2（榜首 ¥0.02 / 10 s，我们 ¥0.04 / 23 s）。单节点题改用紧凑 codegen 提示词（3.3k 字符，含内嵌 spec）并要求最小输出（无 CSS/注释/README，package.json 只含 name+scripts，一行 build 脚本，≤15 行内联脚本）。本机（arc.11 内核）：Counter 1 请求 / 1,327 prompt / 546 completion / 10 s / 1/1；Dice 1 请求 / 1,229 / 562 / 9 s / 1/1；Evolution 1 请求 / 1,843 / 708 / 2/2。相对第六版（2.2k / 1.4k）输出 Token 降 60%。另：TB 云端 060a3debc450 失败的 spec 第 71 行是密码强度指示器 outerHTML 轮询，不是 reload；契约加入「实时指示器在 input 事件里同步更新自身元素」。
