@@ -42,7 +42,7 @@ Environment (all optional):
     OCTOS_ARC_DESTREAM        "0" lets streaming requests reach the platform as SSE (default: one JSON response upstream)
     OCTOS_ARC_TRIM_PROMPT     "0" keeps the kernel system prompt and all tool schemas (default: drop ARC-irrelevant sections/tools)
     OCTOS_ARC_DROP_SHELL      "0" leaves bash/shell available in minimal-verification turns (default: removed)
-    OCTOS_ARC_IMPLEMENT_REQUESTS / OCTOS_ARC_REPAIR_REQUESTS  hard per-turn request caps enforced at the proxy (12 for small tasks / 6; 0 = off)
+    OCTOS_ARC_IMPLEMENT_REQUESTS / OCTOS_ARC_REPAIR_REQUESTS  hard per-turn request caps enforced at the proxy (12 for small tasks / 10; 0 = off)
     OCTOS_SESSION_SCOPE       turn (default) | node | run — when a fresh octos session starts
     OCTOS_ARC_INSTALL_PLAYWRIGHT  "0" never installs Playwright on the fly
     OCTOS_ARC_ALIAS_SPEC_IDS  "0" stops mirroring node states onto spec ids
@@ -686,7 +686,7 @@ UI_CONTRACT_CORE = """\
 UI contract (the hidden Playwright tests depend on these; a violation scores 0):
 - Buttons are real <button> elements, links are <a href>, every form control has a visible <label for=id>; their texts are copied VERBATIM from the requirement/spec (anchored regexes like /^name$/i reject "Full Name"). Use plain text/password/email inputs, native <select>/checkbox/radio; NEVER type="date"/"number". All controls exist in the served HTML itself and stay visible, enabled and editable at all times.
 - No native HTML5 validation attributes; validate in JavaScript and show ONE inline error element (role="alert") naming the problem (required / invalid / match / terms / duplicate). On error stay on the page and create no record.
-- Strict mode: every echoed value (username, city, date) appears in EXACTLY ONE visible element per page; never both a short and a long form of one entity, never a per-field error plus a summary.
+- Strict mode: every echoed value (username, city, date) appears in EXACTLY ONE element per page; never both a short and a long form of one entity, never a per-field error plus a summary. Serve a SEPARATE HTML document per route (`/`, `/register`, `/login`, ...) — never several forms in one document with hidden views: hidden inputs and labels still collide in getByLabel/getByRole.
 - State: persist ONLY what the requirement says is persisted and reproduce that seed on EVERY fresh start; a page's initial state (e.g. "the count is initially 0") is per-page-load client state, never a shared server value — the grader runs several test files in parallel against ONE server.
 - Zero external requests (no CDN, fonts, analytics); assets small and same-origin.
 - Text only: never OCR reference images. Write files in your first actions.
@@ -790,7 +790,7 @@ REPAIR_PROMPT = """\
 The official acceptance tests for requirement node {node_id} just ran against your app: {passed}/{total} passed. Failing tests (Feature / where it failed / what was observed / the last steps before failure):
 {failures}
 {corrections}{slow}
-Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. Read the failing assertion in the spec quoted earlier, fix the root cause with as few tool calls as possible (ideally one edit_file per file, all in one response), no shell commands. The harness rebuilds and re-runs the official tests right after your turn; do not start servers or write your own tests. The spec files are read-only ground truth.
+Fix frontend/ and/or backend/ so these tests pass without breaking the passing ones. You have about 10 requests: in the FIRST response read at most two files (only the ones you will change), in the SECOND response emit every edit_file/write_file call together, then finish — do not read more files afterwards. No shell commands. The harness rebuilds and re-runs the official tests right after your turn. The spec files are read-only ground truth.
 """ + PORT_RULES
 
 FINAL_CHECK_PROMPT = """\
@@ -985,7 +985,7 @@ class Flow:
         proxy = getattr(self, "llm_proxy", None)
         if proxy is not None:
             if request_budget is None:
-                request_budget = int(os.environ.get("OCTOS_ARC_REPAIR_REQUESTS", "6")) if "repair" in label else \
+                request_budget = int(os.environ.get("OCTOS_ARC_REPAIR_REQUESTS", "10")) if "repair" in label else \
                     int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "12" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"))
             proxy.begin_turn(request_budget)
         t0 = time.time()
