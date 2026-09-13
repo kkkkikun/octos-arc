@@ -146,7 +146,7 @@ cargo build --locked -p octos-cli --no-default-features --features api
 
 ## 第三阶段：工作流 B · 真实 agent 成本与缓存
 
-本节对应目标书 2026-09-13 新增的第 7 节。当前实现提交为 `86d4769f`，以及后续的 ARC 端点推理控制修正（尚未合入 main）。本阶段没有修改 `legacy`，也没有把本地生成应用当作评测结果。
+本节对应目标书 2026-09-13 新增的第 7 节。当前候选实现位于提交 `08e10c05`（基于最新 `origin/main`）。本阶段没有修改 `legacy`，也没有把本地生成应用当作评测结果。
 
 ### 改动
 
@@ -180,4 +180,4 @@ Ticket Booking 的 8,192 上限版本曾运行到第二需求节点并被本地�
 - `context_manager::tests::default_tool_output_policy_keeps_eight_kibibytes_for_model`；
 - `cargo build --locked --release -p octos-cli --no-default-features --features api`。
 
-当前候选 macOS arm64 产物为 `octos 2.0.3-rc.11 (86d4769f 2026-09-13)`，SHA-256：`498219adf471b4dafae6c134a09e16b1ba6e8a38992fb838d120071996a77ef9`。本候选尚未创建新的 GitHub Release，因此 `arc-runtime-lock.json.runtime_release` 和 `arc/main.py` 暂不改写。
+当前候选 macOS arm64 产物为 `octos 2.0.3-rc.11 (08e10c05 2026-09-13)`，SHA-256：`a856afaf88c1967ad95ec2268259665085aa9a9ef6adb27aef0c29a6558488b1`；rustc 为 `1.98.0 (88d9e12ae 2026-08-18)`。本候选尚未创建新的 GitHub Release，因此 `arc-runtime-lock.json.runtime_release` 和 `arc/main.py` 暂不改写。
