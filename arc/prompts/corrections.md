@@ -13,7 +13,7 @@ The grader runs all spec files IN PARALLEL against one server; tests from differ
 ## evolution_regression
 This node passed before this evolution round; the regression below must be fixed without removing the new behaviour.
 ## claim_without_verification
-Your previous turn claimed completion without running any build, start or request command. Never declare a step done before executing `npm run build`, starting the backend on the smoke port and exercising the endpoint with curl.
+Your previous turn claimed completion without running any build, start or request command. Use the supplied isolated verification command before claiming success. If no verification entry is supplied, build and exercise the app in a disposable copy so validation does not change the delivered application's persistent data.
 ## repeated_error
 You hit the same error {count} times in a row ({error}). Stop repeating the command; diagnose the root cause (read the file / port / path involved) and change approach.
 ## protected_writes
