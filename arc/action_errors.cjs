@@ -19,9 +19,19 @@ module.exports = class ActionErrors {
       }
     }
     const seen = new Set();
+    const recentActions = [];
+    let precedingFailure = [];
     const visit = steps => {
       for (const step of steps || []) {
         const message = String(step.error?.message || '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+        if (message) precedingFailure = recentActions.slice();
+        if (step.category === 'pw:api') {
+          // Locator probes can otherwise evict the actions that changed the page.
+          if (!message && !/^Query\b/i.test(step.title)) {
+            recentActions.push(clip(step.title, 160));
+            if (recentActions.length > 6) recentActions.shift();
+          }
+        }
         if (step.category === 'pw:api' && message && !seen.has(message)) {
           seen.add(message);
           const location = step.location ? ` at ${clip(path.basename(step.location.file), 160)}:${step.location.line}` : '';
@@ -32,6 +42,10 @@ module.exports = class ActionErrors {
       }
     };
     visit(result.steps);
+    if (result.status !== 'passed' && result.status !== 'skipped' && precedingFailure.length) {
+      errors.push({order:-1, duration:Number.MAX_SAFE_INTEGER,
+        text:'Actions preceding the final failed step (diagnostic only):\n'+precedingFailure.join(' -> ')});
+    }
     // Keep the most time-consuming failures, then present them in execution order.
     this.rows[test.id] = errors.sort((a,b) => b.duration-a.duration).slice(0,8)
       .sort((a,b) => a.order-b.order).map(e => clip(e.text, 2000));

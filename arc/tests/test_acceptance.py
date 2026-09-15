@@ -314,6 +314,28 @@ class CaughtActionDiagnosticsTests(unittest.TestCase):
         self.assertEqual(failure_summaries(summary), '')
 
 class ActionReporterBoundsTests(unittest.TestCase):
+    def test_should_include_bounded_preceding_actions_for_failed_tests(self):
+        reporter = Path(__file__).resolve().parents[1] / 'action_errors.cjs'
+        script = r"""
+const assert = require('assert'); const Reporter = require(process.argv[1]);
+const steps = Array.from({length:12},(_,i)=>({category:'pw:api',title:'click control '+i,duration:1,steps:[]}));
+steps.push(...Array.from({length:20},()=>({category:'pw:api',title:'Query count',steps:[]})));
+steps.push({category:'expect',title:'expect visible',duration:4000,error:{message:'still hidden'},steps:[]});
+const result={status:'failed',steps}; const before=JSON.stringify(result);
+const reporter=new Reporter();reporter.onTestEnd({id:'failed'},result);
+const text=reporter.rows.failed.join('\n');
+assert(text.includes('Actions preceding the final failed step'));
+assert(text.includes('click control 10') && text.includes('click control 11'));
+assert(!text.includes('click control 0'));
+assert(text.indexOf('click control 10') < text.indexOf('click control 11'));
+assert.equal(JSON.stringify(result),before);
+reporter.onTestEnd({id:'passed'},{status:'passed',steps});
+assert(!reporter.rows.passed.join('\n').includes('Actions preceding'));
+assert(reporter.rows.failed.length<=8 && reporter.rows.failed.every(x=>x.length<=2000));
+"""
+        result = subprocess.run(['node', '-e', script, str(reporter)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_should_bound_diagnostics_without_mutating_results(self):
         reporter = Path(__file__).resolve().parents[1] / 'action_errors.cjs'
         script = r'''
