@@ -213,7 +213,7 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
         steps = " -> ".join(steps_src[-max_steps:]) if steps_src else "(no step trace)"
         blocks.append(f"- Feature: {r.title}\n  Failed at: {where}\n  Observation: {observation}\n  Steps: {steps}")
         if r.action_errors:
-            blocks[-1] += "\n  Earlier API errors (helpers may have recovered; correlate with the final failure):\n" + "\n".join(r.action_errors)[:4000]
+            blocks[-1] += "\n  Browser diagnostics (helpers may have recovered; correlate with the final failure):\n" + "\n".join(r.action_errors)[:4000]
     return "\n".join(blocks)
 
 
@@ -775,6 +775,16 @@ class AcceptanceRunner:
             shutil.rmtree(self.work_dir)
         shutil.copytree(self.tests_dir, self.work_dir / "tests",
                         ignore=shutil.ignore_patterns("node_modules", "test-results", "playwright-report"))
+        shutil.copyfile(Path(__file__).with_name("page_errors.ts"), self.work_dir / "page_errors.ts")
+        for spec in (self.work_dir / "tests").rglob("*.spec.ts"):
+            source = spec.read_text(encoding="utf-8")
+            alias = "__octosObservePageErrors"
+            while alias in source:
+                alias += "_"
+            observer = Path(os.path.relpath(self.work_dir / "page_errors", spec.parent)).as_posix()
+            if not observer.startswith("."):
+                observer = "./" + observer
+            spec.write_text(source + f"\nimport {{ register as {alias} }} from {json.dumps(observer)};\n{alias}();\n", encoding="utf-8")
         shutil.copyfile(Path(__file__).with_name("action_errors.cjs"), self.work_dir / "action_errors.cjs")
         (self.work_dir / "playwright.config.ts").write_text(
             "import { defineConfig } from '@playwright/test';\n"

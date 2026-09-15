@@ -365,3 +365,32 @@ class TerminalAcceptanceReportTests(unittest.TestCase):
             self.assertEqual(run.returncode,1)
             self.assertIn('1 failed',run.stdout)
             self.assertIn('1 passed',run.stdout)
+
+
+class BrowserRuntimeDiagnosticsTests(unittest.TestCase):
+    def test_should_report_page_error_without_changing_passed_verdict_or_sources(self):
+        from acceptance import AcceptanceRunner
+        import os, json
+        install = os.environ.get('OCTOS_TEST_PLAYWRIGHT_ROOT')
+        if not install:
+            self.skipTest('requires installed Playwright')
+        root = Path(install)
+        with tempfile.TemporaryDirectory(prefix='page-error-', dir=root) as folder:
+            base=Path(folder); specs=base/'source'; specs.mkdir()
+            source = """import {test,expect} from '@playwright/test';
+for (const fail of [false,true]) test('page exception '+fail,async({page})=>{
+ await page.setContent('<button onclick="missingGenericHandler()">Open</button>');
+ await page.getByRole('button',{name:'Open'}).click();
+ expect(fail).toBe(false);
+});
+"""
+            source += '\nconst __octosObservePageErrors = 1;\n'
+            (specs/'nested').mkdir()
+            spec=specs/'nested/generic.spec.ts'; spec.write_text(source)
+            runner=AcceptanceRunner(root,specs,base/'prepared',lambda _:None,workers=1)
+            result=runner.run(['nested/generic.spec.ts'],'http://127.0.0.1:1')
+            self.assertEqual((result.passed,result.total),(1,2),result.error)
+            self.assertEqual(spec.read_text(),source)
+            self.assertIn('missingGenericHandler is not defined',failure_summaries(result))
+            failed=[r for r in result.results if not r.ok]
+            self.assertEqual(len(failed),1)

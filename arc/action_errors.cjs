@@ -6,6 +6,18 @@ module.exports = class ActionErrors {
   constructor(options = {}) { this.output = options.output || 'action-errors.json'; this.rows = {}; }
   onTestEnd(test, result) {
     const errors = [];
+    for (const chunk of result.stderr || []) {
+      for (const line of String(chunk).split('\n')) {
+        const prefix = '__OCTOS_PAGE_ERROR__';
+        if (!line.startsWith(prefix)) continue;
+        try {
+          const message = JSON.parse(line.slice(prefix.length));
+          if (typeof message === 'string' && errors.length < 8)
+            errors.push({order:errors.length, duration:Number.MAX_SAFE_INTEGER,
+              text:'Page runtime exception (diagnostic only):\n'+clip(message,1600)});
+        } catch (_) { /* Optional diagnostics cannot change the verdict. */ }
+      }
+    }
     const seen = new Set();
     const visit = steps => {
       for (const step of steps || []) {

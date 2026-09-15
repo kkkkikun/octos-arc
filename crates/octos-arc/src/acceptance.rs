@@ -681,7 +681,7 @@ pub fn failure_summaries(
         ));
         if !r.action_errors.is_empty() {
             let detail: String = r.action_errors.join("\n").chars().take(4000).collect();
-            blocks.last_mut().unwrap().push_str(&format!("\n  Earlier API errors (helpers may have recovered; correlate with the final failure):\n{detail}"));
+            blocks.last_mut().unwrap().push_str(&format!("\n  Browser diagnostics (helpers may have recovered; correlate with the final failure):\n{detail}"));
         }
     }
     blocks.join("\n")
@@ -1425,6 +1425,30 @@ impl AcceptanceRunner {
             std::fs::remove_dir_all(&self.work_dir)?;
         }
         copy_tree(&self.tests_dir, &self.work_dir.join("tests"))?;
+        std::fs::write(
+            self.work_dir.join("page_errors.ts"),
+            include_str!("../../../arc/page_errors.ts"),
+        )?;
+        for relative in list_specs(&self.work_dir.join("tests")) {
+            let spec = self.work_dir.join("tests").join(&relative);
+            let source = std::fs::read_to_string(&spec)?;
+            let mut alias = "__octosObservePageErrors".to_string();
+            while source.contains(&alias) {
+                alias.push('_');
+            }
+            let observer = format!(
+                "{}page_errors",
+                "../".repeat(Path::new(&relative).components().count())
+            );
+            std::fs::write(
+                spec,
+                format!(
+                    "{source}\nimport {{ register as {alias} }} from {};\n{alias}();\n",
+                    serde_json::to_string(&observer)?
+                ),
+            )?;
+        }
+
         std::fs::write(
             self.work_dir.join("action_errors.cjs"),
             include_str!("../../../arc/action_errors.cjs"),
