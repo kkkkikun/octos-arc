@@ -260,6 +260,7 @@ class RepairModeTransitionTests(unittest.TestCase):
                 flow.snapshot_sources = Mock()
                 flow.sources_text = lambda: ''
                 flow.corrections_text = lambda: ''
+                flow.spec_bodies = lambda _: 'complete-spec-and-helper-evidence'
                 flow.codegen_turn = Mock()
                 flow.turn = Mock()
                 flow.commit = Mock()
@@ -275,6 +276,8 @@ class RepairModeTransitionTests(unittest.TestCase):
                     self.assertEqual(flow.acceptance_loop('node', ['generic.spec.ts'], time.time()+1000),
                                      tools_succeed)
                 self.assertEqual(flow.codegen_turn.call_count, 2)
+                for call in flow.codegen_turn.call_args_list:
+                    self.assertIn('complete-spec-and-helper-evidence', call.args[0])
                 self.assertEqual(flow.turn.call_count, int(rounds > 2))
                 self.assertEqual(flow.run_specs.call_count, 4 if rounds > 2 else 3)
 
@@ -381,3 +384,15 @@ class RegressionCheckpointTests(unittest.TestCase):
             flow.remaining = lambda: 10
             flow.regression_checkpoint(4, 12)
             flow.run_specs.assert_not_called()
+
+
+class CodegenRepairEvidenceTests(unittest.TestCase):
+    def test_should_use_tools_when_complete_evidence_does_not_fit(self):
+        import main
+        from unittest.mock import patch
+        flow = object.__new__(main.Flow)
+        flow.spec_bodies = lambda _: 'complete acceptance helper'
+        with patch.dict('os.environ', {'OCTOS_ARC_CODEGEN_CONTEXT_CHARS': '10'}):
+            self.assertIsNone(flow.codegen_repair_prompt('node', 'failure and sources'))
+        flow.spec_bodies = lambda _: '(none)'
+        self.assertIsNone(flow.codegen_repair_prompt('node', 'failure and sources'))

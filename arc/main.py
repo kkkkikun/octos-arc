@@ -1062,6 +1062,11 @@ This is an EXISTING application that already passed its previous acceptance test
 Read the files you need before changing them, keep every existing route, label and behaviour intact, and change only what this node requires.
 """
 
+CODEGEN_REPAIR_SUFFIX = """
+This request has no tools. Use the supplied acceptance specification and helpers below as read-only evidence; do not emit read/shell instructions or claim to have executed them. Return every application file you change as a complete file block. The harness executes acceptance after your response.
+{spec}
+"""
+
 REPAIR_PROMPT = """\
 The official acceptance tests for requirement node {node_id} just ran against your app: {passed}/{total} passed. Failing tests (Feature / where it failed / what was observed / the last steps before failure):
 {failures}
@@ -1402,6 +1407,15 @@ class Flow:
         quote is bounded to the budget minus the spec, so this only fails when
         the spec alone (with helpers) is too large for one request."""
         return len(spec_text) < self.codegen_context_chars() * 0.6
+
+    def codegen_repair_prompt(self, node_id: str, prompt: str) -> str | None:
+        spec = self.spec_bodies(node_id)
+        if not spec or spec == "(none)":
+            return None
+        full = prompt + CODEGEN_REPAIR_SUFFIX.format(spec=spec)
+        if len(full) + len(FORMAT_INSTRUCTIONS) > self.codegen_context_chars():
+            return None
+        return full
 
     def tiny_mode(self, spec_chars: int) -> bool:
         threshold = int(os.environ.get("OCTOS_ARC_TINY_SPEC_CHARS", "1500"))
@@ -1846,11 +1860,15 @@ class Flow:
                                           corrections=self.corrections_text(),
                                           slow=slow_text, smoke=self.smoke_port, port=self.web_port,
                                           sources=self.sources_text())
-            if self.codegen_mode():
-                self.codegen_turn(prompt + "\nReturn every file you change as a complete file block.",
+            compact = self.codegen_repair_prompt(node_id, prompt) if self.codegen_mode() else None
+            if compact is not None:
+                self.codegen_turn(compact,
                                   min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}",
                                   spec_chars=getattr(self, "current_spec_chars", 0))
             else:
+                if self.codegen_mode():
+                    self.codegen_blocked = True
+                    log(f"[flow] {node_id}: complete repair evidence unavailable within codegen budget; using tools")
                 self.turn(prompt, min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}")
         # Failed repairs can leave dirty files without changing HEAD. Restore the files,
         # even when the current commit already equals the best recorded commit.

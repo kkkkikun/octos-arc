@@ -1324,6 +1324,21 @@ impl Flow {
     /// `main.codegen_context_fits`: spec + (trimmed) sources must fit the codegen
     /// prompt budget; the source quote is bounded to the budget minus the spec,
     /// so this only fails when the spec alone (with helpers) is too large.
+    fn codegen_repair_prompt(&self, node_id: &str, prompt: &str) -> Option<String> {
+        let spec = self.spec_bodies(node_id);
+        if spec.is_empty() || spec == "(none)" {
+            return None;
+        }
+        let suffix = self
+            .prompts
+            .render("codegen-repair-suffix", &[("spec", &spec)])
+            .ok()?;
+        let full = format!("{prompt}{suffix}");
+        (full.chars().count() + self.prompts.get("codegen-format").chars().count()
+            <= self.policy.prompts.codegen_context_chars)
+            .then_some(full)
+    }
+
     fn codegen_context_fits(&self, spec_chars: usize) -> bool {
         (spec_chars as f64) < self.policy.prompts.codegen_context_chars as f64 * 0.6
     }
@@ -1875,10 +1890,18 @@ impl Flow {
                 specs,
             );
             let label = format!("{node_id} repair {}/{repair_rounds}", attempt + 1);
-            if self.codegen_mode() {
-                let prompt = format!("{prompt}{}", self.prompts.get("codegen-repair-suffix"));
-                self.codegen_turn(&prompt, turn_timeout, &label);
+            let compact = if self.codegen_mode() {
+                self.codegen_repair_prompt(node_id, &prompt)
             } else {
+                None
+            };
+            if let Some(compact) = compact {
+                self.codegen_turn(&compact, turn_timeout, &label);
+            } else {
+                if self.codegen_mode() {
+                    self.codegen_blocked = true;
+                    self.log(format!("[flow] {node_id}: complete repair evidence unavailable within codegen budget; using tools"));
+                }
                 self.turn(&prompt, turn_timeout, &label, true, None);
             }
         }
@@ -3241,6 +3264,34 @@ mod tests {
         assert_eq!(flow.test_verdict.get("new"), Some(&Some(true)));
         assert_eq!(flow.test_verdict.get("future"), Some(&None));
         assert!(flow.corrections_text().contains("handler undefined"));
+    }
+
+    #[test]
+    fn codegen_repairs_need_complete_acceptance_evidence_within_budget() {
+        let (mut flow, _, dir) = rejected_flow("unused");
+        let tests = dir.path().join("tests");
+        std::fs::create_dir_all(&tests).unwrap();
+        std::fs::write(tests.join("feature.spec.ts"), "complete acceptance example").unwrap();
+        std::fs::write(tests.join("helpers.ts"), "complete shared helper").unwrap();
+        flow.tests_dir = Some(tests);
+        flow.spec_map
+            .by_node
+            .insert("feature".into(), vec!["feature.spec.ts".into()]);
+        let prompt = flow
+            .codegen_repair_prompt("feature", "failure and sources")
+            .unwrap();
+        assert!(prompt.contains("complete acceptance example"));
+        assert!(prompt.contains("complete shared helper"));
+        flow.policy.prompts.codegen_context_chars = 10;
+        assert!(
+            flow.codegen_repair_prompt("feature", "failure and sources")
+                .is_none()
+        );
+        flow.tests_dir = None;
+        assert!(
+            flow.codegen_repair_prompt("feature", "failure and sources")
+                .is_none()
+        );
     }
 
     #[test]
