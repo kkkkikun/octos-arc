@@ -537,12 +537,14 @@ class FailurePageSnapshotTests(unittest.TestCase):
         results = [TestOutcome(title=f'REQ-{n}', ok=False, status='timedOut', duration_ms=1,
                                file=f'REQ-{n}.spec.ts', message='TimeoutError', rendered_page=tree)
                    for n in range(8)]
-        summary = failure_summaries(RunSummary(passed=0, total=8, results=results))
+        summary = failure_summaries(RunSummary(passed=0, total=8, results=results),
+                                    max_snapshots=8000)
         # Every failure keeps a usable share; none of them takes the whole prompt.
         for n in range(8):
             self.assertIn(f'- Feature: REQ-{n}\n', summary)
         self.assertEqual(summary.count('Page at failure'), 8)
-        self.assertLess(len(summary), 8 * 1400)
+        quoted = sum(len(line) for line in summary.splitlines() if line.startswith('    - generic'))
+        self.assertLessEqual(quoted, 8000 + 8 * 200)  # + the four-space quote indent per line
 
     def test_should_report_the_rendered_page_for_a_real_failure(self):
         from acceptance import AcceptanceRunner

@@ -205,7 +205,7 @@ def _call_log_steps(message: str) -> list[str]:
 _PAGE_SNAPSHOT = re.compile(r"(?m)^```yaml\n(.*?)\n```", re.S)
 
 
-def page_snapshot(error_context: str, max_chars: int = 1400) -> str:
+def page_snapshot(error_context: str, max_chars: int = 4000) -> str:
     """The accessibility tree of the page as it stood when the test failed.
 
     Playwright writes `test-results/<test>/error-context.md` for every failure
@@ -234,13 +234,15 @@ def _clip_lines(text: str, max_chars: int) -> str:
 
 
 def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: int = 900,
-                      max_snapshots: int = 6000) -> str:
+                      max_snapshots: int = 18000) -> str:
     """Four-field digest of every failed test — the only thing the model sees."""
     blocks = []
     # A full suite can fail on many nodes at once; share the snapshot budget so a
     # long first tree cannot crowd the later failures out of the repair prompt.
+    # The share has to clear the page chrome — header, sidebar, banner run over a
+    # thousand characters before the content the test was actually looking at.
     failing = sum(1 for r in summary.results if not r.ok) or 1
-    per_snapshot = max(400, max_snapshots // failing)
+    per_snapshot = max(800, max_snapshots // failing)
     for r in summary.results:
         if r.ok:
             continue
