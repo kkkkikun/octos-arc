@@ -1540,6 +1540,15 @@ class Flow:
             parts.append(text if len(files) == 1 else f"--- {rel} ---\n{text}")
         return "\n".join(parts) or "(none)"
 
+    def repair_requirements(self, node_id: str | None = None) -> str:
+        nodes = getattr(self, "requirement_nodes", {})
+        selected = [nodes[node_id]] if node_id in nodes else ([] if node_id is not None else nodes.values())
+        text = "\n\n".join(describe_node(node) for node in selected)
+        if not text:
+            return ""
+        return ("Original requirements (read-only; preserve details even when acceptance does not assert them):\n"
+                + text + "\n")
+
     def repair_test_location(self, specs: list[str] | None = None) -> str:
         if not self.tests_dir:
             return ""
@@ -1879,7 +1888,7 @@ class Flow:
                                           failures=failures or "(no detail)", test_location=self.repair_test_location(specs),
                                           corrections=self.corrections_text(),
                                           slow=slow_text, smoke=self.smoke_port, port=self.web_port,
-                                          sources=self.sources_text())
+                                          sources=self.repair_requirements(node_id) + self.sources_text())
             compact = self.codegen_repair_prompt(node_id, prompt) if self.codegen_mode() else None
             if compact is not None:
                 self.codegen_turn(compact,
@@ -2269,7 +2278,7 @@ class Flow:
             prompt = REPAIR_PROMPT.format(
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
                 test_location=self.repair_test_location(),
-                sources=self.sources_text(),
+                sources=self.repair_requirements() + self.sources_text(),
                 corrections=self.corrections_text() + "The grader runs all spec files IN PARALLEL against one "
                 "server; tests from different files must not interfere through shared server state "
                 "(e.g. a counter that every browser session shares). Keep persisted data only where the "
@@ -2349,6 +2358,7 @@ class Flow:
             tree = load_requirement_tree(self.req_dir)
             self.runtime.traceability.store_requirement_tree(tree)
             ordered = topo_order(tree)
+            self.requirement_nodes = {str(node.get("id")): node for node in ordered}
             if not ordered:
                 raise ValueError("no ATOMIC requirement nodes found")
             self.classify_tree(tree)

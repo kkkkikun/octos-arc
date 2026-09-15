@@ -457,6 +457,19 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
         return flow
 
+    def test_should_keep_original_requirements_in_full_suite_repairs(self):
+        from unittest.mock import Mock, patch
+        flow = self._flow([1, 2])
+        flow.requirement_nodes = {
+            'REQ-1': {'id':'REQ-1', 'description':'Preserve initial state beyond visible assertions'},
+            'REQ-2': {'id':'REQ-2', 'description':'Save the full text without truncation'}}
+        flow.turn = Mock(return_value=(True, 'repaired'))
+        with patch.dict('os.environ', {'OCTOS_FINAL_REPAIR_ROUNDS':'1'}):
+            flow.final_acceptance()
+        prompt = flow.turn.call_args.args[0]
+        self.assertIn('Preserve initial state beyond visible assertions', prompt)
+        self.assertIn('Save the full text without truncation', prompt)
+
     def test_should_restore_best_state_after_regressing_repairs(self):
         import os
         os.environ["OCTOS_FINAL_REPAIR_ROUNDS"] = "2"

@@ -752,7 +752,21 @@ impl Flow {
     ) -> String {
         let (passed, total) = counts;
         let corrections = format!("{}{extra_corrections}", self.corrections_text());
-        let sources = self.sources_text();
+        let original: Vec<String> = self
+            .ordered
+            .iter()
+            .filter(|node| specs.is_empty() || tree::node_id(node) == node_label)
+            .map(tree::describe_node)
+            .collect();
+        let requirements = if original.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "Original requirements (read-only; preserve details even when acceptance does not assert them):\n{}\n",
+                original.join("\n\n")
+            )
+        };
+        let sources = format!("{requirements}{}", self.sources_text());
         let port_rules = self.port_rules();
         let mut test_location = self.tests_dir.as_ref().map(|path| {
             let path = path.canonicalize().unwrap_or_else(|_| path.clone());
@@ -3292,6 +3306,28 @@ mod tests {
             flow.codegen_repair_prompt("feature", "failure and sources")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn repairs_keep_original_requirements_beyond_test_assertions() {
+        let (mut flow, _, _dir) = rejected_flow("unused");
+        flow.ordered = vec![
+            json!({"id":"feature", "description":"Preserve initial state beyond visible assertions"}),
+            json!({"id":"other", "description":"Save the full text without truncation"}),
+        ];
+        let single = flow.repair_prompt(
+            "feature",
+            (0, 1),
+            "missing control",
+            "",
+            "",
+            &["feature.spec.ts".into()],
+        );
+        assert!(single.contains("Preserve initial state beyond visible assertions"));
+        assert!(!single.contains("Save the full text without truncation"));
+        let full = flow.repair_prompt("feature, other", (0, 2), "missing control", "", "", &[]);
+        assert!(full.contains("Preserve initial state beyond visible assertions"));
+        assert!(full.contains("Save the full text without truncation"));
     }
 
     #[test]

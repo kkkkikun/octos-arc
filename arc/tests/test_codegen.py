@@ -203,6 +203,7 @@ class VerifiedBehaviorRewriteTests(unittest.TestCase):
         flow.tests_dir = None
         flow.pending_corrections = []
         flow.test_verdict = {'working-feature': True}
+        flow.requirement_nodes = {'new-feature': {'id':'new-feature', 'description':'Initial content must be preserved even if not asserted'}}
         flow.head = lambda: 'original'
         flow.codegen_mode = lambda: False
         flow.wound_down = flow.time_up = lambda: False
@@ -220,6 +221,7 @@ class VerifiedBehaviorRewriteTests(unittest.TestCase):
         rebuild.assert_not_called()
         flow.turn.assert_called_once()
         self.assertIn('Fix frontend/', flow.turn.call_args.args[0])
+        self.assertIn('Initial content must be preserved even if not asserted', flow.turn.call_args.args[0])
 
     def test_should_avoid_full_rewrite_when_any_behavior_already_passed(self):
         import main
