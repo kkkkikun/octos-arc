@@ -1498,7 +1498,7 @@ class Flow:
             parts.append(text if len(files) == 1 else f"--- {rel} ---\n{text}")
         return "\n".join(parts) or "(none)"
 
-    def repair_test_location(self) -> str:
+    def repair_test_location(self, specs: list[str] | None = None) -> str:
         if not self.tests_dir:
             return ""
         context = (f"Application directory: {self.output_dir.resolve()}. "
@@ -1516,10 +1516,10 @@ class Flow:
                 if browsers is not None:
                     env_args.append(f"PLAYWRIGHT_BROWSERS_PATH={browsers}")
                 command = (f"cd {shlex.quote(str(runner.work_dir))} && "
-                           + shlex.join(["env", *env_args, str(binary), "test", "-c", str(config)]))
+                           + shlex.join(["env", *env_args, str(binary), "test", "-c", str(config), *(specs or [])]))
                 context += ("Prepared acceptance entry (after building and starting the app):\n"
                             f"```sh\n{command}\n```\n"
-                            "Append a relevant spec path under this configuration's tests/ directory to run a subset. "
+                            "This entry selects the repair tests when a node-specific list is available. "
                             "Keep the prepared tests and configuration unchanged. The harness re-runs acceptance after your edits.\n")
         return context
 
@@ -1823,7 +1823,7 @@ class Flow:
                               request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20")))
                 continue
             prompt = REPAIR_PROMPT.format(node_id=node_id, passed=passed, total=summary.total,
-                                          failures=failures or "(no detail)", test_location=self.repair_test_location(),
+                                          failures=failures or "(no detail)", test_location=self.repair_test_location(specs),
                                           corrections=self.corrections_text(),
                                           slow=slow_text, smoke=self.smoke_port, port=self.web_port,
                                           sources=self.sources_text())

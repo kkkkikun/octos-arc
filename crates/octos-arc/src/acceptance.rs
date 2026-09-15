@@ -1432,7 +1432,7 @@ impl AcceptanceRunner {
         let sub = 4000.min(self.timeout_ms / 2);
         let nav = 6000.min(self.timeout_ms * 3 / 5);
         let config = format!(
-            "import {{ defineConfig }} from '@playwright/test';\nexport default defineConfig({{ testDir: './tests', timeout: {}, retries: 0, fullyParallel: {}, workers: {}, reporter: [['json', {{ outputFile: 'report.json' }}], ['./action_errors.cjs', {{ output: 'action-errors.json' }}]], expect: {{ timeout: {sub} }}, use: {{ headless: true, baseURL: process.env.E2E_BASE_URL, actionTimeout: {sub}, navigationTimeout: {nav} }} }});\n",
+            "import {{ defineConfig }} from '@playwright/test';\nexport default defineConfig({{ testDir: './tests', timeout: {}, retries: 0, fullyParallel: {}, workers: {}, reporter: [['list'], ['json', {{ outputFile: 'report.json' }}], ['./action_errors.cjs', {{ output: 'action-errors.json' }}]], expect: {{ timeout: {sub} }}, use: {{ headless: true, baseURL: process.env.E2E_BASE_URL, actionTimeout: {sub}, navigationTimeout: {nav} }} }});\n",
             self.timeout_ms,
             if self.fully_parallel { "true" } else { "false" },
             workers.unwrap_or(self.workers)

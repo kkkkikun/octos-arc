@@ -780,7 +780,7 @@ class AcceptanceRunner:
             "import { defineConfig } from '@playwright/test';\n"
             f"export default defineConfig({{ testDir: './tests', timeout: {self.timeout_ms}, retries: 0, "
             f"fullyParallel: {'true' if os.environ.get('OCTOS_ARC_FULLY_PARALLEL') == '1' else 'false'}, "
-            f"workers: {workers or self.workers}, reporter: [['json', {{ outputFile: 'report.json' }}], ['./action_errors.cjs', {{ output: 'action-errors.json' }}]], "
+            f"workers: {workers or self.workers}, reporter: [['list'], ['json', {{ outputFile: 'report.json' }}], ['./action_errors.cjs', {{ output: 'action-errors.json' }}]], "
             # Action/navigation/expect timeouts sit below the 10 s test timeout on
             # purpose: a hanging click then fails with the locator named in the
             # call log instead of an anonymous "Test timeout exceeded".

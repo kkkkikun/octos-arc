@@ -343,3 +343,25 @@ class PortOwnershipBoundaryTests(unittest.TestCase):
              patch.object(module.os, 'kill') as kill:
             module.free_owned_ports([3000], Path('/private/tmp/app'))
         kill.assert_not_called()
+
+
+class TerminalAcceptanceReportTests(unittest.TestCase):
+    def test_should_show_verdict_in_terminal_and_preserve_json_report(self):
+        import os
+        from acceptance import AcceptanceRunner
+        install = os.environ.get('OCTOS_TEST_PLAYWRIGHT_ROOT')
+        if not install:
+            self.skipTest('set OCTOS_TEST_PLAYWRIGHT_ROOT to an installed Playwright root')
+        root = Path(install)
+        with tempfile.TemporaryDirectory(prefix='terminal-report-', dir=root) as folder:
+            base=Path(folder); specs=base/'source'; specs.mkdir()
+            (specs/'example.spec.ts').write_text("import {test,expect} from '@playwright/test';\ntest('success case',()=>expect(1).toBe(1));\ntest('intentional mismatch',()=>expect(1).toBe(2));\n")
+            runner=AcceptanceRunner(root,specs,base/'prepared',lambda _:None,workers=1)
+            config=runner._prepare()
+            run=subprocess.run([str(root/'node_modules/.bin/playwright'),'test','-c',str(config)],cwd=runner.work_dir,env=dict(os.environ,CI='1',NODE_PATH=str(root/'node_modules')),capture_output=True,text=True,timeout=30)
+            import json
+            report=json.loads((runner.work_dir/'report.json').read_text())
+            self.assertEqual((summarize_report(report).passed,summarize_report(report).total),(1,2))
+            self.assertEqual(run.returncode,1)
+            self.assertIn('1 failed',run.stdout)
+            self.assertIn('1 passed',run.stdout)

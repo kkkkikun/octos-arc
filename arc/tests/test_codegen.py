@@ -252,11 +252,11 @@ class RepairEntryTests(unittest.TestCase):
             flow.output_dir = root / 'application'
             flow.smoke_port = 43219
             flow.runner = SimpleNamespace(root=root, work_dir=work)
-            context = flow.repair_test_location()
+            context = flow.repair_test_location(["generic one's.spec.ts"])
             self.assertIn(str(flow.output_dir), context)
             command = context.split('```sh\n')[1].split('\n```')[0]
             out = subprocess.check_output(['sh', '-c', command], text=True)
             self.assertEqual(json.loads(out), [str(work), 'http://127.0.0.1:43219',
-                                               ['test', '-c', str(config)]])
+                                               ['test', '-c', str(config), "generic one's.spec.ts"]])
             config.unlink()
             self.assertNotIn('```sh', flow.repair_test_location())

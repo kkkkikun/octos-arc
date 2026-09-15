@@ -738,12 +738,13 @@ impl Flow {
     fn repair_prompt(
         &mut self,
         node_label: &str,
-        passed: usize,
-        total: usize,
+        counts: (usize, usize),
         failures: &str,
         extra_corrections: &str,
         slow: &str,
+        specs: &[String],
     ) -> String {
+        let (passed, total) = counts;
         let corrections = format!("{}{extra_corrections}", self.corrections_text());
         let sources = self.sources_text();
         let port_rules = self.port_rules();
@@ -772,6 +773,7 @@ impl Flow {
                     "-c".into(),
                     config.display().to_string(),
                 ]);
+                args.extend(specs.iter().cloned());
                 let command = format!(
                     "cd {} && {}",
                     quote(&runner.work_dir.display().to_string()),
@@ -780,7 +782,7 @@ impl Flow {
                         .collect::<Vec<_>>()
                         .join(" ")
                 );
-                test_location.push_str(&format!("Prepared acceptance entry (after building and starting the app):\n```sh\n{command}\n```\nAppend a relevant spec path under this configuration's tests/ directory to run a subset. Keep the prepared tests and configuration unchanged. The harness re-runs acceptance after your edits.\n"));
+                test_location.push_str(&format!("Prepared acceptance entry (after building and starting the app):\n```sh\n{command}\n```\nThis entry selects the repair tests when a node-specific list is available. Keep the prepared tests and configuration unchanged. The harness re-runs acceptance after your edits.\n"));
             }
         }
         let failures_text = if failures.is_empty() {
@@ -1840,8 +1842,14 @@ impl Flow {
                 }
                 continue;
             }
-            let prompt =
-                self.repair_prompt(node_id, passed, summary.total, &failures, "", &slow_text);
+            let prompt = self.repair_prompt(
+                node_id,
+                (passed, summary.total),
+                &failures,
+                "",
+                &slow_text,
+                specs,
+            );
             let label = format!("{node_id} repair {}/{repair_rounds}", attempt + 1);
             if self.codegen_mode() {
                 let prompt = format!("{prompt}{}", self.prompts.get("codegen-repair-suffix"));
@@ -2427,11 +2435,11 @@ impl Flow {
             let parallel = format!("{}\n", self.correction("parallel_suite", &[]));
             let prompt = self.repair_prompt(
                 &failing,
-                summary.passed,
-                summary.total,
+                (summary.passed, summary.total),
                 &failures,
                 &parallel,
                 "",
+                &[],
             );
             let timeout = Duration::from_secs_f64(
                 (self.policy.budget.node_timeout_seconds as f64)
@@ -3152,7 +3160,17 @@ mod tests {
             env_extra: vec![],
             wall_timeout: Duration::from_secs(60),
         });
-        let prompt = flow.repair_prompt("node", 0, 1, "failed", "", "");
+        flow.spec_map
+            .by_node
+            .insert("node".into(), vec!["generic one's.spec.ts".into()]);
+        let prompt = flow.repair_prompt(
+            "node",
+            (0, 1),
+            "failed",
+            "",
+            "",
+            &["generic one's.spec.ts".into()],
+        );
         let command = prompt
             .split("```sh\n")
             .nth(1)
@@ -3174,13 +3192,16 @@ mod tests {
                 format!("http://127.0.0.1:{}", flow.smoke_port),
                 "test".into(),
                 "-c".into(),
-                config.display().to_string()
+                config.display().to_string(),
+                "generic one's.spec.ts".into()
             ]
         );
+        let full = flow.repair_prompt("node", (0, 1), "failed", "", "", &[]);
+        assert!(!full.contains("generic one's.spec.ts"));
         std::fs::remove_file(config).unwrap();
         assert!(
             !flow
-                .repair_prompt("node", 0, 1, "failed", "", "")
+                .repair_prompt("node", (0, 1), "failed", "", "", &[])
                 .contains("Prepared acceptance entry")
         );
     }
@@ -3190,7 +3211,14 @@ mod tests {
         let (mut flow, _, _dir) = rejected_flow("unused");
         let tests = tempfile::tempdir().unwrap();
         flow.tests_dir = Some(tests.path().to_path_buf());
-        let prompt = flow.repair_prompt("node", 0, 1, "example.spec.ts: missing element", "", "");
+        let prompt = flow.repair_prompt(
+            "node",
+            (0, 1),
+            "example.spec.ts: missing element",
+            "",
+            "",
+            &[],
+        );
         assert!(prompt.contains(&tests.path().canonicalize().unwrap().display().to_string()));
     }
 
