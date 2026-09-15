@@ -1182,6 +1182,14 @@ def acceptance_tests_prompt(tests_dir: Path | None, web_port: int, smoke_port: i
 
 # ---------------------------------------------------------------- flow
 
+def regression_checkpoint_due(index: int, total: int, start: int) -> bool:
+    """Geometric checks bound extra spec executions; the final suite handles the last node."""
+    if start <= 0 or index < start or index >= total or index % start:
+        return False
+    multiple = index // start
+    return multiple & (multiple - 1) == 0
+
+
 class Flow:
     def __init__(self, args, output_dir: Path, req_dir: Path) -> None:
         self.args = args
@@ -2134,6 +2142,37 @@ class Flow:
         elif verdict is False:
             self.mark("test_failed", node_id, "regression specs fail after repair rounds")
 
+    def regression_checkpoint(self, index: int, total: int) -> None:
+        start = int(os.environ.get("OCTOS_ARC_REGRESSION_CHECKPOINT", "4"))
+        if (not regression_checkpoint_due(index, total, start) or self.runner is None
+                or not self.tests_dir or self.remaining() < self.min_repair_seconds):
+            return
+        verified = {node: self.spec_map.get(node, []) for node, verdict in self.test_verdict.items()
+                    if verdict is True}
+        specs = sorted({spec for paths in verified.values() for spec in paths})
+        if len(specs) < 2:
+            return
+        workers = workers_for_final(getattr(self, "mem_limit", None),
+                                    int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
+        summary = self.run_specs(specs, workers=workers, grader_like=True)
+        if summary.error or summary.killed:
+            log(f"[acceptance] checkpoint {index}: no reliable verdict; {summary.error or 'runner killed'}")
+            return
+        grouped = nodes_for_failures(summary.results, verified)
+        log(f"[acceptance] checkpoint {index}: {summary.passed}/{summary.total}; "
+            f"regressed nodes {sorted(node for node in grouped if node)}")
+        for node in grouped:
+            if node in verified:
+                self.test_verdict[node] = False
+                self.mark("test_failed", node, "previously passing behavior failed a regression checkpoint")
+        if grouped:
+            evidence = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
+            self.pending_corrections.append(
+                "Previously passing behavior failed when checked together after recent changes. "
+                "Repair the observed failures while preserving other working behavior. "
+                "Tests ran in parallel against one server; use this evidence when implementing the next node.\n"
+                + evidence[:8000])
+
     def final_acceptance(self) -> None:
         """Run EVERY spec file together, files in parallel, like the grader does.
         Per-node runs cannot see cross-node interference through shared server
@@ -2369,6 +2408,7 @@ class Flow:
                         self.regression_cycle(node)
                     else:
                         self.node_cycle(node, ordered, index, len(ordered))
+                    self.regression_checkpoint(index, len(ordered))
                     self.driver.end_scope("node")
 
                 if not self.time_up():

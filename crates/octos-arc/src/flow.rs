@@ -31,6 +31,14 @@ use crate::plan::RunPlan;
 use crate::policy::Policy;
 use crate::prompts::Prompts;
 
+fn regression_checkpoint_due(index: usize, total: usize, start: usize) -> bool {
+    start > 0
+        && index >= start
+        && index < total
+        && index % start == 0
+        && (index / start).is_power_of_two()
+}
+
 /// How a codegen turn is shaped (`main.codegen_turn` keyword arguments).
 struct CodegenOptions<'a> {
     /// Prompt name of the system message; None = `codegen-system`.
@@ -2307,6 +2315,79 @@ impl Flow {
     /// Run EVERY spec file together, files in parallel, like the grader does.
     /// Per-node runs cannot see cross-node interference through shared server
     /// state; this pass can, and it repairs the nodes whose tests fail.
+    fn checkpoint_specs(&self) -> Vec<String> {
+        let mut specs: Vec<String> = self
+            .test_verdict
+            .iter()
+            .filter(|(_, verdict)| **verdict == Some(true))
+            .flat_map(|(node, _)| self.spec_map.specs_for(node))
+            .cloned()
+            .collect();
+        specs.sort();
+        specs.dedup();
+        specs
+    }
+
+    fn record_checkpoint(&mut self, index: usize, summary: &RunSummary) {
+        if summary.error.is_some() || summary.killed {
+            self.log(format!(
+                "[acceptance] checkpoint {index}: no reliable verdict; {:?}",
+                summary.error
+            ));
+            return;
+        }
+        let mut verified = self.spec_map.clone();
+        verified
+            .by_node
+            .retain(|node, _| self.test_verdict.get(node) == Some(&Some(true)));
+        let grouped = acceptance::nodes_for_failures(&summary.results, &verified);
+        self.log(format!(
+            "[acceptance] checkpoint {index}: {}/{}; regressed nodes {:?}",
+            summary.passed,
+            summary.total,
+            grouped.keys().collect::<Vec<_>>()
+        ));
+        for node in grouped.keys().flatten() {
+            if self.test_verdict.get(node) == Some(&Some(true)) {
+                self.test_verdict.insert(node.clone(), Some(false));
+                self.mark(
+                    "test_failed",
+                    node,
+                    Some("previously passing behavior failed a regression checkpoint"),
+                );
+            }
+        }
+        if !grouped.is_empty() {
+            self.pending_corrections.push(format!(
+                "Previously passing behavior failed when checked together after recent changes. Repair the observed failures while preserving other working behavior. Tests ran in parallel against one server; use this evidence when implementing the next node.\n{}",
+                head(&self.failures_of(summary), 8000)));
+        }
+    }
+
+    fn regression_checkpoint(&mut self, index: usize, total: usize) {
+        if !regression_checkpoint_due(
+            index,
+            total,
+            self.policy.acceptance.regression_checkpoint_nodes,
+        ) || self.runner.is_none()
+            || self.tests_dir.is_none()
+            || self.remaining() < self.policy.budget.min_repair_seconds as f64
+        {
+            return;
+        }
+        let specs = self.checkpoint_specs();
+        if specs.len() < 2 {
+            return;
+        }
+        let workers = acceptance::workers_for_memory(
+            self.mem_limit,
+            self.policy.acceptance.final_workers,
+            self.policy.acceptance.final_memory_per_worker_mib,
+        );
+        let summary = self.run_specs(&specs, Some(workers), true);
+        self.record_checkpoint(index, &summary);
+    }
+
     fn final_acceptance(&mut self) {
         if self.runner.is_none() || self.tests_dir.is_none() {
             return;
@@ -2963,6 +3044,7 @@ impl Flow {
                 self.node_cycle(node, index + 1, total);
             }
             self.check_provider()?;
+            self.regression_checkpoint(index + 1, total);
             self.end_scope("node");
         }
         if !self.time_up() {
@@ -3062,6 +3144,23 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
+    #[test]
+    fn should_space_regression_checks_geometrically() {
+        assert_eq!(
+            (1..33)
+                .filter(|n| regression_checkpoint_due(*n, 32, 4))
+                .collect::<Vec<_>>(),
+            vec![4, 8, 16]
+        );
+        assert_eq!(
+            (1..20)
+                .filter(|n| regression_checkpoint_due(*n, 20, 3))
+                .collect::<Vec<_>>(),
+            vec![3, 6, 12]
+        );
+        assert!(!regression_checkpoint_due(4, 20, 0));
+    }
+
     struct RejectedProvider(Arc<AtomicUsize>, &'static str);
     impl Completer for RejectedProvider {
         fn complete(&mut self, _: &CompletionRequest<'_>) -> Result<crate::llm::Completion> {
@@ -3095,6 +3194,49 @@ mod tests {
         )
         .unwrap();
         (flow, calls, dir)
+    }
+
+    #[test]
+    fn checkpoints_only_recheck_verified_specs_and_ignore_infrastructure_failures() {
+        let (mut flow, _, _dir) = rejected_flow("unused");
+        for (node, verdict) in [
+            ("old", Some(true)),
+            ("new", Some(true)),
+            ("future", None),
+            ("broken", Some(false)),
+        ] {
+            flow.test_verdict.insert(node.into(), verdict);
+            flow.spec_map
+                .by_node
+                .insert(node.into(), vec![format!("{node}.spec.ts")]);
+        }
+        assert_eq!(flow.checkpoint_specs(), vec!["new.spec.ts", "old.spec.ts"]);
+        let mut summary = RunSummary {
+            passed: 1,
+            total: 2,
+            results: vec![acceptance::TestOutcome {
+                file: "old.spec.ts".into(),
+                title: "old behavior".into(),
+                message: "handler undefined".into(),
+                status: "failed".into(),
+                ..Default::default()
+            }],
+            error: Some("runner unavailable".into()),
+            ..Default::default()
+        };
+        flow.record_checkpoint(4, &summary);
+        assert_eq!(flow.test_verdict.get("old"), Some(&Some(true)));
+        assert!(flow.pending_corrections.is_empty());
+        summary.error = None;
+        summary.killed = true;
+        flow.record_checkpoint(4, &summary);
+        assert_eq!(flow.test_verdict.get("old"), Some(&Some(true)));
+        summary.killed = false;
+        flow.record_checkpoint(4, &summary);
+        assert_eq!(flow.test_verdict.get("old"), Some(&Some(false)));
+        assert_eq!(flow.test_verdict.get("new"), Some(&Some(true)));
+        assert_eq!(flow.test_verdict.get("future"), Some(&None));
+        assert!(flow.corrections_text().contains("handler undefined"));
     }
 
     #[test]

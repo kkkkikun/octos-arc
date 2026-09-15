@@ -250,6 +250,8 @@ pub struct AcceptancePolicy {
     pub workers: u32,
     /// Workers for the full parallel suite (`OCTOS_ARC_FINAL_WORKERS`).
     pub final_workers: u32,
+    /// First geometric regression checkpoint; 0 disables (`OCTOS_ARC_REGRESSION_CHECKPOINT`).
+    pub regression_checkpoint_nodes: usize,
     /// Container memory per Chromium worker in MiB (per-node runs).
     pub memory_per_worker_mib: u64,
     /// Memory per worker for the full parallel suite: the platform grades with 4 workers in
@@ -282,6 +284,7 @@ impl Default for AcceptancePolicy {
             slow_ms: 3000,
             workers: 2,
             final_workers: 4,
+            regression_checkpoint_nodes: 4,
             memory_per_worker_mib: 700,
             final_memory_per_worker_mib: 450,
             fully_parallel: false,
@@ -466,6 +469,10 @@ pub const ENV_OVERRIDES: &[(&str, &str)] = &[
     ("OCTOS_ARC_SLOW_MS", "acceptance.slow_ms"),
     ("OCTOS_ARC_TEST_WORKERS", "acceptance.workers"),
     ("OCTOS_ARC_FINAL_WORKERS", "acceptance.final_workers"),
+    (
+        "OCTOS_ARC_REGRESSION_CHECKPOINT",
+        "acceptance.regression_checkpoint_nodes",
+    ),
     ("OCTOS_ARC_FULLY_PARALLEL", "acceptance.fully_parallel"),
     (
         "OCTOS_ARC_INSTALL_PLAYWRIGHT",
@@ -607,6 +614,9 @@ impl Policy {
             "acceptance.slow_ms" => self.acceptance.slow_ms = parse(raw, key)?,
             "acceptance.workers" => self.acceptance.workers = parse(raw, key)?,
             "acceptance.final_workers" => self.acceptance.final_workers = parse(raw, key)?,
+            "acceptance.regression_checkpoint_nodes" => {
+                self.acceptance.regression_checkpoint_nodes = parse(raw, key)?
+            }
             "acceptance.memory_per_worker_mib" => {
                 self.acceptance.memory_per_worker_mib = parse(raw, key)?
             }
@@ -728,6 +738,7 @@ mod tests {
         "OCTOS_ARC_DESTREAM",
         "OCTOS_ARC_DROP_SHELL",
         "OCTOS_ARC_FINAL_WORKERS",
+        "OCTOS_ARC_REGRESSION_CHECKPOINT",
         "OCTOS_ARC_IMPLEMENT_REASONING",
         "OCTOS_ARC_IMPLEMENT_REQUESTS",
         "OCTOS_ARC_INLINE_SOURCE_CHARS",

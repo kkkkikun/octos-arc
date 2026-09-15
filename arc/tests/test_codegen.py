@@ -323,3 +323,59 @@ class RepairEntryTests(unittest.TestCase):
                     self.assertEqual(args[args.index('--workers') + 1], '1')
                 helper.unlink()
                 self.assertNotIn('```sh', flow.repair_test_location())
+
+
+class RegressionCheckpointTests(unittest.TestCase):
+    def test_should_space_checks_geometrically_and_skip_final_or_disabled(self):
+        import main
+        self.assertEqual([i for i in range(1,33) if main.regression_checkpoint_due(i,32,4)], [4,8,16])
+        self.assertEqual([i for i in range(1,20) if main.regression_checkpoint_due(i,20,3)], [3,6,12])
+        self.assertFalse(main.regression_checkpoint_due(4,20,0))
+
+    def test_should_recheck_only_verified_specs_and_queue_observed_regressions(self):
+        import main, tempfile
+        from pathlib import Path
+        from unittest.mock import Mock, patch
+        from acceptance import RunSummary, TestOutcome
+        with tempfile.TemporaryDirectory() as folder:
+            flow=object.__new__(main.Flow)
+            flow.runner=object(); flow.tests_dir=Path(folder)
+            flow.remaining=lambda:1000; flow.min_repair_seconds=300; flow.mem_limit=None
+            flow.test_verdict={'old':True,'new':True,'future':None,'broken':False}
+            flow.spec_map={key:[key+'.spec.ts'] for key in flow.test_verdict}
+            flow.pending_corrections=[]; flow.mark=Mock()
+            flow.run_specs=Mock(return_value=RunSummary(passed=1,total=2,results=[
+                TestOutcome('old behavior',False,'failed',1,file='old.spec.ts',message='handler undefined')]))
+            with patch.dict('os.environ',{'OCTOS_ARC_REGRESSION_CHECKPOINT':'4','OCTOS_ARC_FINAL_WORKERS':'4'}):
+                flow.regression_checkpoint(4,12)
+            flow.run_specs.assert_called_once_with(['new.spec.ts','old.spec.ts'],workers=4,grader_like=True)
+            self.assertIs(flow.test_verdict['old'],False)
+            self.assertIs(flow.test_verdict['new'],True)
+            self.assertIsNone(flow.test_verdict['future'])
+            self.assertIn('handler undefined',' '.join(flow.pending_corrections))
+
+    def test_should_preserve_verdicts_when_runner_cannot_report(self):
+        import main, tempfile
+        from pathlib import Path
+        from unittest.mock import Mock, patch
+        from acceptance import RunSummary
+        with tempfile.TemporaryDirectory() as folder:
+            flow = object.__new__(main.Flow)
+            flow.runner = object(); flow.tests_dir = Path(folder)
+            flow.remaining = lambda: 1000; flow.min_repair_seconds = 300
+            flow.test_verdict = {'old': True, 'new': True}
+            flow.spec_map = {'old': ['old.spec.ts'], 'new': ['new.spec.ts']}
+            flow.pending_corrections = []
+            for summary in [RunSummary(error='runner unavailable'), RunSummary(killed=True)]:
+                flow.run_specs = Mock(return_value=summary)
+                with patch.dict('os.environ', {'OCTOS_ARC_REGRESSION_CHECKPOINT': '4'}):
+                    flow.regression_checkpoint(4, 12)
+                self.assertEqual(flow.test_verdict, {'old': True, 'new': True})
+                self.assertEqual(flow.pending_corrections, [])
+            flow.run_specs.reset_mock()
+            with patch.dict('os.environ', {'OCTOS_ARC_REGRESSION_CHECKPOINT': '0'}):
+                flow.regression_checkpoint(4, 12)
+            flow.run_specs.assert_not_called()
+            flow.remaining = lambda: 10
+            flow.regression_checkpoint(4, 12)
+            flow.run_specs.assert_not_called()
