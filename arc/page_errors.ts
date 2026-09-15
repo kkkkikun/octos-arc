@@ -1,8 +1,7 @@
-// Observers only: never throw, change assertions, or replace application handlers.
+// Observe only contexts the test itself requests. Never alter application handlers or assertions.
 import { test } from '@playwright/test';
 export function register() {
-  const cleanup = new WeakMap();
-  test.beforeEach(async ({ context }) => {
+  test.use({ context: async ({ context }, use) => {
     let remaining = 8;
     const listeners = new Map();
     const attach = page => {
@@ -15,10 +14,10 @@ export function register() {
     };
     context.pages().forEach(attach);
     context.on('page', attach);
-    cleanup.set(context, () => {
+    try { await use(context); }
+    finally {
       context.off('page', attach);
       for (const [page, listener] of listeners) page.off('pageerror', listener);
-    });
-  });
-  test.afterEach(async ({ context }) => { cleanup.get(context)?.(); cleanup.delete(context); });
+    }
+  } });
 }

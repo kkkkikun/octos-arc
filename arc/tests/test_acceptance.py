@@ -368,6 +368,21 @@ class TerminalAcceptanceReportTests(unittest.TestCase):
 
 
 class BrowserRuntimeDiagnosticsTests(unittest.TestCase):
+    def test_should_not_require_browser_for_api_only_acceptance(self):
+        from acceptance import AcceptanceRunner
+        import os
+        install = os.environ.get('OCTOS_TEST_PLAYWRIGHT_ROOT')
+        if not install:
+            self.skipTest('requires installed Playwright')
+        root = Path(install)
+        with tempfile.TemporaryDirectory(prefix='api-only-', dir=root) as folder:
+            base=Path(folder); specs=base/'source'; specs.mkdir()
+            (specs/'api.spec.ts').write_text("import {test,expect} from '@playwright/test';\ntest('request fixture only',async({request})=>expect(typeof request.get).toBe('function'));\n")
+            runner=AcceptanceRunner(root,specs,base/'prepared',lambda _:None,workers=1,
+                                    env_extra={'PLAYWRIGHT_BROWSERS_PATH':str(base/'no-browsers')})
+            result=runner.run(['api.spec.ts'],'http://127.0.0.1:1')
+            self.assertEqual((result.passed,result.total),(1,1),failure_summaries(result))
+
     def test_should_report_page_error_without_changing_passed_verdict_or_sources(self):
         from acceptance import AcceptanceRunner
         import os, json
