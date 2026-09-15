@@ -252,11 +252,16 @@ class RepairEntryTests(unittest.TestCase):
             flow.output_dir = root / 'application'
             flow.smoke_port = 43219
             flow.runner = SimpleNamespace(root=root, work_dir=work)
-            context = flow.repair_test_location(["generic one's.spec.ts"])
-            self.assertIn(str(flow.output_dir), context)
-            command = context.split('```sh\n')[1].split('\n```')[0]
-            out = subprocess.check_output(['sh', '-c', command], text=True)
-            self.assertEqual(json.loads(out), [str(work), 'http://127.0.0.1:43219',
-                                               ['test', '-c', str(config), "generic one's.spec.ts"]])
-            config.unlink()
-            self.assertNotIn('```sh', flow.repair_test_location())
+            from unittest.mock import patch
+            helper = root / 'verify_app.py'
+            helper.write_text('import sys,json; print(json.dumps(sys.argv[1:]))')
+            with patch.object(main, 'BUNDLE_DIR', root):
+                context = flow.repair_test_location(["generic one's.spec.ts"])
+                self.assertIn(str(flow.output_dir), context)
+                command = context.split('```sh\n')[1].split('\n```')[0]
+                out = subprocess.check_output(['sh', '-c', command], text=True)
+                self.assertEqual(json.loads(out), ['--app', str(flow.output_dir), '--tests', str(flow.tests_dir),
+                                                   '--playwright', str(root), '--spec', "generic one's.spec.ts"])
+                self.assertNotIn('--spec', flow.repair_test_location())
+                helper.unlink()
+                self.assertNotIn('```sh', flow.repair_test_location())

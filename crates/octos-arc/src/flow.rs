@@ -752,37 +752,38 @@ impl Flow {
             let path = path.canonicalize().unwrap_or_else(|_| path.clone());
             format!("Application directory: {}. Read-only acceptance directory: {}. Relative spec paths in failure reports refer to this directory. Read relevant specs and helpers here when needed.\n", self.output_dir.display(), path.display())
         }).unwrap_or_default();
-        if let Some(runner) = &self.runner {
-            let config = runner.work_dir.join("playwright.config.ts");
+        if let (Some(runner), Some(bundle), Some(tests)) =
+            (&self.runner, &self.bundle_dir, &self.tests_dir)
+        {
+            let helper = bundle.join("verify_app.py");
             let binary = runner.root.join("node_modules/.bin/playwright");
-            if config.is_file() && binary.is_file() {
+            if helper.is_file() && binary.is_file() {
                 let quote = |text: &str| format!("'{}'", text.replace('\'', "'\"'\"'"));
-                let mut args = vec![
-                    "env".to_string(),
-                    format!("E2E_BASE_URL=http://127.0.0.1:{}", self.smoke_port),
-                    format!("NODE_PATH={}", runner.root.join("node_modules").display()),
-                ];
+                let mut args = vec!["env".to_string()];
                 for (key, value) in &runner.env_extra {
                     if key == "PLAYWRIGHT_BROWSERS_PATH" {
                         args.push(format!("{key}={value}"));
                     }
                 }
                 args.extend([
-                    binary.display().to_string(),
-                    "test".into(),
-                    "-c".into(),
-                    config.display().to_string(),
+                    "python3".into(),
+                    helper.display().to_string(),
+                    "--app".into(),
+                    self.output_dir.display().to_string(),
+                    "--tests".into(),
+                    tests.display().to_string(),
+                    "--playwright".into(),
+                    runner.root.display().to_string(),
                 ]);
-                args.extend(specs.iter().cloned());
-                let command = format!(
-                    "cd {} && {}",
-                    quote(&runner.work_dir.display().to_string()),
-                    args.iter()
-                        .map(|arg| quote(arg))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                );
-                test_location.push_str(&format!("Prepared acceptance entry (after building and starting the app):\n```sh\n{command}\n```\nThis entry selects the repair tests when a node-specific list is available. Keep the prepared tests and configuration unchanged. The harness re-runs acceptance after your edits.\n"));
+                for spec in specs {
+                    args.extend(["--spec".into(), spec.clone()]);
+                }
+                let command = args
+                    .iter()
+                    .map(|arg| quote(arg))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                test_location.push_str(&format!("Isolated acceptance entry (builds and starts a disposable application copy):\n```sh\n{command}\n```\nUse this command for acceptance checks so test writes do not alter the source application's data. Edit the source application, not the disposable copy or read-only tests. The command prints failures and a report path. The harness re-runs acceptance after your edits.\n"));
             }
         }
         let failures_text = if failures.is_empty() {
@@ -3201,8 +3202,9 @@ mod tests {
         let root = dir.path().join("runner space ' quote");
         let work = root.join("prepared");
         std::fs::create_dir_all(&work).unwrap();
-        let config = work.join("playwright.config.ts");
-        std::fs::write(&config, "// prepared").unwrap();
+        let helper = root.join("verify_app.py");
+        std::fs::write(&helper, "import sys; print('\\n'.join(sys.argv[1:]))").unwrap();
+        flow.bundle_dir = Some(root.clone());
         let binary = root.join("node_modules/.bin/playwright");
         std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
         std::fs::write(
@@ -3251,20 +3253,23 @@ mod tests {
                 .lines()
                 .collect::<Vec<_>>(),
             vec![
-                format!("http://127.0.0.1:{}", flow.smoke_port),
-                "test".into(),
-                "-c".into(),
-                config.display().to_string(),
+                "--app".into(),
+                flow.output_dir.display().to_string(),
+                "--tests".into(),
+                flow.tests_dir.as_ref().unwrap().display().to_string(),
+                "--playwright".into(),
+                flow.runner.as_ref().unwrap().root.display().to_string(),
+                "--spec".into(),
                 "generic one's.spec.ts".into()
             ]
         );
         let full = flow.repair_prompt("node", (0, 1), "failed", "", "", &[]);
         assert!(!full.contains("generic one's.spec.ts"));
-        std::fs::remove_file(config).unwrap();
+        std::fs::remove_file(helper).unwrap();
         assert!(
             !flow
                 .repair_prompt("node", (0, 1), "failed", "", "", &[])
-                .contains("Prepared acceptance entry")
+                .contains("Isolated acceptance entry")
         );
     }
 

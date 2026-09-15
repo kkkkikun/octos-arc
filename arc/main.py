@@ -1507,20 +1507,22 @@ class Flow:
                    "Read relevant specs and helpers here when needed.\n")
         runner = getattr(self, "runner", None)
         if runner:
-            config = runner.work_dir / "playwright.config.ts"
+            helper = BUNDLE_DIR / "verify_app.py"
             binary = runner.root / "node_modules" / ".bin" / "playwright"
-            if config.is_file() and binary.is_file():
-                env_args = [f"E2E_BASE_URL=http://127.0.0.1:{self.smoke_port}",
-                            f"NODE_PATH={runner.root / 'node_modules'}"]
+            if helper.is_file() and binary.is_file():
+                args = ["env"]
                 browsers = getattr(runner, "env_extra", {}).get("PLAYWRIGHT_BROWSERS_PATH")
                 if browsers is not None:
-                    env_args.append(f"PLAYWRIGHT_BROWSERS_PATH={browsers}")
-                command = (f"cd {shlex.quote(str(runner.work_dir))} && "
-                           + shlex.join(["env", *env_args, str(binary), "test", "-c", str(config), *(specs or [])]))
-                context += ("Prepared acceptance entry (after building and starting the app):\n"
-                            f"```sh\n{command}\n```\n"
-                            "This entry selects the repair tests when a node-specific list is available. "
-                            "Keep the prepared tests and configuration unchanged. The harness re-runs acceptance after your edits.\n")
+                    args.append(f"PLAYWRIGHT_BROWSERS_PATH={browsers}")
+                args.extend([sys.executable, str(helper), "--app", str(self.output_dir.resolve()),
+                             "--tests", str(self.tests_dir.resolve()), "--playwright", str(runner.root)])
+                for spec in specs or []:
+                    args.extend(["--spec", spec])
+                context += ("Isolated acceptance entry (builds and starts a disposable application copy):\n"
+                            f"```sh\n{shlex.join(args)}\n```\n"
+                            "Use this command for acceptance checks so test writes do not alter the source application's data. "
+                            "Edit the source application, not the disposable copy or read-only tests. "
+                            "The command prints failures and a report path. The harness re-runs acceptance after your edits.\n")
         return context
 
     def tests_prompt_for(self, node_id: str | None, skeleton: bool = False) -> str:
