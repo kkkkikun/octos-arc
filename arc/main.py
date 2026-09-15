@@ -58,6 +58,7 @@ Environment (all optional):
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 import re
@@ -754,6 +755,21 @@ class OctosDriver:
         self._session = None
         self.monitor: TurnMonitor | None = None
         self.hooks: list = []  # profile hooks (protected-directory deny), set by the flow
+        self.tools_disabled = False
+
+    @contextmanager
+    def without_tools(self):
+        """Tool policy belongs to the kernel profile, so never reuse a profile across modes."""
+        previous = self.tools_disabled
+        if not previous:
+            self.close()
+        self.tools_disabled = True
+        try:
+            yield
+        finally:
+            if not previous:
+                self.close()
+            self.tools_disabled = previous
 
     def _log_event(self, method: str, params: dict) -> None:
         if method == "core/marker":
@@ -780,13 +796,14 @@ class OctosDriver:
                 base_url=self.env.get("_ARC_BASE_URL") or None,
                 api_key_env=self.env.get("_ARC_KEY_ENV") or None,
                 hooks=self.hooks,
+                tools_disabled=self.tools_disabled,
             )
             self._session.open()
         return self._session
 
     def run(self, prompt: str, timeout: int, monitor: TurnMonitor | None = None) -> tuple[bool, str]:
         self.monitor = monitor
-        if self.mode == "chat":
+        if self.mode == "chat" and not self.tools_disabled:
             fn = lambda: run_octos(self.octos_bin, self.cwd, prompt, self.env, self.data_dir,  # noqa: E731
                                    timeout, self.max_iterations)
         else:
@@ -854,6 +871,8 @@ class OctosDriver:
             return self._get_session().run_turn(prompt, timeout=float(timeout))
         except Exception as exc:  # noqa: BLE001
             self.close()
+            if self.tools_disabled:
+                return False, f"tool-free stdio driver error: {exc}"[:1000]
             chat_ok, chat_text = run_octos(self.octos_bin, self.cwd, prompt, self.env, self.data_dir,
                                            timeout, self.max_iterations)
             if chat_ok:
@@ -1472,9 +1491,10 @@ class Flow:
         if mode_override:
             self.base_reasoning_mode = mode_override
         try:
-            ok, text = self.turn((prompt + "\n" + format_instructions) if format_instructions else prompt, timeout, label,
-                                 expect_verification=False,
-                                 request_budget=int(os.environ.get("OCTOS_ARC_CODEGEN_REQUESTS", "3")))
+            with self.driver.without_tools():
+                ok, text = self.turn((prompt + "\n" + format_instructions) if format_instructions else prompt, timeout, label,
+                                     expect_verification=False,
+                                     request_budget=int(os.environ.get("OCTOS_ARC_CODEGEN_REQUESTS", "3")))
         finally:
             proxy.no_tools = False
             proxy.system_override = None

@@ -117,7 +117,7 @@ class OctosStdioSession:
 
     def bootstrap_profile(self, provider: str, model: str, base_url: str | None,
                           api_key_env: str | None, timeout: float = 60.0,
-                          hooks: list | None = None) -> None:
+                          hooks: list | None = None, tools_disabled: bool = False) -> None:
         """Create a solo profile and select its LLM (serve mode has no config-
         file default profile like `octos chat` does, so we onboard one).
 
@@ -137,12 +137,15 @@ class OctosStdioSession:
         self.profile_id = res.get("profile_id") if isinstance(res, dict) else None
         if not self.profile_id:
             raise OctosProtocolError(f"profile/local/create gave no profile_id: {res}")
-        if hooks:
+        fields = {"hooks": hooks} if hooks else {}
+        if tools_disabled:
+            fields["tool_policy"] = {"deny": ["*"]}
+        if fields:
             # The solo ProfileRuntime builds its HookExecutor from the profile's
             # own config (config_from_profile), not from the host config.json or
             # profile-defaults.json — verified with real stdio turns. Patch the
             # registry file before the LLM upsert re-reads and re-saves it.
-            self._patch_profile_config({"hooks": hooks})
+            self._patch_profile_config(fields)
         api_type = "anthropic" if provider == "anthropic" else "openai"
         route: dict = {"api_type": api_type}
         if base_url:

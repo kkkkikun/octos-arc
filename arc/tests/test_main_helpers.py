@@ -713,3 +713,63 @@ class FailedGenerationAcceptanceTests(unittest.TestCase):
                 self.assertEqual(flow.impl_failed, [])
             else:
                 self.assertEqual(flow.impl_failed, ['feature'])
+
+
+class ToolFreeExecutionTests(unittest.TestCase):
+    def test_should_drop_cached_sessions_at_both_mode_boundaries(self):
+        from unittest.mock import Mock
+        driver = object.__new__(m.OctosDriver)
+        driver.tools_disabled = False
+        old = Mock(); new = Mock(); driver._session = old
+        with driver.without_tools():
+            self.assertTrue(driver.tools_disabled)
+            old.close.assert_called_once()
+            driver._session = new
+        self.assertFalse(driver.tools_disabled)
+        new.close.assert_called_once()
+        self.assertIsNone(driver._session)
+
+    def test_should_not_fall_back_to_unrestricted_chat(self):
+        from unittest.mock import Mock, patch
+        driver = object.__new__(m.OctosDriver)
+        driver.tools_disabled = True
+        driver._get_session = Mock(side_effect=RuntimeError('stdio unavailable'))
+        driver.close = Mock()
+        with patch('main.run_octos') as chat:
+            ok, text = driver._run_stdio('generate', 60)
+        self.assertFalse(ok)
+        chat.assert_not_called()
+
+    def test_should_restore_tool_and_proxy_state_after_generation_exception(self):
+        from unittest.mock import Mock
+        flow = object.__new__(m.Flow)
+        flow.llm_proxy = Mock(mode='low')
+        flow.driver = object.__new__(m.OctosDriver)
+        flow.driver.tools_disabled = False; flow.driver._session = None
+        flow.codegen_reasoning = lambda _: None
+        def fail(*args, **kwargs):
+            self.assertTrue(flow.driver.tools_disabled)
+            raise RuntimeError('provider failed')
+        flow.turn = fail
+        with self.assertRaisesRegex(RuntimeError, 'provider failed'):
+            flow.codegen_turn('generate', 60, 'node implement')
+        self.assertFalse(flow.driver.tools_disabled)
+        self.assertFalse(flow.llm_proxy.no_tools)
+
+    def test_should_install_deny_all_before_profile_runtime_is_loaded(self):
+        from unittest.mock import Mock
+        from octos_stdio import OctosStdioSession
+        session = Mock(spec=OctosStdioSession)
+        session._send.side_effect = [{'profile_id': 'profile'}, {}]
+        OctosStdioSession.bootstrap_profile(session, 'openai', 'fake', None, None, tools_disabled=True)
+        session._patch_profile_config.assert_called_once_with({'tool_policy': {'deny': ['*']}})
+
+    def test_should_use_restricted_stdio_even_when_chat_was_selected(self):
+        from unittest.mock import Mock, patch
+        driver = object.__new__(m.OctosDriver)
+        driver.tools_disabled = True; driver.mode = 'chat'; driver.session_scope = 'run'
+        driver._run_stdio = Mock(return_value=(True, 'generated'))
+        with patch('main.run_octos') as chat:
+            self.assertEqual(driver.run('generate', 60), (True, 'generated'))
+        driver._run_stdio.assert_called_once_with('generate', 60)
+        chat.assert_not_called()
