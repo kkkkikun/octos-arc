@@ -555,3 +555,42 @@ class SmokeShellContractTests(unittest.TestCase):
                 except ProcessLookupError:
                     pass
                 process.communicate()
+
+
+class PostflightOwnershipTests(unittest.TestCase):
+    def test_should_only_signal_descendants_or_processes_inside_this_workspace(self):
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        root = Path('/private/tmp/sweep-app')
+        ps = """PID PPID RSS ELAPSED ARGS
+90 1 100 00:01 node platform-runner.js
+100 90 100 00:01 python main.py
+110 100 100 00:01 sh wrapper
+120 110 100 00:01 node server.js
+130 120 100 00:01 chromium --headless
+200 1 100 00:01 node foreign.js /private/tmp/sweep-app/input.txt
+300 1 100 00:01 node server.js
+400 1 100 00:01 node server.js
+"""
+        cwds = {200: '/elsewhere', 300: str(root/'backend'), 400: str(root)+'-other'}
+        with patch.object(m.os, 'getpid', return_value=100), \
+             patch.object(m.os, 'getppid', return_value=90), \
+             patch.object(m.subprocess, 'run', return_value=SimpleNamespace(stdout=ps)), \
+             patch.object(m, 'process_cwd', side_effect=lambda pid: cwds.get(pid), create=True), \
+             patch.object(m.os, 'kill') as kill, \
+             patch.object(m.time, 'sleep'), patch.object(m, 'log'):
+            m._reap_stray_processes('test', root)
+        self.assertEqual({call.args[0] for call in kill.call_args_list}, {120, 130, 300})
+
+    def test_should_leave_foreign_listener_during_generation(self):
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        stop = Mock()
+        stop.is_set.side_effect = [False, True]
+        with patch.object(m.subprocess, 'run', return_value=SimpleNamespace(stdout='123\n')), \
+             patch.object(m.os, 'readlink', return_value='/private/tmp/app-other/backend'), \
+             patch.object(m.os, 'kill') as kill, patch.object(m, 'log'):
+            m._port_watchdog(3000, Path('/private/tmp/app'), stop)
+        kill.assert_not_called()

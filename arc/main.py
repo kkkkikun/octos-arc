@@ -76,7 +76,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arcbench_agent_runtime import AgentRuntime  # noqa: E402
 from acceptance import (  # noqa: E402
-    workers_for_memory,
+    workers_for_memory, process_cwd, workspace_contains, free_owned_ports,
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, container_memory_limit, ensure_playwright,
     failure_signature, failure_summaries, failure_source_context, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
@@ -129,13 +129,12 @@ def _postflight_structure_check(output_dir: Path) -> None:
     log("[postflight] WARNING: no frontend/+backend/ found anywhere; runner will reject the template")
 
 
-def _reap_stray_processes(tag: str) -> None:
-    """Log memory + the fattest processes, then kill whatever the agent left
-    behind (browsers it launched to run the specs itself, servers, the
-    octos runtime). Cloud runs 0764e8d77c54 / e60fb3545eae (2026-09-12):
-    generation finished cleanly, then the grader's Playwright process was
-    SIGKILLed one second after spawning 4 workers and every test was
-    reported as skipped — the container had no memory left for it."""
+def _reap_stray_processes(tag: str, output_dir: Path) -> None:
+    """Report resource use and stop matching descendants or workspace processes.
+
+    A killed grader does not by itself establish memory exhaustion. Never
+    attribute another run's processes merely from a browser or Node name.
+    """
     me = os.getpid()
     def _run(cmd: list[str]) -> str:
         try:
@@ -144,8 +143,8 @@ def _reap_stray_processes(tag: str) -> None:
         except (OSError, subprocess.TimeoutExpired) as exc:
             return f"<{cmd[0]} unavailable: {exc}>"
     log(f"[reap:{tag}] memory:\n" + _run(["free", "-m"]).rstrip())
-    # `free` shows the host, not the container's cgroup limit — that limit
-    # is what SIGKILLs the grader's 4-worker Playwright run.
+    # `free` shows the host; cgroup counters help distinguish container
+    # memory pressure from other causes of a killed grading process.
     cg = []
     for f in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current",
               "/sys/fs/cgroup/memory.peak", "/sys/fs/cgroup/memory.events",
@@ -160,17 +159,26 @@ def _reap_stray_processes(tag: str) -> None:
     ps = _run(["ps", "-eo", "pid,ppid,rss,etime,args", "--sort=-rss"])
     log(f"[reap:{tag}] top processes by RSS:\n"
         + "\n".join(ps.splitlines()[:20]))
-    victims: list[int] = []
+    rows = []
     for line in ps.splitlines()[1:]:
         parts = line.split(None, 4)
-        if len(parts) < 5:
+        if len(parts) != 5 or not parts[0].isdigit() or not parts[1].isdigit():
             continue
-        pid, args_ = int(parts[0]), parts[4]
-        if pid == me or pid == os.getppid():
+        rows.append((int(parts[0]), int(parts[1]), parts[4]))
+    descendants = {me}
+    while True:
+        expanded = descendants | {pid for pid, parent, _ in rows if parent in descendants}
+        if expanded == descendants:
+            break
+        descendants = expanded
+    victims = []
+    for pid, _, args in rows:
+        if pid in (me, os.getppid()):
             continue
-        low = args_.lower()
-        if any(k in low for k in ("chrom", "headless_shell", "playwright",
-                                  "octos serve", "node ", "npm ", "/node")):
+        if not any(marker in args.lower() for marker in
+                   ("chrom", "headless_shell", "playwright", "octos serve", "node ", "npm ", "/node")):
+            continue
+        if pid in descendants or workspace_contains(process_cwd(pid), output_dir):
             victims.append(pid)
     for sig in (signal.SIGTERM, signal.SIGKILL):
         for pid in victims:
@@ -188,30 +196,16 @@ def _reap_stray_processes(tag: str) -> None:
 
 
 
-def _free_web_port(web_port: int) -> None:
-    """Best-effort kill of whatever still listens on the app port."""
-    try:
-        pids = subprocess.run(["lsof", "-ti", f":{web_port}"], capture_output=True, text=True, timeout=15).stdout.split()
-    except (OSError, subprocess.TimeoutExpired):
-        pids = []
-    if not pids:
-        log(f"[postflight] port {web_port} already free")
-        return
-    for cmd in (["fuser", "-k", f"{web_port}/tcp"], ["sh", "-c", f"lsof -ti :{web_port} | xargs -r kill"]):
-        try:
-            if subprocess.run(cmd, capture_output=True, text=True, timeout=15).returncode == 0:
-                log(f"[postflight] killed {len(pids)} listener(s) on port {web_port} via {cmd[0]}: {pids}")
-                return
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-    log(f"[postflight] port {web_port} cleanup attempted (no tool matched)")
+def _free_web_port(web_port: int, output_dir: Path) -> None:
+    """Release only listeners attributable to this workspace."""
+    free_owned_ports([web_port], output_dir)
+
 
 
 def _port_watchdog(web_port: int, output_dir: Path, stop: threading.Event) -> None:
     """Kill OUR processes that bind the grading port during generation (the
     runner terminates a run that serves the grading port early). Foreign
     listeners are left alone: the runner host is shared."""
-    root = str(output_dir).rstrip("/")
     while not stop.is_set():
         try:
             pids = subprocess.run(["lsof", "-ti", f":{web_port}"], capture_output=True, text=True, timeout=10).stdout.split()
@@ -222,7 +216,7 @@ def _port_watchdog(web_port: int, output_dir: Path, stop: threading.Event) -> No
                 cwd = os.readlink(f"/proc/{pid}/cwd")
             except OSError:
                 cwd = ""
-            if cwd.startswith(root):
+            if workspace_contains(cwd, output_dir):
                 log(f"[watchdog] port {web_port} bound by our process {pid} (cwd={cwd}); killing")
                 try:
                     os.kill(int(pid), signal.SIGKILL)
@@ -2377,9 +2371,9 @@ class Flow:
                 self.events.mark_run_completed(f"completed; nodes not verified: {', '.join(failed)}")
             else:
                 self.events.mark_run_completed("all requirement nodes implemented and verified")
-            _reap_stray_processes("postflight")
+            _reap_stray_processes("postflight", self.output_dir)
             _postflight_structure_check(self.output_dir)
-            _free_web_port(self.web_port)
+            _free_web_port(self.web_port, self.output_dir)
             self.write_preview_ready()
             return 0
         except Exception as exc:  # the platform judges by events, not exit code
@@ -2397,9 +2391,9 @@ class Flow:
                 self.mark_folders()
             except Exception:  # noqa: BLE001
                 pass
-            _reap_stray_processes("exception")
+            _reap_stray_processes("exception", self.output_dir)
             _postflight_structure_check(self.output_dir)
-            _free_web_port(self.web_port)
+            _free_web_port(self.web_port, self.output_dir)
             self.events.mark_run_failed(str(exc)[:1000])
             return 1 if isinstance(exc, PermanentProviderError) else 0
 

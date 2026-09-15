@@ -175,15 +175,24 @@ pub fn report() -> Vec<String> {
     out
 }
 
-/// End-of-run sweep: kill every stray process attributable to this run
-/// (TERM, then KILL). Returns the pids killed.
+/// Attribute a working directory by path components, never textual prefixes.
+fn cwd_owned(cwd: &str, root: &Path) -> bool {
+    let cwd = Path::new(cwd);
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    cwd.is_absolute()
+        && !cwd
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+        && cwd.starts_with(root)
+}
+
+/// End-of-run sweep: stop matching descendants or workspace processes.
 pub fn sweep_all(root: &Path) -> Vec<u32> {
     let rows = parse_ps(&ps_rows());
     let me = std::process::id();
     let parent = parent_pid().unwrap_or(0);
-    let root_text = root.to_string_lossy().into_owned();
     let victims = select_victims(&rows, me, parent, |row| {
-        row.args.contains(&root_text) || process_cwd(row.pid).starts_with(&root_text)
+        cwd_owned(&process_cwd(row.pid), root)
     });
     for pid in &victims {
         kill_pid(*pid);
@@ -254,7 +263,7 @@ impl PortWatchdog {
             while !flag.load(Ordering::Acquire) {
                 for pid in lsof_pids(port) {
                     let cwd = process_cwd(pid);
-                    if cwd.starts_with(&root) {
+                    if cwd_owned(&cwd, Path::new(&root)) {
                         println!(
                             "[watchdog] port {port} bound by our process {pid} (cwd={cwd}); killing"
                         );
@@ -308,6 +317,16 @@ mod tests {
             "  104   103  9000       00:05 npm run build".to_string(),
             "  105     1  5000       00:05 /usr/bin/node /x/playwright test".to_string(),
         ])
+    }
+
+    #[test]
+    fn should_match_workspace_directories_by_path_components() {
+        let root = Path::new("/work/app");
+        assert!(cwd_owned("/work/app", root));
+        assert!(cwd_owned("/work/app/backend", root));
+        assert!(!cwd_owned("/work/app-other", root));
+        assert!(!cwd_owned("", root));
+        assert!(!cwd_owned("/work/app/../foreign", root));
     }
 
     #[test]

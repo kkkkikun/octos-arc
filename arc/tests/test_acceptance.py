@@ -331,3 +331,15 @@ assert.equal(errors.length,8); assert(errors.every(x=>x.length<=2000));
             result = subprocess.run(['node', '-e', script, str(reporter), str(Path(root) / 'actions.json')],
                                     capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class PortOwnershipBoundaryTests(unittest.TestCase):
+    def test_should_not_signal_a_listener_in_a_similarly_named_workspace(self):
+        import acceptance as module
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        with patch.object(module.subprocess, 'run', return_value=SimpleNamespace(stdout='123\n')), \
+             patch.object(module.os, 'readlink', return_value='/private/tmp/app-other/backend'), \
+             patch.object(module.os, 'kill') as kill:
+            module.free_owned_ports([3000], Path('/private/tmp/app'))
+        kill.assert_not_called()

@@ -509,6 +509,15 @@ def reap_workspace_processes(root: Path, log: Callable[[str], None]) -> int:
     return killed
 
 
+def workspace_contains(cwd: str | None, root: Path) -> bool:
+    if not cwd or not Path(cwd).is_absolute():
+        return False
+    try:
+        return Path(cwd).resolve().is_relative_to(root.resolve())
+    except (OSError, RuntimeError):
+        return False
+
+
 def free_owned_ports(ports: list[int], root: Path) -> None:
     """Kill listeners on `ports` that were started from inside `root` (our own
     leftovers), leaving foreign processes alone. Works on macOS and Linux."""
@@ -528,7 +537,7 @@ def free_owned_ports(ports: list[int], root: Path) -> None:
                     cwd = next((l[1:] for l in out.splitlines() if l.startswith("n/")), "")
                 except (OSError, subprocess.TimeoutExpired):
                     pass
-            if cwd.startswith(str(root)):
+            if workspace_contains(cwd, root):
                 try:
                     os.kill(int(pid), signal.SIGKILL)
                 except (ProcessLookupError, PermissionError, ValueError):
