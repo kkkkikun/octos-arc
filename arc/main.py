@@ -1516,6 +1516,9 @@ class Flow:
                     args.append(f"PLAYWRIGHT_BROWSERS_PATH={browsers}")
                 args.extend([sys.executable, str(helper), "--app", str(self.output_dir.resolve()),
                              "--tests", str(self.tests_dir.resolve()), "--playwright", str(runner.root)])
+                workers = runner.workers if specs else workers_for_final(
+                    getattr(self, "mem_limit", None), int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
+                args.extend(["--workers", str(workers)])
                 for spec in specs or []:
                     args.extend(["--spec", spec])
                 context += ("Isolated acceptance entry (builds and starts a disposable application copy):\n"

@@ -775,6 +775,16 @@ impl Flow {
                     "--playwright".into(),
                     runner.root.display().to_string(),
                 ]);
+                let workers = if specs.is_empty() {
+                    acceptance::workers_for_memory(
+                        self.mem_limit,
+                        self.policy.acceptance.final_workers,
+                        self.policy.acceptance.final_memory_per_worker_mib,
+                    )
+                } else {
+                    runner.workers
+                };
+                args.extend(["--workers".into(), workers.to_string()]);
                 for spec in specs {
                     args.extend(["--spec".into(), spec.clone()]);
                 }
@@ -3259,12 +3269,22 @@ mod tests {
                 flow.tests_dir.as_ref().unwrap().display().to_string(),
                 "--playwright".into(),
                 flow.runner.as_ref().unwrap().root.display().to_string(),
+                "--workers".into(),
+                "1".into(),
                 "--spec".into(),
                 "generic one's.spec.ts".into()
             ]
         );
+        flow.mem_limit = None;
+        flow.policy.acceptance.final_workers = 4;
         let full = flow.repair_prompt("node", (0, 1), "failed", "", "", &[]);
         assert!(!full.contains("generic one's.spec.ts"));
+        assert!(full.contains("'--workers' '4'"));
+        flow.mem_limit = Some(512 * 1024 * 1024);
+        assert!(
+            flow.repair_prompt("node", (0, 1), "failed", "", "", &[])
+                .contains("'--workers' '1'")
+        );
         std::fs::remove_file(helper).unwrap();
         assert!(
             !flow

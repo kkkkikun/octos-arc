@@ -251,7 +251,8 @@ class RepairEntryTests(unittest.TestCase):
             flow.tests_dir = root / 'original tests'
             flow.output_dir = root / 'application'
             flow.smoke_port = 43219
-            flow.runner = SimpleNamespace(root=root, work_dir=work)
+            flow.runner = SimpleNamespace(root=root, work_dir=work, workers=2)
+            flow.mem_limit = None
             from unittest.mock import patch
             helper = root / 'verify_app.py'
             helper.write_text('import sys,json; print(json.dumps(sys.argv[1:]))')
@@ -261,7 +262,16 @@ class RepairEntryTests(unittest.TestCase):
                 command = context.split('```sh\n')[1].split('\n```')[0]
                 out = subprocess.check_output(['sh', '-c', command], text=True)
                 self.assertEqual(json.loads(out), ['--app', str(flow.output_dir), '--tests', str(flow.tests_dir),
-                                                   '--playwright', str(root), '--spec', "generic one's.spec.ts"])
-                self.assertNotIn('--spec', flow.repair_test_location())
+                                                   '--playwright', str(root), '--workers', '2', '--spec', "generic one's.spec.ts"])
+                with patch.dict('os.environ', {'OCTOS_ARC_FINAL_WORKERS': '4'}):
+                    full = flow.repair_test_location()
+                    self.assertNotIn('--spec', full)
+                    command = full.split('```sh\n')[1].split('\n```')[0]
+                    args = json.loads(subprocess.check_output(['sh', '-c', command], text=True))
+                    self.assertEqual(args[args.index('--workers') + 1], '4')
+                    flow.mem_limit = 512 * 1024 * 1024
+                    command = flow.repair_test_location().split('```sh\n')[1].split('\n```')[0]
+                    args = json.loads(subprocess.check_output(['sh', '-c', command], text=True))
+                    self.assertEqual(args[args.index('--workers') + 1], '1')
                 helper.unlink()
                 self.assertNotIn('```sh', flow.repair_test_location())
