@@ -161,7 +161,7 @@ class BestRepairStateTests(unittest.TestCase):
         from acceptance import RunSummary, TestOutcome
         flow = object.__new__(main.Flow)
         flow.runner = object()
-        flow.repair_rounds = 1
+        flow.repair_rounds = 2
         flow.min_repair_seconds = 0
         flow.node_timeout = 60
         flow.smoke_port = 43219
@@ -181,9 +181,12 @@ class BestRepairStateTests(unittest.TestCase):
         flow.restore_app = Mock()
         failure = TestOutcome('behavior', False, 'failed', 1, message='missing control')
         flow.run_specs = Mock(side_effect=[RunSummary(passed=1, total=2, results=[failure]),
-                                          RunSummary(passed=0, total=2, results=[failure])])
-        self.assertFalse(flow.acceptance_loop('node', ['example.spec.ts'], time.time()+1000))
-        flow.turn.assert_called_once()
+                                          RunSummary(passed=0, total=2, results=[failure]),
+                                          RunSummary(passed=1, total=2, results=[failure])])
+        rebuild = Mock(return_value='Rewrite everything')
+        self.assertFalse(flow.acceptance_loop('node', ['example.spec.ts'], time.time()+1000, rebuild))
+        rebuild.assert_not_called()
+        self.assertEqual(flow.turn.call_count, 2)
         flow.restore_app.assert_called_once_with('same-commit')
 
 

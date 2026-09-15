@@ -1821,7 +1821,7 @@ class Flow:
             slow_text = ("These tests exceeded the configured slow-test threshold: " + "; ".join(slow) +
                          ". Inspect the failed operations and measured timings before optimizing.\n" + self.perf_text()) if slow else ""
             if passed == 0 and rebuild_prompt is not None and not rewrite_used \
-                    and self.can_rewrite_from_scratch() \
+                    and best_passed <= 0 and self.can_rewrite_from_scratch() \
                     and os.environ.get("OCTOS_ARC_REWRITE_ON_ZERO", "1") != "0":
                 rewrite_used = True
                 log(f"[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch")

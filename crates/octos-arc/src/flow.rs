@@ -1809,6 +1809,7 @@ impl Flow {
             if passed == 0
                 && !rewrite_used
                 && self.policy.repair.rewrite_on_zero
+                && best_passed <= 0
                 && self.can_rewrite_from_scratch()
                 && let Some(rebuild) = rebuild
             {
