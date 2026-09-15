@@ -1183,11 +1183,11 @@ def acceptance_tests_prompt(tests_dir: Path | None, web_port: int, smoke_port: i
 # ---------------------------------------------------------------- flow
 
 def regression_checkpoint_due(index: int, total: int, start: int) -> bool:
-    """Geometric checks bound extra spec executions; the final suite handles the last node."""
+    """Start with short checks, then cap gaps at twice the interval; skip the final node."""
     if start <= 0 or index < start or index >= total or index % start:
         return False
     multiple = index // start
-    return multiple & (multiple - 1) == 0
+    return multiple == 1 or multiple % 2 == 0
 
 
 class Flow:

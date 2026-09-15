@@ -95,7 +95,7 @@ test_timeout_ms = 10000          # OCTOS_ARC_TEST_TIMEOUT_MS — per-test timeou
 slow_ms = 3000                   # OCTOS_ARC_SLOW_MS — slower tests are reported to the repair turn
 workers = 2                      # OCTOS_ARC_TEST_WORKERS — per-node runs
 final_workers = 4                # OCTOS_ARC_FINAL_WORKERS — full parallel suite
-regression_checkpoint_nodes = 4 # OCTOS_ARC_REGRESSION_CHECKPOINT — check after 4, 8, 16... nodes; 0 disables
+regression_checkpoint_nodes = 4 # OCTOS_ARC_REGRESSION_CHECKPOINT — check after 4, 8, 16, 24... nodes; gaps capped at twice this value; 0 disables
 memory_per_worker_mib = 700      # container memory per Chromium worker (cgroup limit / this = workers)
 final_memory_per_worker_mib = 450   # full suite: the platform grades with 4 workers in 2 GiB
 fully_parallel = false           # OCTOS_ARC_FULLY_PARALLEL — parallelism inside a spec file too

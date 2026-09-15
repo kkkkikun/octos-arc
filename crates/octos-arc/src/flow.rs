@@ -36,7 +36,7 @@ fn regression_checkpoint_due(index: usize, total: usize, start: usize) -> bool {
         && index >= start
         && index < total
         && index % start == 0
-        && (index / start).is_power_of_two()
+        && (index / start == 1 || (index / start) % 2 == 0)
 }
 
 /// How a codegen turn is shaped (`main.codegen_turn` keyword arguments).
@@ -3145,20 +3145,24 @@ mod tests {
     };
 
     #[test]
-    fn should_space_regression_checks_geometrically() {
+    fn should_bound_regression_checkpoint_gaps() {
         assert_eq!(
             (1..33)
                 .filter(|n| regression_checkpoint_due(*n, 32, 4))
                 .collect::<Vec<_>>(),
-            vec![4, 8, 16]
+            vec![4, 8, 16, 24]
         );
         assert_eq!(
             (1..20)
                 .filter(|n| regression_checkpoint_due(*n, 20, 3))
                 .collect::<Vec<_>>(),
-            vec![3, 6, 12]
+            vec![3, 6, 12, 18]
         );
         assert!(!regression_checkpoint_due(4, 20, 0));
+        let mut points = vec![0];
+        points.extend((1..121).filter(|n| regression_checkpoint_due(*n, 121, 4)));
+        points.push(121);
+        assert!(points.windows(2).all(|pair| pair[1] - pair[0] <= 8));
     }
 
     struct RejectedProvider(Arc<AtomicUsize>, &'static str);

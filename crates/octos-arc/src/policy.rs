@@ -250,7 +250,7 @@ pub struct AcceptancePolicy {
     pub workers: u32,
     /// Workers for the full parallel suite (`OCTOS_ARC_FINAL_WORKERS`).
     pub final_workers: u32,
-    /// First geometric regression checkpoint; 0 disables (`OCTOS_ARC_REGRESSION_CHECKPOINT`).
+    /// Initial regression interval; subsequent gaps never exceed twice it; 0 disables (`OCTOS_ARC_REGRESSION_CHECKPOINT`).
     pub regression_checkpoint_nodes: usize,
     /// Container memory per Chromium worker in MiB (per-node runs).
     pub memory_per_worker_mib: u64,

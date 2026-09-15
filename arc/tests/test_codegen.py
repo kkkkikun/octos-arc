@@ -326,11 +326,13 @@ class RepairEntryTests(unittest.TestCase):
 
 
 class RegressionCheckpointTests(unittest.TestCase):
-    def test_should_space_checks_geometrically_and_skip_final_or_disabled(self):
+    def test_should_bound_checkpoint_gaps_and_skip_final_or_disabled(self):
         import main
-        self.assertEqual([i for i in range(1,33) if main.regression_checkpoint_due(i,32,4)], [4,8,16])
-        self.assertEqual([i for i in range(1,20) if main.regression_checkpoint_due(i,20,3)], [3,6,12])
+        self.assertEqual([i for i in range(1,33) if main.regression_checkpoint_due(i,32,4)], [4,8,16,24])
+        self.assertEqual([i for i in range(1,20) if main.regression_checkpoint_due(i,20,3)], [3,6,12,18])
         self.assertFalse(main.regression_checkpoint_due(4,20,0))
+        points = [0] + [i for i in range(1, 122) if main.regression_checkpoint_due(i, 121, 4)] + [121]
+        self.assertLessEqual(max(b - a for a, b in zip(points, points[1:])), 8)
 
     def test_should_recheck_only_verified_specs_and_queue_observed_regressions(self):
         import main, tempfile
