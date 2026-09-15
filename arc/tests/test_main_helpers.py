@@ -594,3 +594,49 @@ class PostflightOwnershipTests(unittest.TestCase):
              patch.object(m.os, 'kill') as kill, patch.object(m, 'log'):
             m._port_watchdog(3000, Path('/private/tmp/app'), stop)
         kill.assert_not_called()
+
+
+class RuntimeCacheProvenanceTests(unittest.TestCase):
+    def test_should_reuse_only_a_cache_from_the_requested_url(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        with TemporaryDirectory() as folder:
+            cache = Path(folder)
+            (cache/'octos').write_text('old executable')
+            url = 'https://example.invalid/runtime/new.tar.gz'
+            for marker, expected in [(None, 'downloaded'), ('old-url', 'downloaded'), (url, str(cache/'octos'))]:
+                provenance = cache/'source-url.txt'
+                if marker is not None:
+                    provenance.write_text(marker)
+                elif provenance.exists():
+                    provenance.unlink()
+                with patch.dict(m.os.environ, {'OCTOS_CACHE_DIR': folder, 'OCTOS_RELEASE_URL': url}, clear=True), \
+                     patch.object(m, 'BUNDLE_DIR', cache/'bundle'), \
+                     patch.object(m.shutil, 'which', return_value=None), \
+                     patch.object(m, '_download_octos', return_value='downloaded') as download:
+                    self.assertEqual(m.find_octos(), expected)
+                    self.assertEqual(download.call_count, int(expected=='downloaded'))
+
+    def test_should_replace_a_stale_archive_before_recording_its_new_source(self):
+        import io, tarfile
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        with TemporaryDirectory() as folder:
+            cache = Path(folder)
+            def archive(content):
+                with tarfile.open(cache/'octos-bundle.tar.gz', 'w:gz') as tar:
+                    member=tarfile.TarInfo('octos');member.size=len(content)
+                    tar.addfile(member, io.BytesIO(content))
+            archive(b'old version')
+            (cache/'source-url.txt').write_text('old-url')
+            url='https://example.invalid/runtime/new.tar.gz'
+            with patch.dict(m.os.environ, {'OCTOS_RELEASE_URL': url}), \
+                 patch.object(m.shutil, 'which', return_value='/usr/bin/curl'), \
+                 patch.object(m.subprocess, 'run', side_effect=lambda *a, **kw: archive(b'new version')) as download, \
+                 patch.object(m, 'log'):
+                binary=m._download_octos(cache)
+            self.assertEqual(Path(binary).read_bytes(), b'new version')
+            self.assertEqual(download.call_count, 1)
+            self.assertEqual((cache/'source-url.txt').read_text(), url)

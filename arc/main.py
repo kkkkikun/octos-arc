@@ -444,6 +444,13 @@ OCTOS_RELEASE_URL = (
 )
 
 
+def _cached_runtime_matches(cache_dir: Path, url: str) -> bool:
+    try:
+        return (cache_dir / "source-url.txt").read_text() == url
+    except OSError:
+        return False
+
+
 def _download_octos(dest_dir: Path) -> str:
     """Fetch the Linux octos binary at runtime via gh-proxy mirrors first (the
     runner's path to GitHub stalls / kills HTTP/2 streams)."""
@@ -453,6 +460,10 @@ def _download_octos(dest_dir: Path) -> str:
     dest_dir.mkdir(parents=True, exist_ok=True)
     tarball = dest_dir / "octos-bundle.tar.gz"
     url = os.environ.get("OCTOS_RELEASE_URL", OCTOS_RELEASE_URL)
+    if not _cached_runtime_matches(dest_dir, url):
+        # A complete archive from an older URL must not satisfy a new download.
+        tarball.unlink(missing_ok=True)
+
 
     def tarball_ok() -> bool:
         try:
@@ -493,6 +504,12 @@ def _download_octos(dest_dir: Path) -> str:
     binary.chmod(0o755)
     if (dest_dir / "octos-sandbox").exists():
         (dest_dir / "octos-sandbox").chmod(0o755)
+    marker = dest_dir / f"source-url-{os.getpid()}.tmp"
+    try:
+        marker.write_text(url)
+        marker.replace(dest_dir / "source-url.txt")
+    finally:
+        marker.unlink(missing_ok=True)
     return str(binary)
 
 
@@ -507,7 +524,8 @@ def find_octos() -> str:
     if found:
         return found
     cache_dir = Path(os.environ.get("OCTOS_CACHE_DIR", "/tmp/octos-bin"))
-    if (cache_dir / "octos").exists():
+    url = os.environ.get("OCTOS_RELEASE_URL", OCTOS_RELEASE_URL)
+    if (cache_dir / "octos").is_file() and _cached_runtime_matches(cache_dir, url):
         return str(cache_dir / "octos")
     return _download_octos(cache_dir)
 
