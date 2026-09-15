@@ -975,7 +975,7 @@ UI_CONTRACT = UI_CONTRACT_CORE + UI_CONTRACT_DATA + UI_CONTRACT_SESSION  # full 
 PERFORMANCE_CONTRACT = """\
 Performance and robustness:
 - Measure slow operations using observed timings and the configured runtime budgets; do not assume a fixed CPU slowdown or browser count. A timeout can reflect a missing element, incorrect state or an unresolved request; inspect the actual failure before changing performance settings.
-- Keep request handlers responsive and avoid unnecessary work. When password authentication is required, keep the work factor configurable. In benchmark/demo deployments, lower it according to measured CPU cost and the configured budget; retain salts and a password KDF rather than a plain digest. Keep production security settings separate.
+- Keep request handlers responsive and avoid unnecessary work. Do not introduce password-hashing implementations or reduce cryptographic strength to improve timings. Follow the required authentication behavior, using an existing authentication service when available; do not replace authentication with plaintext password storage or bypass credential checks.
 - Set cookie flags, scope and lifetime from the deployment protocol and session requirements. Use HttpOnly for session cookies and Secure on HTTPS; do not hardcode a host or lifetime. Preserve required client-side interactions and persistent storage semantics.
 """
 
@@ -1333,7 +1333,7 @@ class Flow:
 
     def classify_tree(self, tree: dict) -> None:
         """Keyword-gate the optional contract blocks so a counter never reads
-        session/hashing rules; the hidden specs only test what the tree says."""
+        session/performance rules; derive behavior from the supplied requirements."""
         text = json.dumps(tree, ensure_ascii=False).lower()
         self.needs_session = bool(re.search(r"login|log in|sign in|password|session|register|注册|登录|密码|会话", text))
         self.needs_data = bool(re.search(r"seed|published|fixture|option|select|dropdown|nationalit|车次|train|选项|下拉|预置", text))
