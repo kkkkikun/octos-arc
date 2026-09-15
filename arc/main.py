@@ -1971,10 +1971,16 @@ class Flow:
             self.pending_corrections.append(
                 "Your turn ended without both frontend/package.json and backend/package.json (with `build` and "
                 "`start` scripts) on disk; the harness could not even build the app. Create the missing files.")
-        if not ok and not timed_out:
+        can_verify_existing = self.has_app() and self.runner is not None and bool(specs)
+        if not ok and not timed_out and not can_verify_existing:
             self.mark("implementation_failed", node_id, text[-500:])
             self.impl_failed.append(node_id)
             return
+        if not ok and not timed_out:
+            log(f"[flow] {node_id}: generation did not complete; testing the existing app")
+            self.pending_corrections.append(
+                "The implementation turn did not complete. Judge the existing files using acceptance results; "
+                "preserve working behavior and repair only failures supported by those results.")
         if timed_out:
             # The files written so far stay on disk; let the acceptance loop judge them.
             log(f"[flow] {node_id}: implement turn hit its {implement_timeout:.0f}s cap; testing what exists")
@@ -1993,7 +1999,7 @@ class Flow:
                 self.mark("design_done", node_id, "design JSON written inline to .arc/design/" + node_id + ".json")
             else:
                 self.mark("design_done", node_id, "design folded into the implementation turn (no JSON file)")
-        self.mark("implementation_done", node_id, (text[-500:] or None) if ok else "implement turn timed out; partial code")
+        self.mark("implementation_done", node_id, (text[-500:] or None) if ok else "implementation incomplete; existing code awaiting acceptance")
         self.commit(f"{node_id} (implement): {node.get('name', '')}")
 
         def rebuild_prompt(failures: str) -> str:

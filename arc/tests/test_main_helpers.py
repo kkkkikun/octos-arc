@@ -640,3 +640,56 @@ class RuntimeCacheProvenanceTests(unittest.TestCase):
             self.assertEqual(Path(binary).read_bytes(), b'new version')
             self.assertEqual(download.call_count, 1)
             self.assertEqual((cache/'source-url.txt').read_text(), url)
+
+class FailedGenerationAcceptanceTests(unittest.TestCase):
+    def test_should_verify_existing_app_after_generation_returns_no_files(self):
+        self.check_existing_app(True, True)
+
+    def test_should_keep_failure_when_no_app_can_be_verified(self):
+        self.check_existing_app(False, False)
+
+    def test_should_retain_failed_acceptance_instead_of_trusting_the_model(self):
+        self.check_existing_app(True, True, verdict=False)
+
+    def test_should_keep_failure_without_a_test_runner(self):
+        self.check_existing_app(True, False, runner=False)
+
+    def test_should_keep_failure_without_specs(self):
+        self.check_existing_app(True, False, specs=False)
+
+    def check_existing_app(self, has_app, should_verify, verdict=True, runner=True, specs=True):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            flow = Mock(spec=m.Flow)
+            flow.output_dir = Path(directory)
+            flow.req_dir = Path(directory)
+            flow.spec_map = {'feature': ['feature.spec.ts'] if specs else []}
+            flow.node_budget_cap = 300
+            flow.remaining.return_value = 600
+            flow.design_enabled = False
+            flow.evolution = False
+            flow.has_app.return_value = has_app
+            flow.codegen_mode.return_value = False
+            flow.turn.return_value = (False, 'reply contained no file blocks')
+            flow.node_timeout = 300
+            flow.implement_fraction = .7
+            flow.smoke_port = 3001
+            flow.web_port = 3000
+            flow.runner = Mock() if runner else None
+            flow.impl_failed = []
+            flow.pending_corrections = []
+            flow.test_verdict = {}
+            flow.acceptance_loop.return_value = verdict
+            for method in ['ancestors_text', 'tests_prompt_for', 'perf_text', 'ui_contract', 'verify_text', 'corrections_text']:
+                getattr(flow, method).return_value = ''
+            flow.runtime = Mock()
+            flow.runtime.traceability.list_interfaces.return_value = []
+            m.Flow.node_cycle(flow, node('feature', 'Existing capability'), [], 1, 1)
+            self.assertEqual(flow.acceptance_loop.called, should_verify)
+            if should_verify:
+                self.assertEqual(flow.test_verdict['feature'], verdict)
+                self.assertEqual(flow.impl_failed, [])
+            else:
+                self.assertEqual(flow.impl_failed, ['feature'])

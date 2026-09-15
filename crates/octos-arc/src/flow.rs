@@ -2105,10 +2105,21 @@ impl Flow {
             let correction = self.correction("layout_incomplete", &[]);
             self.pending_corrections.push(correction);
         }
-        if !ok && !timed_out {
+        let can_verify_existing = self.has_app()
+            && self.runner.is_some()
+            && !specs.is_empty()
+            && self.permanent_provider_error.is_none();
+        if !ok && !timed_out && !can_verify_existing {
             self.mark("implementation_failed", &node_id, Some(&tail(&text, 500)));
             self.impl_failed.push(node_id);
             return;
+        }
+        if !ok && !timed_out {
+            self.log(format!(
+                "[flow] {node_id}: generation did not complete; testing the existing app"
+            ));
+            self.pending_corrections.push(
+                "The implementation turn did not complete. Judge the existing files using acceptance results; preserve working behavior and repair only failures supported by those results.".into());
         }
         if timed_out {
             // The files written so far stay on disk; let the acceptance loop judge them.
@@ -2150,7 +2161,7 @@ impl Flow {
         let done_message = if ok {
             tail(&text, 500)
         } else {
-            "implement turn timed out; partial code".to_string()
+            "implementation incomplete; existing code awaiting acceptance".to_string()
         };
         self.mark("implementation_done", &node_id, Some(&done_message));
         let name = node.get("name").and_then(Value::as_str).unwrap_or("");
@@ -3064,6 +3075,57 @@ mod tests {
         )
         .unwrap();
         (flow, calls, dir)
+    }
+
+    #[test]
+    fn should_run_acceptance_on_existing_app_after_no_file_reply() {
+        struct NoChanges;
+        impl Completer for NoChanges {
+            fn complete(&mut self, _: &CompletionRequest<'_>) -> Result<crate::llm::Completion> {
+                Ok(crate::llm::Completion {
+                    text: "Existing capability needs no changes".into(),
+                    truncated: false,
+                    usage: Default::default(),
+                    elapsed_ms: 0,
+                    attempts: 1,
+                })
+            }
+        }
+        let (mut flow, _, dir) = rejected_flow("unused");
+        flow.llm = Box::new(NoChanges);
+        flow.policy.mode.tiny = false;
+        flow.policy.repair.rounds = 0;
+        flow.policy.repair.rounds_large_tree = 0;
+        for folder in ["frontend", "backend"] {
+            let path = dir.path().join(folder);
+            std::fs::create_dir_all(&path).unwrap();
+            std::fs::write(
+                path.join("package.json"),
+                r#"{"scripts":{"build":"node -e \"process.exit(1)\"","start":"node missing.js"}}"#,
+            )
+            .unwrap();
+        }
+        flow.spec_map
+            .by_node
+            .insert("feature".into(), vec!["feature.spec.ts".into()]);
+        flow.runner = Some(AcceptanceRunner {
+            root: dir.path().into(),
+            tests_dir: dir.path().join("tests"),
+            work_dir: dir.path().join("prepared"),
+            timeout_ms: 1000,
+            workers: 1,
+            fully_parallel: false,
+            env_extra: vec![],
+            wall_timeout: Duration::from_secs(5),
+        });
+        flow.node_cycle(
+            &json!({"id":"feature", "type":"ATOMIC", "description":"Existing capability"}),
+            1,
+            1,
+        );
+        // A failed build is a real negative verdict, not an untested implementation failure.
+        assert_eq!(flow.test_verdict.get("feature"), Some(&Some(false)));
+        assert!(flow.impl_failed.is_empty());
     }
 
     #[test]
