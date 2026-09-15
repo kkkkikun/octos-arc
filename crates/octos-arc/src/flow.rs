@@ -3181,7 +3181,7 @@ mod tests {
         assert!(
             !flow
                 .repair_prompt("node", 0, 1, "failed", "", "")
-                .contains("```sh")
+                .contains("Prepared acceptance entry")
         );
     }
 

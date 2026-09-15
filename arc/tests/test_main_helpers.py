@@ -516,3 +516,42 @@ class ProbeInvalidationTests(unittest.TestCase):
         flow.driver.run.return_value = (False, 'partial implementation failed')
         flow.turn('modify shared component', 60, 'changed implement', expect_verification=False)
         self.assertEqual(flow.probe_summaries, {})
+
+
+class SmokeShellContractTests(unittest.TestCase):
+    @unittest.skipUnless(__import__("os").name == "posix", "POSIX shell contract")
+    def test_should_return_with_live_server_without_inheriting_capture_pipes(self):
+        import os
+        import re
+        import signal
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        text = m.PORT_RULES.format(smoke=43219, port=3000)
+        command = re.search(r"```sh\n(.*?)\n```", text, re.S)
+        self.assertIsNotNone(command, "Supply an executable background-server example")
+        self.assertEqual(m.PORT_RULES, (Path(m.__file__).parent / "prompts/port-rules.md").read_text())
+        with tempfile.TemporaryDirectory(prefix="smoke shell '") as directory:
+            root = Path(directory)
+            (root / "backend").mkdir()
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            npm = bin_dir / "npm"
+            # A genuinely long-running child, without a timed sleep or network dependency.
+            npm.write_text("#!/bin/sh\nexec python3 -c 'import signal; signal.pause()'\n")
+            npm.chmod(0o755)
+            process = subprocess.Popen(["/bin/sh", "-c", command.group(1)], cwd=root,
+                                       env={**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"]},
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+            try:
+                stdout, stderr = process.communicate(timeout=3)
+                self.assertEqual(process.returncode, 0, stderr.decode())
+                server_pid = int(stdout.strip())
+                os.kill(server_pid, 0)
+            finally:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.communicate()
