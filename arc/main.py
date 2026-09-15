@@ -1935,11 +1935,12 @@ class Flow:
                                     preamble=preamble, ancestors=self.ancestors_text(node_id, ordered),
                                     tests=self.tests_prompt_for(node_id), smoke=self.smoke_port, port=self.web_port,
                                     performance=self.perf_text(), ui=self.ui_contract(), verify=self.verify_text(total))
-        prompt = self.corrections_text() + prompt
+        corrections = self.corrections_text()
+        prompt = corrections + prompt
         codegen_prompt = None
         implement_timeout = min(self.node_timeout, self.implement_fraction * node_budget, deadline - time.time())
         tiny_ok = False
-        if self.codegen_mode() and self.tiny_mode(len(self.spec_bodies(node_id))):
+        if not corrections and self.codegen_mode() and self.tiny_mode(len(self.spec_bodies(node_id))):
             tiny_ok = self.tiny_turn(node_id, specs, implement_timeout, node)
             self.current_spec_chars = len(self.spec_bodies(node_id))
         if tiny_ok:
@@ -1958,6 +1959,7 @@ class Flow:
                                            "every changed file complete. Files:", 1)
                            + relevant_sources(self.output_dir, spec_text,
                                               max(8000, self.codegen_context_chars() - len(spec_text))))
+            compact = corrections + compact
             codegen_prompt = compact
             write_codegen_manifests(self.output_dir)
             ok, text = self.codegen_turn(compact, implement_timeout, f"{node_id} implement", spec_chars=self.current_spec_chars)

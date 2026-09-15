@@ -715,8 +715,7 @@ impl Flow {
                 )
                 .unwrap_or_default()
         };
-        let prompt = self
-            .prompts
+        self.prompts
             .render(
                 "node",
                 &[
@@ -731,8 +730,7 @@ impl Flow {
                     ("port_rules", &self.port_rules()),
                 ],
             )
-            .unwrap_or_default();
-        format!("{}{prompt}", self.corrections_text())
+            .unwrap_or_default()
     }
 
     fn repair_prompt(
@@ -2005,7 +2003,11 @@ impl Flow {
         }
 
         self.mark("implementation_started", &node_id, None);
-        let tool_prompt = self.node_prompt(node, &node_id, inline_design, design.as_ref());
+        let corrections = self.corrections_text();
+        let tool_prompt = format!(
+            "{corrections}{}",
+            self.node_prompt(node, &node_id, inline_design, design.as_ref())
+        );
         let mut codegen_prompt: Option<String> = None;
         let implement_timeout = (self.policy.budget.node_timeout_seconds as f64)
             .min(self.policy.budget.implement_fraction * node_budget)
@@ -2018,7 +2020,7 @@ impl Flow {
         let spec_text = self.spec_bodies(&node_id);
         let spec_chars = spec_text.chars().count();
         let mut tiny_ok = false;
-        if self.codegen_mode() && self.tiny_mode(spec_chars) {
+        if corrections.is_empty() && self.codegen_mode() && self.tiny_mode(spec_chars) {
             tiny_ok = self.tiny_turn(&node_id, &specs, implement_timeout, node);
             self.current_spec_chars = spec_chars;
         }
@@ -2049,7 +2051,7 @@ impl Flow {
                 context_chars: self.policy.prompts.codegen_context_chars,
             };
             let compact = match codegen::implement_prompt(&self.prompts, &inputs) {
-                Ok(prompt) => prompt,
+                Ok(prompt) => format!("{corrections}{prompt}"),
                 Err(error) => {
                     let message = format!("could not build the codegen prompt: {error}");
                     self.mark("implementation_failed", &node_id, Some(&message));
@@ -3117,9 +3119,13 @@ mod tests {
 
     #[test]
     fn should_run_acceptance_on_existing_app_after_no_file_reply() {
-        struct NoChanges;
+        struct NoChanges(Arc<std::sync::Mutex<Vec<String>>>);
         impl Completer for NoChanges {
-            fn complete(&mut self, _: &CompletionRequest<'_>) -> Result<crate::llm::Completion> {
+            fn complete(
+                &mut self,
+                request: &CompletionRequest<'_>,
+            ) -> Result<crate::llm::Completion> {
+                self.0.lock().unwrap().push(request.user.to_string());
                 Ok(crate::llm::Completion {
                     text: "Existing capability needs no changes".into(),
                     truncated: false,
@@ -3130,8 +3136,11 @@ mod tests {
             }
         }
         let (mut flow, _, dir) = rejected_flow("unused");
-        flow.llm = Box::new(NoChanges);
-        flow.policy.mode.tiny = false;
+        let prompts = Arc::new(std::sync::Mutex::new(Vec::new()));
+        flow.llm = Box::new(NoChanges(prompts.clone()));
+        let correction = "Restore the previously verified navigation behavior";
+        flow.pending_corrections.push(correction.into());
+        flow.policy.mode.tiny = true;
         flow.policy.repair.rounds = 0;
         flow.policy.repair.rounds_large_tree = 0;
         for folder in ["frontend", "backend"] {
@@ -3164,6 +3173,11 @@ mod tests {
         // A failed build is a real negative verdict, not an untested implementation failure.
         assert_eq!(flow.test_verdict.get("feature"), Some(&Some(false)));
         assert!(flow.impl_failed.is_empty());
+        let prompts = prompts.lock().unwrap();
+        assert!(!prompts.is_empty());
+        for prompt in prompts.iter() {
+            assert_eq!(prompt.matches(correction).count(), 1, "{prompt}");
+        }
     }
 
     #[test]

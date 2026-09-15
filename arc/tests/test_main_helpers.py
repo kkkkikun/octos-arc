@@ -657,7 +657,10 @@ class FailedGenerationAcceptanceTests(unittest.TestCase):
     def test_should_keep_failure_without_specs(self):
         self.check_existing_app(True, False, specs=False)
 
-    def check_existing_app(self, has_app, should_verify, verdict=True, runner=True, specs=True):
+    def test_should_forward_corrections_to_codegen_and_skip_tiny(self):
+        self.check_existing_app(True, True, correction='Restore the previously verified navigation behavior')
+
+    def check_existing_app(self, has_app, should_verify, verdict=True, runner=True, specs=True, correction=None):
         import tempfile
         from pathlib import Path
         from unittest.mock import Mock
@@ -684,9 +687,26 @@ class FailedGenerationAcceptanceTests(unittest.TestCase):
             flow.acceptance_loop.return_value = verdict
             for method in ['ancestors_text', 'tests_prompt_for', 'perf_text', 'ui_contract', 'verify_text', 'corrections_text']:
                 getattr(flow, method).return_value = ''
+            if correction:
+                flow.pending_corrections = [correction]
+                flow.corrections_text.side_effect = lambda: m.Flow.corrections_text(flow)
+                flow.codegen_mode.return_value = True
+                flow.tiny_mode.return_value = True
+                flow.tiny_turn.return_value = False
+                flow.spec_bodies.return_value = 'a generic acceptance spec'
+                flow.codegen_context_fits.return_value = True
+                flow.codegen_reasoning.return_value = 'none'
+                flow.codegen_context_chars.return_value = 20000
+                flow.codegen_ports_clause.return_value = ''
+                flow.codegen_turn.return_value = (True, 'generated')
             flow.runtime = Mock()
             flow.runtime.traceability.list_interfaces.return_value = []
             m.Flow.node_cycle(flow, node('feature', 'Existing capability'), [], 1, 1)
+            if correction:
+                sent = flow.codegen_turn.call_args.args[0]
+                self.assertEqual(sent.count(correction), 1)
+                self.assertEqual(flow.pending_corrections, [])
+                flow.tiny_turn.assert_not_called()
             self.assertEqual(flow.acceptance_loop.called, should_verify)
             if should_verify:
                 self.assertEqual(flow.test_verdict['feature'], verdict)
