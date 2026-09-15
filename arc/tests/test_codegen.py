@@ -187,6 +187,51 @@ class BestRepairStateTests(unittest.TestCase):
         flow.restore_app.assert_called_once_with('same-commit')
 
 
+class VerifiedBehaviorRewriteTests(unittest.TestCase):
+    def test_should_repair_failed_extension_without_calling_rebuild(self):
+        import main, time
+        from unittest.mock import Mock, patch
+        from acceptance import RunSummary, TestOutcome
+        flow = object.__new__(main.Flow)
+        flow.runner = object()
+        flow.repair_rounds = 1
+        flow.min_repair_seconds = 0
+        flow.node_timeout = 60
+        flow.tests_dir = None
+        flow.pending_corrections = []
+        flow.test_verdict = {'working-feature': True}
+        flow.head = lambda: 'original'
+        flow.codegen_mode = lambda: False
+        flow.wound_down = flow.time_up = lambda: False
+        flow.sources_text = flow.corrections_text = flow.repair_test_location = lambda *args: ''
+        flow.record_tests = flow.snapshot_sources = flow.commit = Mock()
+        flow.turn = Mock()
+        flow.smoke_port, flow.web_port = 43219, 3000
+        fail = TestOutcome('new behavior', False, 'failed', 1, message='missing control')
+        flow.run_specs = Mock(side_effect=[RunSummary(passed=0, total=1, results=[fail]),
+                                          RunSummary(passed=1, total=1)])
+        rebuild = Mock(return_value='Replace the application')
+        with patch.dict('os.environ', {'OCTOS_ARC_REWRITE_ON_ZERO': '1'}):
+            self.assertTrue(flow.acceptance_loop('new-feature', ['new.spec.ts'],
+                                                time.time()+1000, rebuild))
+        rebuild.assert_not_called()
+        flow.turn.assert_called_once()
+        self.assertIn('Fix frontend/', flow.turn.call_args.args[0])
+
+    def test_should_avoid_full_rewrite_when_any_behavior_already_passed(self):
+        import main
+        from acceptance import RunSummary
+        flow = object.__new__(main.Flow)
+        flow.test_verdict = {'new-feature': False}
+        flow.probe_summaries = {}
+        self.assertTrue(flow.can_rewrite_from_scratch())
+        flow.test_verdict['existing-feature'] = True
+        self.assertFalse(flow.can_rewrite_from_scratch())
+        flow.test_verdict.clear()
+        flow.probe_summaries['template-feature'] = RunSummary(passed=1, total=2)
+        self.assertFalse(flow.can_rewrite_from_scratch())
+
+
 class RepairModeTransitionTests(unittest.TestCase):
     def test_should_try_tool_repair_before_stopping_at_codegen_plateau(self):
         import main

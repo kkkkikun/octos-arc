@@ -1648,6 +1648,11 @@ impl Flow {
     /// happened. `rebuild` yields a full re-implementation prompt; it is used
     /// once when round 0 passes nothing — rewriting beats patching a
     /// structurally broken first attempt.
+    fn can_rewrite_from_scratch(&self) -> bool {
+        !self.test_verdict.values().any(|v| *v == Some(true))
+            && !self.probe_summaries.values().any(|r| r.passed > 0)
+    }
+
     fn acceptance_loop(
         &mut self,
         node_id: &str,
@@ -1804,6 +1809,7 @@ impl Flow {
             if passed == 0
                 && !rewrite_used
                 && self.policy.repair.rewrite_on_zero
+                && self.can_rewrite_from_scratch()
                 && let Some(rebuild) = rebuild
             {
                 rewrite_used = true;
@@ -3086,6 +3092,26 @@ mod tests {
         )
         .unwrap();
         (flow, calls, dir)
+    }
+
+    #[test]
+    fn should_preserve_verified_behavior_instead_of_rewriting_from_scratch() {
+        let (mut flow, _, _dir) = rejected_flow("unused");
+        flow.test_verdict.insert("new-feature".into(), Some(false));
+        assert!(flow.can_rewrite_from_scratch());
+        flow.test_verdict
+            .insert("existing-feature".into(), Some(true));
+        assert!(!flow.can_rewrite_from_scratch());
+        flow.test_verdict.clear();
+        flow.probe_summaries.insert(
+            "template-feature".into(),
+            RunSummary {
+                passed: 1,
+                total: 2,
+                ..Default::default()
+            },
+        );
+        assert!(!flow.can_rewrite_from_scratch());
     }
 
     #[test]

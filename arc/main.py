@@ -1735,12 +1735,17 @@ class Flow:
         except Exception as exc:  # noqa: BLE001
             log(f"[trace] test rows not recorded: {exc}")
 
+    def can_rewrite_from_scratch(self) -> bool:
+        """A failing node does not justify replacing previously verified behavior."""
+        return not (any(v is True for v in getattr(self, "test_verdict", {}).values())
+                    or any(r.passed > 0 for r in getattr(self, "probe_summaries", {}).values()))
+
     def acceptance_loop(self, node_id: str, specs: list[str], deadline: float,
                         rebuild_prompt=None) -> bool | None:
         """Returns True/False for a real verdict, None when no local run happened.
         `rebuild_prompt(failures)` (optional) yields a full re-implementation
-        prompt; it is used once when round 0 passes nothing — rewriting beats
-        patching a structurally broken first attempt (v13-tb-a)."""
+        prompt; it is used only before any behavior has passed verification.
+        A failing extension is repaired without replacing working features."""
         if self.runner is None or not specs:
             return None
         best_passed, best_sha, regressions, stalls = -1, self.head(), 0, 0
@@ -1816,6 +1821,7 @@ class Flow:
             slow_text = ("These tests exceeded the configured slow-test threshold: " + "; ".join(slow) +
                          ". Inspect the failed operations and measured timings before optimizing.\n" + self.perf_text()) if slow else ""
             if passed == 0 and rebuild_prompt is not None and not rewrite_used \
+                    and self.can_rewrite_from_scratch() \
                     and os.environ.get("OCTOS_ARC_REWRITE_ON_ZERO", "1") != "0":
                 rewrite_used = True
                 log(f"[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch")
