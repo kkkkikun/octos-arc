@@ -240,6 +240,7 @@ pub struct TestOutcome {
     pub location: String,
     pub message: String,
     pub steps: Vec<String>,
+    pub action_errors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -306,7 +307,12 @@ fn text_of(value: Option<&Value>) -> String {
 /// Collapse a Playwright JSON report into per-test outcomes.
 pub fn summarize_report(report: &Value) -> RunSummary {
     let mut results = Vec::new();
-    fn walk(suites: Option<&Value>, parent_file: &str, results: &mut Vec<TestOutcome>) {
+    fn walk(
+        suites: Option<&Value>,
+        parent_file: &str,
+        results: &mut Vec<TestOutcome>,
+        actions: &Value,
+    ) {
         for suite in suites.and_then(Value::as_array).into_iter().flatten() {
             let suite_file = suite.get("file").and_then(Value::as_str).unwrap_or("");
             let file = if suite_file.is_empty() {
@@ -411,12 +417,28 @@ pub fn summarize_report(report: &Value) -> RunSummary {
                         .trim()
                         .to_string(),
                     steps,
+                    action_errors: spec
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .and_then(|id| actions.get(id))
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .take(8)
+                        .filter_map(Value::as_str)
+                        .map(|s| ANSI.replace_all(s, "").chars().take(2000).collect())
+                        .collect(),
                 });
             }
-            walk(suite.get("suites"), file, results);
+            walk(suite.get("suites"), file, results, actions);
         }
     }
-    walk(report.get("suites"), "", &mut results);
+    walk(
+        report.get("suites"),
+        "",
+        &mut results,
+        report.get("action_errors").unwrap_or(&Value::Null),
+    );
     let mut summary = RunSummary::from_results(results);
     summary.load_errors = report
         .get("errors")
@@ -657,6 +679,10 @@ pub fn failure_summaries(
             "- Feature: {}\n  Failed at: {where_}\n  Observation: {observation}\n  Steps: {steps}",
             r.title
         ));
+        if !r.action_errors.is_empty() {
+            let detail: String = r.action_errors.join("\n").chars().take(4000).collect();
+            blocks.last_mut().unwrap().push_str(&format!("\n  Earlier API errors (helpers may have recovered; correlate with the final failure):\n{detail}"));
+        }
     }
     blocks.join("\n")
 }
@@ -1399,10 +1425,14 @@ impl AcceptanceRunner {
             std::fs::remove_dir_all(&self.work_dir)?;
         }
         copy_tree(&self.tests_dir, &self.work_dir.join("tests"))?;
+        std::fs::write(
+            self.work_dir.join("action_errors.cjs"),
+            include_str!("../../../arc/action_errors.cjs"),
+        )?;
         let sub = 4000.min(self.timeout_ms / 2);
         let nav = 6000.min(self.timeout_ms * 3 / 5);
         let config = format!(
-            "import {{ defineConfig }} from '@playwright/test';\nexport default defineConfig({{ testDir: './tests', timeout: {}, retries: 0, fullyParallel: {}, workers: {}, reporter: [['json', {{ outputFile: 'report.json' }}]], expect: {{ timeout: {sub} }}, use: {{ headless: true, baseURL: process.env.E2E_BASE_URL, actionTimeout: {sub}, navigationTimeout: {nav} }} }});\n",
+            "import {{ defineConfig }} from '@playwright/test';\nexport default defineConfig({{ testDir: './tests', timeout: {}, retries: 0, fullyParallel: {}, workers: {}, reporter: [['json', {{ outputFile: 'report.json' }}], ['./action_errors.cjs', {{ output: 'action-errors.json' }}]], expect: {{ timeout: {sub} }}, use: {{ headless: true, baseURL: process.env.E2E_BASE_URL, actionTimeout: {sub}, navigationTimeout: {nav} }} }});\n",
             self.timeout_ms,
             if self.fully_parallel { "true" } else { "false" },
             workers.unwrap_or(self.workers)
@@ -1484,7 +1514,7 @@ impl AcceptanceRunner {
             summary.killed = killed;
             return summary;
         }
-        let report: Value = match std::fs::read_to_string(&report_path)
+        let mut report: Value = match std::fs::read_to_string(&report_path)
             .map_err(|e| e.to_string())
             .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
         {
@@ -1493,6 +1523,15 @@ impl AcceptanceRunner {
                 return RunSummary::error(format!("unreadable playwright report: {error}"));
             }
         };
+        if let Some(actions) = std::fs::read_to_string(self.work_dir.join("action-errors.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .filter(Value::is_object)
+        {
+            if let Some(object) = report.as_object_mut() {
+                object.insert("action_errors".into(), actions);
+            }
+        }
         let mut summary = summarize_report(&report);
         summary.stdout_tail = ANSI.replace_all(&tail_text, "").into_owned();
         if summary.total == 0 {
@@ -1895,5 +1934,26 @@ mod tests {
             .port();
         let error = robustness_probe(free, None, Duration::from_secs(2)).unwrap();
         assert!(error.contains("no HTTP response"));
+    }
+}
+
+#[cfg(test)]
+mod action_error_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn should_preserve_verdict_when_adding_caught_action_errors() {
+        let mut report = json!({"action_errors":{"case":["Click: overlay intercepts pointer events"]},
+            "suites":[{"specs":[{"id":"case","title":"flow","tests":[{"status":"unexpected",
+                "results":[{"status":"failed","error":{"message":"missing item"}}]}]}]}]});
+        let summary = summarize_report(&report);
+        assert_eq!((summary.passed, summary.total), (0, 1));
+        let message = failure_summaries(&summary, 8, 900, 10000);
+        assert!(message.contains("overlay intercepts pointer events"));
+        assert!(message.contains("may have recovered"));
+        report["suites"][0]["specs"][0]["tests"][0]["status"] = json!("expected");
+        let summary = summarize_report(&report);
+        assert_eq!((summary.passed, summary.total), (1, 1));
+        assert!(failure_summaries(&summary, 8, 900, 10000).is_empty());
     }
 }

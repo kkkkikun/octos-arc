@@ -99,6 +99,7 @@ class TestOutcome:
     location: str = ""      # where the error was raised (may be a helper file)
     message: str = ""
     steps: list[str] = field(default_factory=list)
+    action_errors: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -151,7 +152,8 @@ def summarize_report(report: dict) -> RunSummary:
                     location=f"{loc_file}:{loc.get('line')}" if loc_file and loc.get("line") else loc_file,
                     message=_ANSI.sub("", str(err.get("message") or "") + "\n" + "\n".join(
                         line for line in str(err.get("stack") or "").splitlines() if line.strip().startswith("at "))).strip(),
-                    steps=steps))
+                    steps=steps, action_errors=[_ANSI.sub("", e)[:2000] for e in
+                        (report.get("action_errors", {}).get(spec.get("id"), []) or [])[:8] if isinstance(e, str)]))
             walk(suite.get("suites", []), file)
 
     walk(report.get("suites", []))
@@ -210,6 +212,8 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
         steps_src = r.steps or _call_log_steps(r.message)
         steps = " -> ".join(steps_src[-max_steps:]) if steps_src else "(no step trace)"
         blocks.append(f"- Feature: {r.title}\n  Failed at: {where}\n  Observation: {observation}\n  Steps: {steps}")
+        if r.action_errors:
+            blocks[-1] += "\n  Earlier API errors (helpers may have recovered; correlate with the final failure):\n" + "\n".join(r.action_errors)[:4000]
     return "\n".join(blocks)
 
 
@@ -762,11 +766,12 @@ class AcceptanceRunner:
             shutil.rmtree(self.work_dir)
         shutil.copytree(self.tests_dir, self.work_dir / "tests",
                         ignore=shutil.ignore_patterns("node_modules", "test-results", "playwright-report"))
+        shutil.copyfile(Path(__file__).with_name("action_errors.cjs"), self.work_dir / "action_errors.cjs")
         (self.work_dir / "playwright.config.ts").write_text(
             "import { defineConfig } from '@playwright/test';\n"
             f"export default defineConfig({{ testDir: './tests', timeout: {self.timeout_ms}, retries: 0, "
             f"fullyParallel: {'true' if os.environ.get('OCTOS_ARC_FULLY_PARALLEL') == '1' else 'false'}, "
-            f"workers: {workers or self.workers}, reporter: [['json', {{ outputFile: 'report.json' }}]], "
+            f"workers: {workers or self.workers}, reporter: [['json', {{ outputFile: 'report.json' }}], ['./action_errors.cjs', {{ output: 'action-errors.json' }}]], "
             # Action/navigation/expect timeouts sit below the 10 s test timeout on
             # purpose: a hanging click then fails with the locator named in the
             # call log instead of an anonymous "Test timeout exceeded".
@@ -799,7 +804,14 @@ class AcceptanceRunner:
                                      f"playwright produced no report (rc={r.returncode}): {_ANSI.sub('', tail)[-600:]}"),
                               killed=killed)
         try:
-            summary = summarize_report(json.loads(report_path.read_text()))
+            report = json.loads(report_path.read_text())
+            try:
+                actions = json.loads((self.work_dir / "action-errors.json").read_text())
+                if isinstance(actions, dict):
+                    report["action_errors"] = actions
+            except (OSError, json.JSONDecodeError):
+                pass  # Optional diagnostics never change acceptance outcomes.
+            summary = summarize_report(report)
         except (OSError, json.JSONDecodeError) as exc:
             return RunSummary(error=f"unreadable playwright report: {exc}")
         summary.stdout_tail = _ANSI.sub("", tail)

@@ -297,3 +297,37 @@ class ServerCleanupTests(unittest.TestCase):
             child.wait(timeout=5)
             child.stdin.close()
             child.stdout.close()
+
+class CaughtActionDiagnosticsTests(unittest.TestCase):
+    def test_should_preserve_verdict_and_include_caught_errors_only_for_failed_tests(self):
+        report = {'action_errors': {'case': ['Click: overlay intercepts pointer events']},
+                  'suites': [{'specs': [{'id': 'case', 'title': 'flow', 'tests': [
+                      {'status': 'unexpected', 'results': [{'status': 'failed', 'error': {'message': 'missing item'}}]}
+                  ]}]}]}
+        summary = summarize_report(report)
+        self.assertEqual((summary.passed, summary.total), (0, 1))
+        self.assertIn('overlay intercepts pointer events', failure_summaries(summary))
+        self.assertIn('may have recovered', failure_summaries(summary))
+        report['suites'][0]['specs'][0]['tests'][0]['status'] = 'expected'
+        summary = summarize_report(report)
+        self.assertEqual((summary.passed, summary.total), (1, 1))
+        self.assertEqual(failure_summaries(summary), '')
+
+class ActionReporterBoundsTests(unittest.TestCase):
+    def test_should_bound_diagnostics_without_mutating_results(self):
+        reporter = Path(__file__).resolve().parents[1] / 'action_errors.cjs'
+        script = r'''
+const assert = require('assert'); const fs = require('fs');
+const Reporter = require(process.argv[1]);
+const result = {status:'passed',steps:Array.from({length:12},(_,i)=>({category:'pw:api',title:'x'.repeat(6000),duration:i,error:{message:String(i)+'y'.repeat(5000)},steps:[]}))};
+const before = JSON.stringify(result);
+const reporter = new Reporter({output:process.argv[2]});
+reporter.onTestEnd({id:'case'}, result); reporter.onEnd();
+assert.equal(JSON.stringify(result),before);
+const errors=JSON.parse(fs.readFileSync(process.argv[2])).case;
+assert.equal(errors.length,8); assert(errors.every(x=>x.length<=2000));
+'''
+        with tempfile.TemporaryDirectory() as root:
+            result = subprocess.run(['node', '-e', script, str(reporter), str(Path(root) / 'actions.json')],
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
