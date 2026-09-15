@@ -9,7 +9,7 @@ Your turn ended without both frontend/package.json and backend/package.json (wit
 ## implement_timed_out
 Your implementation turn ran out of time; work in smaller steps and verify with curl early.
 ## parallel_suite
-The grader runs all spec files IN PARALLEL against one server; tests from different files must not interfere through shared server state (e.g. a value that every browser session shares). Keep persisted data only where the requirement demands persistence.
+The full suite runs all spec files against one server; tests from different files must not interfere through shared server state (e.g. a value that every browser session shares). Keep persisted data only where the requirement demands persistence.
 ## evolution_regression
 This node passed before this evolution round; the regression below must be fixed without removing the new behaviour.
 ## claim_without_verification

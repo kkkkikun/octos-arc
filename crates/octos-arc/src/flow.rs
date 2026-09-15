@@ -2370,7 +2370,7 @@ impl Flow {
         }
     }
 
-    /// Run EVERY spec file together, files in parallel, like the grader does.
+    /// Run EVERY spec file together against one server with the configured workers.
     /// Per-node runs cannot see cross-node interference through shared server
     /// state; this pass can, and it repairs the nodes whose tests fail.
     fn checkpoint_specs(&self) -> Vec<String> {
@@ -2449,7 +2449,7 @@ impl Flow {
         }
         if !grouped.is_empty() {
             self.pending_corrections.push(format!(
-                "Previously passing behavior failed when checked together after recent changes. Repair the observed failures while preserving other working behavior. Tests ran in parallel against one server; use this evidence when implementing the next node.\n{}",
+                "Previously passing behavior failed when checked together after recent changes. Repair the observed failures while preserving other working behavior. Tests ran together against one server; use this evidence when implementing the next node.\n{}",
                 head(&self.failures_of(summary), 8000)));
         }
     }
@@ -2598,7 +2598,7 @@ impl Flow {
             }
             if grouped.is_empty() {
                 self.commit(&format!(
-                    "chore: full acceptance suite {}/{} pass (parallel)",
+                    "chore: full acceptance suite {}/{} pass (full suite)",
                     summary.passed, summary.total
                 ));
                 return;

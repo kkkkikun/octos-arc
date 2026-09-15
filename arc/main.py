@@ -2271,11 +2271,11 @@ class Flow:
             self.pending_corrections.append(
                 "Previously passing behavior failed when checked together after recent changes. "
                 "Repair the observed failures while preserving other working behavior. "
-                "Tests ran in parallel against one server; use this evidence when implementing the next node.\n"
+                "Tests ran together against one server; use this evidence when implementing the next node.\n"
                 + evidence[:8000])
 
     def final_acceptance(self) -> None:
-        """Run EVERY spec file together, files in parallel, like the grader does.
+        """Run EVERY spec file together against one server with the configured workers.
         Per-node runs cannot see cross-node interference through shared server
         state; this pass can, and it repairs the nodes whose tests fail."""
         if self.runner is None or not self.tests_dir:
@@ -2319,7 +2319,7 @@ class Flow:
                     self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} (best so far)")
                 best = {"passed": summary.passed, "sha": self.head(), "summary": summary, "grouped": grouped}
             if not grouped:
-                self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} pass (parallel)")
+                self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} pass (full suite)")
                 return
             failing_signature = failure_signature(summary)
             if previous_failing is not None and failing_signature == previous_failing:
@@ -2333,7 +2333,7 @@ class Flow:
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
                 test_location=self.repair_test_location(),
                 sources=self.repair_requirements() + self.sources_text(),
-                corrections=self.corrections_text() + "The grader runs all spec files IN PARALLEL against one "
+                corrections=self.corrections_text() + "The full suite runs all spec files against one "
                 "server; tests from different files must not interfere through shared server state "
                 "(e.g. a counter that every browser session shares). Keep persisted data only where the "
                 "requirement demands persistence.\n",
