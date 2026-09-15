@@ -493,3 +493,78 @@ for (const fail of [false,true]) test('navigation status '+fail,async({page})=>{
             # contain URLs and must remain unchanged.
             diagnostics = summary.split('Browser diagnostics',1)[-1]
             self.assertNotIn('private-value',diagnostics)
+
+
+class FailurePageSnapshotTests(unittest.TestCase):
+    """Playwright records what the page actually rendered when a test fails;
+    without it a repair only sees the locator it was waiting for."""
+
+    def test_should_extract_the_accessibility_snapshot_from_an_error_context(self):
+        from acceptance import page_snapshot
+        context = ('# Test info\n\n- Name: x\n\n# Error details\n\n```\nTimeoutError\n```\n\n'
+                   '# Page snapshot\n\n```yaml\n- heading "Notes" [level=1]\n- text: Work\n```\n\n'
+                   '# Test source\n\n```ts\n  1 | secret-source-line\n```\n')
+        snapshot = page_snapshot(context)
+        self.assertIn('heading "Notes"', snapshot)
+        self.assertIn('text: Work', snapshot)
+        # Only the rendered page; the surrounding report is already summarised.
+        self.assertNotIn('secret-source-line', snapshot)
+        self.assertNotIn('TimeoutError', snapshot)
+        self.assertEqual(page_snapshot('no snapshot section here'), '')
+
+    def test_should_extract_the_snapshot_a_failed_expect_leaves_inline(self):
+        from acceptance import page_snapshot
+        # A failed expect() has no `# Page snapshot` heading; the tree is fenced
+        # inside the error details instead.
+        context = ('# Error details\n\n```\nexpect(locator).toBeVisible() failed\n```\n\n'
+                   '```yaml\n- heading "Settings" [level=1]\n```\n\n'
+                   '# Test source\n\n```ts\n  1 | secret-source-line\n```\n')
+        self.assertEqual(page_snapshot(context), '- heading "Settings" [level=1]')
+
+    def test_should_bound_a_large_snapshot_on_whole_lines(self):
+        from acceptance import page_snapshot
+        body = "\n".join(f'- generic [ref=e{n}]: row {n}' for n in range(400))
+        snapshot = page_snapshot(f'# Page snapshot\n\n```yaml\n{body}\n```\n', max_chars=200)
+        self.assertLessEqual(len(snapshot), 300)
+        self.assertTrue(snapshot.startswith('- generic [ref=e0]: row 0'))
+        self.assertNotIn('row 399', snapshot)
+        for line in snapshot.splitlines():
+            self.assertTrue(line.startswith('- generic') or line.startswith('…'), line)
+
+    def test_should_share_the_snapshot_budget_across_a_failing_suite(self):
+        from acceptance import RunSummary, TestOutcome
+        tree = "\n".join(f'- generic [ref=e{n}]: row {n}' for n in range(400))
+        results = [TestOutcome(title=f'REQ-{n}', ok=False, status='timedOut', duration_ms=1,
+                               file=f'REQ-{n}.spec.ts', message='TimeoutError', rendered_page=tree)
+                   for n in range(8)]
+        summary = failure_summaries(RunSummary(passed=0, total=8, results=results))
+        # Every failure keeps a usable share; none of them takes the whole prompt.
+        for n in range(8):
+            self.assertIn(f'- Feature: REQ-{n}\n', summary)
+        self.assertEqual(summary.count('Page at failure'), 8)
+        self.assertLess(len(summary), 8 * 1400)
+
+    def test_should_report_the_rendered_page_for_a_real_failure(self):
+        from acceptance import AcceptanceRunner
+        import os
+        install = os.environ.get('OCTOS_TEST_PLAYWRIGHT_ROOT')
+        if not install:
+            self.skipTest('set OCTOS_TEST_PLAYWRIGHT_ROOT to an installed Playwright root')
+        root = Path(install)
+        with tempfile.TemporaryDirectory(prefix='page-snapshot-', dir=root) as folder:
+            base = Path(folder); specs = base/'source'; specs.mkdir()
+            (specs/'labels.spec.ts').write_text("""import {test} from '@playwright/test';
+test('remove label from a note',async({page})=>{
+ await page.route('http://example.test/**', route=>route.fulfill({status:200,contentType:'text/html',
+   body:'<h1>Notes</h1><div>Groceries</div><span>Work</span>'}));
+ await page.goto('http://example.test/');
+ await page.getByRole('checkbox',{name:/Work/i}).first().click();
+});
+""")
+            runner = AcceptanceRunner(root, specs, base/'prepared', lambda _: None, workers=1)
+            result = runner.run(['labels.spec.ts'], 'http://127.0.0.1:1')
+            self.assertEqual((result.passed, result.total), (0, 1), result.error)
+            summary = failure_summaries(result)
+            # The repair has to see that "Work" is plain text, not a checkbox.
+            self.assertIn('heading "Notes"', summary)
+            self.assertIn('Work', summary.split('Page at failure', 1)[-1])

@@ -100,6 +100,8 @@ class TestOutcome:
     message: str = ""
     steps: list[str] = field(default_factory=list)
     action_errors: list[str] = field(default_factory=list)
+    context_path: str = ""  # Playwright's error-context.md for this failure
+    rendered_page: str = ""  # its accessibility snapshot, filled in by the runner
 
 
 @dataclass
@@ -153,7 +155,9 @@ def summarize_report(report: dict) -> RunSummary:
                     message=_ANSI.sub("", str(err.get("message") or "") + "\n" + "\n".join(
                         line for line in str(err.get("stack") or "").splitlines() if line.strip().startswith("at "))).strip(),
                     steps=steps, action_errors=[_ANSI.sub("", e)[:2000] for e in
-                        (report.get("action_errors", {}).get(spec.get("id"), []) or [])[:8] if isinstance(e, str)]))
+                        (report.get("action_errors", {}).get(spec.get("id"), []) or [])[:8] if isinstance(e, str)],
+                    context_path=next((str(a.get("path") or "") for a in (last.get("attachments") or [])
+                                       if isinstance(a, dict) and a.get("name") == "error-context"), "")))
             walk(suite.get("suites", []), file)
 
     walk(report.get("suites", []))
@@ -195,9 +199,48 @@ def _call_log_steps(message: str) -> list[str]:
     return steps
 
 
-def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: int = 900) -> str:
+# The snapshot sits under a `# Page snapshot` heading after an action failure and
+# inline in `# Error details` after a failed expect(); it is the only YAML in the
+# document either way (the spec source is fenced as ```ts).
+_PAGE_SNAPSHOT = re.compile(r"(?m)^```yaml\n(.*?)\n```", re.S)
+
+
+def page_snapshot(error_context: str, max_chars: int = 1400) -> str:
+    """The accessibility tree of the page as it stood when the test failed.
+
+    Playwright writes `test-results/<test>/error-context.md` for every failure
+    and records the rendered page in it. Without that a repair only sees the
+    locator the test waited for and has to guess which roles and accessible
+    names the app actually produced. Only the snapshot is kept: the error and
+    the spec source are already summarised elsewhere.
+    """
+    match = _PAGE_SNAPSHOT.search(error_context)
+    if not match:
+        return ""
+    return _clip_lines(match.group(1), max_chars)
+
+
+def _clip_lines(text: str, max_chars: int) -> str:
+    """Keep whole lines only: a half-line of YAML reads as a different tree."""
+    kept: list[str] = []
+    budget = max_chars
+    for line in text.splitlines():
+        if len(line) + 1 > budget:
+            kept.append("… snapshot truncated")
+            break
+        kept.append(line)
+        budget -= len(line) + 1
+    return "\n".join(kept).strip()
+
+
+def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: int = 900,
+                      max_snapshots: int = 6000) -> str:
     """Four-field digest of every failed test — the only thing the model sees."""
     blocks = []
+    # A full suite can fail on many nodes at once; share the snapshot budget so a
+    # long first tree cannot crowd the later failures out of the repair prompt.
+    failing = sum(1 for r in summary.results if not r.ok) or 1
+    per_snapshot = max(400, max_snapshots // failing)
     for r in summary.results:
         if r.ok:
             continue
@@ -212,6 +255,10 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
         steps_src = r.steps or _call_log_steps(r.message)
         steps = " -> ".join(steps_src[-max_steps:]) if steps_src else "(no step trace)"
         blocks.append(f"- Feature: {r.title}\n  Failed at: {where}\n  Observation: {observation}\n  Steps: {steps}")
+        if r.rendered_page:
+            indented = "\n".join("    " + line for line in _clip_lines(r.rendered_page, per_snapshot).splitlines())
+            blocks[-1] += ("\n  Page at failure (what the app actually rendered; roles and accessible "
+                           "names the test could see):\n" + indented)
         if r.action_errors:
             blocks[-1] += "\n  Browser diagnostics (helpers may have recovered; correlate with the final failure):\n" + "\n".join(r.action_errors)[:4000]
     return "\n".join(blocks)
@@ -804,7 +851,11 @@ class AcceptanceRunner:
         shutil.copyfile(Path(__file__).with_name("action_errors.cjs"), self.work_dir / "action_errors.cjs")
         (self.work_dir / "playwright.config.ts").write_text(
             "import { defineConfig } from '@playwright/test';\n"
-            f"export default defineConfig({{ testDir: './tests', timeout: {self.timeout_ms}, retries: 0, "
+            # outputDir otherwise resolves against the Playwright install, where
+            # failure artifacts (error-context.md) pile up across runs instead of
+            # being cleared with the work dir.
+            f"export default defineConfig({{ testDir: './tests', outputDir: './test-results', "
+            f"timeout: {self.timeout_ms}, retries: 0, "
             f"fullyParallel: {'true' if os.environ.get('OCTOS_ARC_FULLY_PARALLEL') == '1' else 'false'}, "
             f"workers: {workers or self.workers}, reporter: [['list'], ['json', {{ outputFile: 'report.json' }}], ['./action_errors.cjs', {{ output: 'action-errors.json' }}]], "
             # Action/navigation/expect timeouts sit below the 10 s test timeout on
@@ -814,6 +865,23 @@ class AcceptanceRunner:
             f"use: {{ headless: true, baseURL: process.env.E2E_BASE_URL, actionTimeout: {min(4000, self.timeout_ms // 2)}, "
             f"navigationTimeout: {min(6000, self.timeout_ms * 3 // 5)} }} }});\n")
         return self.work_dir / "playwright.config.ts"
+
+    def _attach_rendered_pages(self, summary: RunSummary) -> None:
+        """Fill each failure's `rendered_page` from the error context Playwright
+        wrote for it. `_prepare` clears the work dir per run, so these files only
+        ever describe this run; anything outside it is ignored."""
+        work = self.work_dir.resolve()
+        for index, result in enumerate(summary.results):
+            if result.ok or not result.context_path:
+                continue
+            path = Path(result.context_path)
+            try:
+                if not path.resolve().is_relative_to(work) or path.stat().st_size > 1_000_000:
+                    continue
+                context = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue  # Diagnostics are optional; never fail a run over them.
+            summary.results[index] = replace(result, rendered_page=page_snapshot(context))
 
     def run(self, spec_rel_paths: list[str], base_url: str, wall_timeout: int = 900,
             workers: int | None = None) -> RunSummary:
@@ -850,6 +918,7 @@ class AcceptanceRunner:
         except (OSError, json.JSONDecodeError) as exc:
             return RunSummary(error=f"unreadable playwright report: {exc}")
         summary.stdout_tail = _ANSI.sub("", tail)
+        self._attach_rendered_pages(summary)
         if summary.total == 0:
             # Cloud run a6ccc437539f: the model had edited /workspace/tests, the
             # copied spec no longer loaded, and "0/0" looked like a verdict.
