@@ -1105,16 +1105,51 @@ pub fn robustness_probe(
     mut child: Option<&mut ManagedChild>,
     timeout: Duration,
 ) -> Option<String> {
-    for path in [
+    for (index, path) in [
         "/favicon.ico",
         "/this-path-does-not-exist",
         "/api/this-route-does-not-exist",
-    ] {
-        if let Err(error) = http_get(port, path, timeout) {
-            let alive = match child.as_deref_mut() {
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let started = Instant::now();
+        for attempt in 0..2 {
+            let remaining = timeout
+                .saturating_sub(started.elapsed())
+                .max(Duration::from_millis(1));
+            let Err(error) = http_get(port, path, remaining) else {
+                break;
+            };
+            let mut alive = match child.as_deref_mut() {
                 None => true,
                 Some(child) => child.running().unwrap_or(false),
             };
+            let transient = matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionRefused
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::UnexpectedEof
+                    | std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::WouldBlock
+            );
+            let delay = Duration::from_millis(200);
+            if index == 0
+                && attempt == 0
+                && alive
+                && transient
+                && timeout.saturating_sub(started.elapsed()) > delay
+            {
+                std::thread::sleep(delay);
+                alive = child
+                    .as_deref_mut()
+                    .is_none_or(|child| child.running().unwrap_or(false));
+                if alive {
+                    continue;
+                }
+            }
             return Some(format!(
                 "GET {path} got no HTTP response ({}); backend {} — unknown paths must return 404, never throw",
                 error.kind(),
@@ -1933,6 +1968,33 @@ mod tests {
         assert_eq!(spec_base_ports(dir.path()), [3301]);
         assert_eq!(list_specs(dir.path()), ["REQ-1.spec.ts"]);
         assert_eq!(support_files(dir.path()), ["support/e2e.ts"]);
+    }
+
+    #[test]
+    fn should_retry_initial_connection_close_but_not_later_failures() {
+        use std::net::TcpListener;
+        for fail_at in [0, 1] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            std::thread::spawn(move || {
+                for (i, stream) in listener
+                    .incoming()
+                    .take(if fail_at == 0 { 4 } else { 2 })
+                    .enumerate()
+                {
+                    let mut stream = stream.unwrap();
+                    let mut buf = [0u8; 1024];
+                    let _ = stream.read(&mut buf);
+                    if i != fail_at {
+                        let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    }
+                }
+            });
+            assert_eq!(
+                robustness_probe(port, None, Duration::from_secs(2)).is_none(),
+                fail_at == 0
+            );
+        }
     }
 
     #[test]

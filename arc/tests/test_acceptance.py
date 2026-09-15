@@ -203,6 +203,39 @@ class MemoryWorkersTests(unittest.TestCase):
 
 
 class RobustnessProbeTests(unittest.TestCase):
+    def test_should_retry_only_initial_transport_failure_with_live_process(self):
+        from unittest.mock import Mock, patch
+        import http.client
+        for errors, alive, expected_calls, passes in [
+            ([ConnectionResetError(), None, None, None], True, 4, True),
+            ([ConnectionResetError(), ConnectionResetError()], True, 2, False),
+            ([ConnectionResetError()], False, 1, False),
+            ([None, ConnectionResetError()], True, 2, False),
+            ([ValueError('invalid')], True, 1, False),
+        ]:
+            proc = Mock(); proc.poll.return_value = None if alive else 1
+            connections = []
+            for error in errors:
+                conn = Mock()
+                if error: conn.getresponse.side_effect = error
+                connections.append(conn)
+            with patch.object(http.client, 'HTTPConnection', side_effect=connections) as factory, patch('acceptance.time.sleep'):
+                result = robustness_probe(12345, proc, timeout=1)
+            self.assertEqual(result is None, passes)
+            self.assertEqual(factory.call_count, expected_calls)
+            self.assertTrue(all(c.close.called for c in connections))
+
+    def test_should_not_retry_after_initial_probe_budget_is_exhausted(self):
+        from unittest.mock import Mock, patch
+        import http.client
+        conn = Mock(); conn.getresponse.side_effect = ConnectionResetError()
+        with patch.object(http.client, 'HTTPConnection', return_value=conn) as factory, \
+             patch('acceptance.time.monotonic', side_effect=[0, 0, 2]), \
+             patch('acceptance.time.sleep') as pause:
+            self.assertIsNotNone(robustness_probe(12345, timeout=1))
+        self.assertEqual(factory.call_count, 1)
+        pause.assert_not_called()
+
     def test_should_pass_for_a_server_that_answers_404_and_fail_for_a_dead_port(self):
         import http.server, socket, threading
         class H(http.server.BaseHTTPRequestHandler):

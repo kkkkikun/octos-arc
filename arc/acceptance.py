@@ -599,16 +599,32 @@ def robustness_probe(port: int, proc: subprocess.Popen | None = None, timeout: f
     (any status) and stay alive. Cloud f9f0026819f1: an unhandled ENOENT on
     GET /favicon.ico killed the backend and 8 of 10 tests saw ECONNREFUSED."""
     import http.client
-    for path in ("/favicon.ico", "/this-path-does-not-exist", "/api/this-route-does-not-exist"):
-        try:
-            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
-            conn.request("GET", path)
-            resp = conn.getresponse()
-            resp.read()
-            conn.close()
-        except Exception as exc:  # noqa: BLE001
+    for index, path in enumerate(("/favicon.ico", "/this-path-does-not-exist", "/api/this-route-does-not-exist")):
+        deadline = time.monotonic() + timeout
+        for attempt in range(2):
+            conn = None
+            error = None
+            try:
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=max(0.001, deadline - time.monotonic()))
+                conn.request("GET", path)
+                resp = conn.getresponse()
+                resp.read()
+            except Exception as exc:  # noqa: BLE001
+                error = exc
+            finally:
+                if conn is not None:
+                    conn.close()
+            if error is None:
+                break
             alive = proc is None or proc.poll() is None
-            return (f"GET {path} got no HTTP response ({exc.__class__.__name__}); "
+            # Only startup transport failures get one retry, within the original budget.
+            transient = isinstance(error, (ConnectionError, TimeoutError, http.client.RemoteDisconnected))
+            if index == 0 and attempt == 0 and alive and transient and deadline - time.monotonic() > 0.2:
+                time.sleep(0.2)
+                if proc is None or proc.poll() is None:
+                    continue
+                alive = False
+            return (f"GET {path} got no HTTP response ({error.__class__.__name__}); "
                     f"backend {'still running' if alive else 'CRASHED (process exited)'} — unknown paths must "
                     f"return 404, never throw")
         time.sleep(0.2)
