@@ -2285,9 +2285,12 @@ class Flow:
             [n for n in self.spec_map if n and self.spec_map[n] and n not in self.test_verdict]
         if len(all_specs) < 2 and not unverified:
             return  # single spec already judged by the node run
-        rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "2"))
+        # One more round than the identical-failure escalation needs, so the
+        # changed approach actually gets to run.
+        rounds = int(os.environ.get("OCTOS_FINAL_REPAIR_ROUNDS", "3"))
         workers = workers_for_final(getattr(self, "mem_limit", None), int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
         previous_failing: frozenset | None = None
+        repeated = False  # the last round reproduced the round before it
         best: dict | None = None  # L17: best full-suite round (passed, sha, summary, grouped)
         last_passed = -1
         for attempt in range(rounds + 1):
@@ -2323,8 +2326,19 @@ class Flow:
                 return
             failing_signature = failure_signature(summary)
             if previous_failing is not None and failing_signature == previous_failing:
-                log("[acceptance] full suite: same failures as the previous round; stopping repairs")
-                break
+                if repeated:
+                    log("[acceptance] full suite: failures unchanged after a changed approach; stopping repairs")
+                    break
+                # Cloud 3ffe9702bf15: the suite stalled at 26/32 and the run ended
+                # with most of its budget unspent. One identical round means the
+                # repair missed the cause, not that the cause cannot be fixed --
+                # tell it so, the way the per-node path already does, and retry.
+                repeated = True
+                log("[acceptance] full suite: same failures as the previous round; changing repair approach")
+                self.pending_corrections.append(
+                    'Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
+            else:
+                repeated = False
             previous_failing = failing_signature
             if attempt == rounds or self.remaining() < 240 or self.wound_down():
                 break

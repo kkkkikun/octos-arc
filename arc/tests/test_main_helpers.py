@@ -539,6 +539,29 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertTrue(all(flow.test_verdict.values()))
 
+    def test_should_change_approach_once_before_giving_up_on_identical_rounds(self):
+        from unittest.mock import patch
+        # Cloud 3ffe9702bf15 stalled here: two identical rounds ended the run with
+        # most of its budget unspent. One repeat means the repair missed the cause.
+        flow = self._flow([1, 1, 2])
+        flow.pending_corrections = []
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "3"}):
+            flow.final_acceptance()
+        self.assertTrue(any('Repeated attempts produced the same observed failure' in c
+                            for c in flow.pending_corrections))
+        self.assertTrue(all(flow.test_verdict.values()))  # the changed approach fixed it
+
+    def test_should_stop_when_a_changed_approach_still_reproduces_the_failure(self):
+        from unittest.mock import patch
+        flow = self._flow([1, 1, 1, 2])  # a fourth round exists but must not run
+        flow.pending_corrections = []
+        calls = []
+        original = flow.run_specs
+        flow.run_specs = lambda *a, **k: (calls.append(1), original(*a, **k))[1]
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "3"}):
+            flow.final_acceptance()
+        self.assertEqual(len(calls), 3)
+
     def test_should_not_restore_when_last_round_is_best(self):
         import os
         os.environ["OCTOS_FINAL_REPAIR_ROUNDS"] = "1"
