@@ -2482,6 +2482,14 @@ class Flow:
         # overwriting the verdicts with full-suite ones.
         passed_alone = {node for node, verdict in self.test_verdict.items() if verdict is True}
         passed_a_round: set = set()  # nodes this pass has already seen pass once
+        # Measured, not yet acted on: a repair killed at the per-turn timeout can
+        # leave the tree part edited. Cloud 6e82a7ff571c went 27/32, had its
+        # repair cut at 1200s, and measured 17/32 next round, so the rounds after
+        # it repair the damage rather than the five failures it started with. The
+        # restore below still delivers the best round, so only the intervening
+        # rounds are spent. Repairing from `best` instead was tried and reverted:
+        # the evidence then comes from a round where the flaky specs passed, which
+        # silently drops the intermittent note. Any retry needs to keep both.
         best: dict | None = None  # L17: best full-suite round (passed, sha, summary, grouped)
         last_passed = -1
         unfinished = ""  # what the previous repair turn said it had left to do
