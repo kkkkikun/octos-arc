@@ -1461,3 +1461,50 @@ class VerificationDemandTests(unittest.TestCase):
 
     def test_should_still_demand_it_when_the_shell_is_there(self):
         self.assertTrue(self._monitor_for(set()).expect_verification)
+
+
+class WorkerParityNoteTests(unittest.TestCase):
+    """Measured twice each on one unchanged app: one worker and four both gave
+    24/32, but not the same 24 — REQ-2.7.1 failed at one and passed at four,
+    REQ-2.7.5 the reverse. A memory limit can force the count down, and the
+    repair should not then read the list as the set that will be scored."""
+
+    def test_should_say_nothing_when_it_matches_the_grader(self):
+        self.assertEqual(m.Flow.worker_parity_note(4), "")
+        self.assertEqual(m.Flow.worker_parity_note(8), "")
+
+    def test_should_warn_when_memory_forced_the_count_down(self):
+        note = m.Flow.worker_parity_note(1)
+        self.assertIn("1 worker(s)", note)
+        self.assertIn("grading runs 4", note)
+        self.assertIn("sample of a shared cause", note)
+
+    def test_should_reach_the_repair_prompt(self):
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        for n in ("REQ-1", "REQ-2"):
+            (root / "t" / f"{n}.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.spec_map = {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": ["REQ-2.spec.ts"], None: []}
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "prepared", timeout_ms=10000)
+        flow.mem_limit = 512 * 1024 * 1024  # forces one worker
+        flow.test_verdict = {}; flow.requirement_nodes = {}
+        flow.run_specs = lambda specs, workers=None, grader_like=False: RunSummary(
+            passed=1, total=2, results=[
+                TestOutcome(title="REQ-1", ok=True, status="passed", duration_ms=1, file="REQ-1.spec.ts"),
+                TestOutcome(title="REQ-2", ok=False, status="failed", duration_ms=1,
+                            file="REQ-2.spec.ts", message="boom")])
+        flow.head = lambda: "sha0"; flow.commit = lambda msg: True
+        flow.restore_app = lambda sha: None; flow.record_tests = lambda *a, **k: None
+        flow.remaining = lambda: 10_000; flow.wound_down = lambda: False
+        flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
+        flow.pending_corrections = []
+        flow.turn = Mock(return_value=(True, "repaired"))
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1"}):
+            flow.final_acceptance()
+        self.assertIn("grading runs 4", flow.turn.call_args.args[0])

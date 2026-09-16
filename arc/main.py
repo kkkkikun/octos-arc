@@ -2420,6 +2420,7 @@ class Flow:
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
                 failures += self.interference_note(grouped, passed_alone, summary.stores_written)
                 failures += self.intermittent_note(grouped, passed_a_round)
+                failures += self.worker_parity_note(workers)
                 owners = {Path(path).name: node for node, paths in self.spec_map.items()
                           for path in (paths or [])}
                 passed_a_round |= {owners.get(Path(r.file or "").name)
@@ -2493,6 +2494,26 @@ class Flow:
             self.final_acceptance()
             if self.driver:
                 self.driver.end_scope("node")
+
+    GRADER_WORKERS = 4  # from the config that grades a run: workers: 4, fullyParallel: false
+
+    @classmethod
+    def worker_parity_note(cls, workers: int) -> str:
+        """Say so when the suite could not be run the way it will be graded.
+
+        Measured twice each on one unchanged app: one worker and four both gave
+        24/32, but not the same 24 — a node that failed at one passed at four and
+        another did the reverse. A memory limit can force the count down
+        (`workers_for_final`), and the repair should then treat the list it is
+        given as one sample of a shared cause, not as the set that will be
+        scored.
+        """
+        if workers >= cls.GRADER_WORKERS:
+            return ""
+        return (f"\n\nThis suite ran with {workers} worker(s); grading runs {cls.GRADER_WORKERS} against one "
+                "server. On an unchanged app a different worker count keeps the number of failures but can "
+                "change which tests they are, so treat these as one sample of a shared cause rather than the "
+                "exact set that will be scored.")
 
     @staticmethod
     def intermittent_note(grouped: dict, passed_a_round: set) -> str:
