@@ -464,6 +464,57 @@ class RelevantSourcesTests(unittest.TestCase):
         self.assertTrue(flow.codegen_context_fits("x" * 20000)); self.assertFalse(flow.codegen_context_fits("x" * 60000))
 
 
+class ProtectedSpecRestoreTests(unittest.TestCase):
+    """The platform grades with the official spec files, so an edit the model
+    sneaks past the hook has to be undone before the next acceptance run --
+    otherwise the harness measures a suite the grader will never run. The
+    behaviour existed; nothing failed when it was removed."""
+
+    def _flow(self):
+        import argparse, tempfile
+        from pathlib import Path
+        root = Path(tempfile.mkdtemp())
+        tests = root / "tests"; reqs = root / "requirements"
+        tests.mkdir(); reqs.mkdir()
+        (tests / "REQ-1.spec.ts").write_text("expect(page).toHaveText('real requirement');\n")
+        (reqs / "requirements.md").write_text("the real requirement\n")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, reqs)
+        flow.tests_dir = tests
+        flow.snapshot_protected()
+        return flow, tests, reqs
+
+    def test_should_undo_an_edit_to_an_official_spec(self):
+        flow, tests, _ = self._flow()
+        spec = tests / "REQ-1.spec.ts"
+        spec.write_text("expect(true).toBe(true);\n")          # model weakens the test
+        fixed = flow.restore_protected()
+        self.assertIn("REQ-1.spec.ts", " ".join(fixed))
+        self.assertIn("real requirement", spec.read_text())     # ground truth is back
+
+    def test_should_delete_a_spec_the_model_added(self):
+        flow, tests, _ = self._flow()
+        (tests / "REQ-EXTRA.spec.ts").write_text("test('freebie', () => {});\n")
+        flow.restore_protected()
+        self.assertFalse((tests / "REQ-EXTRA.spec.ts").exists())
+
+    def test_should_restore_a_spec_the_model_deleted(self):
+        flow, tests, _ = self._flow()
+        (tests / "REQ-1.spec.ts").unlink()
+        flow.restore_protected()
+        self.assertTrue((tests / "REQ-1.spec.ts").exists())
+        self.assertIn("real requirement", (tests / "REQ-1.spec.ts").read_text())
+
+    def test_should_protect_the_requirements_too(self):
+        flow, _, reqs = self._flow()
+        (reqs / "requirements.md").write_text("whatever I feel like\n")
+        flow.restore_protected()
+        self.assertIn("the real requirement", (reqs / "requirements.md").read_text())
+
+    def test_should_leave_an_untouched_tree_alone(self):
+        flow, _, _ = self._flow()
+        self.assertEqual(flow.restore_protected(), [])
+
+
 class FinalSuiteBestRoundTests(unittest.TestCase):
     """L17 port: the final suite delivers the best round. Simulated with stubbed test runs."""
     def _flow(self, rounds_results):
