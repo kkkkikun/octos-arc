@@ -532,6 +532,51 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
             del os.environ["OCTOS_FINAL_REPAIR_ROUNDS"]
         self.assertEqual(flow.restored, [])   # the dip alone must not roll back
 
+    def test_should_roll_back_without_losing_the_flakiness_evidence(self):
+        """The first attempt at this rolled back AND rebuilt the evidence from the
+        best round, where the flaky specs were passing, so `intermittent_note`
+        stopped naming them. Rolling back must leave the evidence alone."""
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        names = ["REQ-1", "REQ-2", "REQ-3"]
+        for n in names:
+            (root / "t" / f"{n}.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.spec_map = {n: [f"{n}.spec.ts"] for n in names}; flow.spec_map[None] = []
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "w", timeout_ms=10000)
+        flow.mem_limit = 2 * 1024 ** 3
+        flow.test_verdict = {n: True for n in names}
+        flow.requirement_nodes = {}; flow.pending_corrections = []
+        flow.restored = []
+        flow.restore_app = lambda sha: flow.restored.append(sha)
+        flow.head = lambda: "shaBEST"; flow.commit = lambda msg: True
+        flow.record_tests = lambda *a, **k: None; flow.record_full_suite = lambda *a, **k: None
+        flow.remaining = lambda: 10_000; flow.wound_down = lambda: False
+        flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
+        flow.last_repair_diff = lambda *a, **k: ""
+        tree = '- generic [ref=e1]:\n  - button "Pin"'
+        seq = iter([[True, False, False], [False, False, False], [False, False, False]])
+        def run_specs(specs, workers=None, grader_like=False):
+            oks = next(seq)
+            rows = [TestOutcome(title=n, ok=ok, status="passed" if ok else "timedOut", duration_ms=1,
+                                file=f"{n}.spec.ts", message="boom", rendered_page="" if ok else tree)
+                    for n, ok in zip(names, oks)]
+            s = RunSummary(passed=sum(oks), total=3, results=rows); s.stores_written = []
+            return s
+        flow.run_specs = run_specs
+        prompts = []
+        flow.turn = lambda p, t, l, **k: (prompts.append(p), (True, "done"))[1]
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "2"}):
+            flow.final_acceptance()
+        self.assertEqual(flow.restored, ["shaBEST"])
+        self.assertIn("already passed in an earlier round", prompts[-1])   # REQ-1 flaked
+        self.assertIn("Page at failure", prompts[-1])
+
     def test_should_tell_the_model_when_it_rolled_the_app_back(self):
         # Cloud 6e82a7ff571c: 27/32, repair cut at the 1200s timeout, 17/32 next.
         # Silently swapping the code under the model leaves it repairing a tree
