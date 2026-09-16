@@ -2448,6 +2448,24 @@ class Flow:
             self.commit("fix: startup rehearsal repair")
         return False
 
+    def postflight(self) -> None:
+        """Hand the box back before grading starts.
+
+        The grader launches four Chromium workers in this cgroup the moment the
+        harness returns. Cloud 746c81a2b5aa left 512 MiB to share: the suite the
+        harness had just measured at 30/32 was killed four tests in and all 32
+        scored as skipped. Servers a model turn left running are memory we can
+        still give back, and reaping only between nodes leaves the last ones
+        alive for exactly the run that cannot afford them.
+        """
+        if self.driver:
+            self.driver.close()
+        self.cleanup_playwright()
+        self.stop_llm_proxy()
+        strays = reap_workspace_processes(self.output_dir, log)
+        if strays:
+            log(f"[flow] reaped {strays} leftover process(es) before grading")
+
     # -- run --------------------------------------------------------------
     def run(self) -> int:
         self.runtime = AgentRuntime.from_env(project_dir=str(self.output_dir))
@@ -2580,10 +2598,7 @@ class Flow:
                     self.test_verdict[node_id] = bool(rehearsed and final_ok is not False)
             finally:
                 watchdog_stop.set()
-                if self.driver:
-                    self.driver.close()
-                self.cleanup_playwright()
-                self.stop_llm_proxy()
+                self.postflight()
             for node_id in node_ids:  # final per-node verdicts (full-suite run may have changed them)
                 if self.test_verdict.get(node_id) is True:
                     self.mark("test_passed", node_id, "acceptance specs pass (node run and full parallel suite)")

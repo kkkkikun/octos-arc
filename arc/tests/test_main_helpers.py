@@ -1023,3 +1023,43 @@ class KilledSuiteRetryTests(unittest.TestCase):
             flow.final_acceptance()
         self.assertEqual(self.seen, [4, 2, 1])
         self.assertFalse(flow.test_verdict["REQ-1"])  # per-node verdicts survive
+
+
+class PostflightReapTests(unittest.TestCase):
+    """Cloud 746c81a2b5aa: the harness measured 30/32, then the grader's four
+    Chromium workers were killed four tests in and every test scored as skipped.
+    Servers a model turn left running are memory the run can still give back."""
+
+    def _flow(self):
+        import argparse, tempfile
+        from pathlib import Path
+        flow = m.Flow(argparse.Namespace(web_port=1), Path(tempfile.mkdtemp()), Path('.'))
+        flow.driver = None
+        return flow
+
+    def test_should_reap_leftover_servers_when_handing_the_box_back(self):
+        from unittest.mock import patch
+        flow = self._flow()
+        with patch.object(m, 'reap_workspace_processes', return_value=3) as reap, \
+             patch.object(flow, 'cleanup_playwright') as playwright, \
+             patch.object(flow, 'stop_llm_proxy') as proxy:
+            flow.postflight()
+        reap.assert_called_once_with(flow.output_dir, m.log)
+        playwright.assert_called_once_with()
+        proxy.assert_called_once_with()
+
+    def test_should_close_the_driver_before_reaping(self):
+        from unittest.mock import MagicMock, patch
+        flow = self._flow()
+        order = []
+        flow.driver = MagicMock()
+        flow.driver.close.side_effect = lambda: order.append('driver')
+        with patch.object(m, 'reap_workspace_processes', side_effect=lambda *a: order.append('reap') or 0), \
+             patch.object(flow, 'cleanup_playwright'), patch.object(flow, 'stop_llm_proxy'):
+            flow.postflight()
+        self.assertEqual(order, ['driver', 'reap'])
+
+    def test_should_be_what_the_run_teardown_calls(self):
+        import inspect
+        teardown = inspect.getsource(m.Flow.run).rsplit('finally:', 1)[-1]
+        self.assertIn('self.postflight()', teardown)
