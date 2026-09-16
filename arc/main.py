@@ -1379,6 +1379,22 @@ class Flow:
         The default is unchanged. Whether a larger share of a 1048576 token
         window helps a repair more than it dilutes it is not something the
         harness can answer offline; it needs a cloud run against the same task.
+
+        What is measured, on the four large tasks of 2026-09-16, each about
+        halfway through its nodes:
+
+            task           nodes    files  source   quoted  omitted  seen
+            stackoverflow  32/66    14     152050   4       10       63%
+            prestashop     44/86    15     115636   7        8       79%
+            12306          48/117   10     110394   5        5       86%
+            ctrip          58/125    7     109559   3        4       86%
+
+        Every repair prompt on those tasks already hides four to ten files, and
+        the sources roughly double again by the last node. The budget they are
+        competing for is about 22000 tokens of a 1048576 token window. The
+        number was chosen as an output budget for codegen re-emission, not as
+        an input budget, so raising it would not overturn a measured decision --
+        but it would still be a guess until a cloud A/B says otherwise.
         """
         return int(os.environ.get("OCTOS_ARC_INLINE_SOURCE_CHARS", str(self.codegen_context_chars())))
 
