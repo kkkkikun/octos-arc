@@ -1395,6 +1395,16 @@ class Flow:
         number was chosen as an output budget for codegen re-emission, not as
         an input budget, so raising it would not overturn a measured decision --
         but it would still be a guess until a cloud A/B says otherwise.
+
+        Scope, before that A/B is priced: `sources_text` is read at three call
+        sites and all three are repairs. A tool-mode implement turn is given no
+        quoted source at all. On the same stackoverflow run the split was 33
+        implement turns to 4 repairs, so the omission above reaches about a
+        tenth of the turns -- the ones that decide the score, but a tenth. Its
+        tool events show 148 reads, and `backend/server.js` alone accounts for
+        28 of the last 60; most of those fall in implement turns that were
+        never handed the file, so they are not the prompt failing to save a
+        read.
         """
         return int(os.environ.get("OCTOS_ARC_INLINE_SOURCE_CHARS", str(self.codegen_context_chars())))
 
