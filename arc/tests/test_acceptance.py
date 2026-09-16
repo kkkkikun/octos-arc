@@ -570,3 +570,65 @@ test('remove label from a note',async({page})=>{
             # The repair has to see that "Work" is plain text, not a checkbox.
             self.assertIn('heading "Notes"', summary)
             self.assertIn('Work', summary.split('Page at failure', 1)[-1])
+
+
+class ActionTargetTests(unittest.TestCase):
+    """Playwright names the element each action ran against in `step.subtitle`;
+    without it a trace reads "Hover -> Click -> Click" and says nothing about
+    which control the test actually operated."""
+
+    REPORTER = Path(__file__).resolve().parents[1] / 'action_errors.cjs'
+
+    def test_should_name_the_target_of_each_preceding_action(self):
+        script = r"""
+const assert = require('assert'); const Reporter = require(process.argv[1]);
+const api = (title, subtitle, error) => ({category:'pw:api', title, subtitle, duration:1, error, steps:[]});
+const steps = [
+  api('Navigate', 'example.test/'),
+  api('Hover', "getByRole('button', { name: /Edit note: Team retro/i }).first()"),
+  api('Click', "getByRole('button', { name: /more/i }).first()"),
+  api('Click', "getByRole('checkbox', { name: /Work/i }).first()", {message:'Timeout 4000ms exceeded'}),
+];
+const result = {status:'timedOut', steps}; const before = JSON.stringify(result);
+const reporter = new Reporter(); reporter.onTestEnd({id:'t'}, result);
+const text = reporter.rows.t.join('\n');
+assert(text.includes('Edit note: Team retro'), 'hover target missing: ' + text);
+assert(text.includes("name: /more/i"), 'click target missing: ' + text);
+assert(text.includes('Navigate example.test/'), 'navigation target missing: ' + text);
+assert(text.includes("checkbox"), 'failing step target missing: ' + text);
+assert.equal(JSON.stringify(result), before);
+"""
+        result = subprocess.run(['node', '-e', script, str(self.REPORTER)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_should_keep_query_values_out_of_navigation_targets(self):
+        script = r"""
+const assert = require('assert'); const Reporter = require(process.argv[1]);
+const steps = [
+  {category:'pw:api', title:'Navigate', subtitle:'example.test/route?token=private-value#frag', duration:1, steps:[]},
+  {category:'pw:api', title:'Click', subtitle:"getByRole('button', { name: /more?/i }).first()", duration:1,
+   error:{message:'boom'}, steps:[]},
+];
+const reporter = new Reporter(); reporter.onTestEnd({id:'t'}, {status:'failed', steps});
+const text = reporter.rows.t.join('\n');
+assert(text.includes('example.test/route'), 'route missing: ' + text);
+assert(!text.includes('private-value'), 'query value leaked: ' + text);
+assert(!text.includes('frag'), 'fragment leaked: ' + text);
+assert(text.includes('/more?/i'), 'locator truncated at its own ?: ' + text);
+"""
+        result = subprocess.run(['node', '-e', script, str(self.REPORTER)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_should_stay_bounded_when_targets_are_long(self):
+        script = r"""
+const assert = require('assert'); const Reporter = require(process.argv[1]);
+const steps = Array.from({length:10}, (_, i) => ({category:'pw:api', title:'Click',
+  subtitle:'getByRole("button", { name: /' + 'x'.repeat(4000) + i + '/i })', duration:1, steps:[]}));
+steps.push({category:'pw:api', title:'Click', subtitle:'y'.repeat(4000), duration:2,
+            error:{message:'boom'}, steps:[]});
+const reporter = new Reporter(); reporter.onTestEnd({id:'t'}, {status:'failed', steps});
+const rows = reporter.rows.t;
+assert(rows.length <= 8 && rows.every(x => x.length <= 2000), 'unbounded diagnostics');
+"""
+        result = subprocess.run(['node', '-e', script, str(self.REPORTER)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
