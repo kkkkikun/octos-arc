@@ -2302,9 +2302,15 @@ class Flow:
         last_passed = -1
         for attempt in range(rounds + 1):
             summary = self.run_specs(all_specs, workers=workers, grader_like=True)
-            if summary.error and summary.killed:
+            while summary.error and summary.killed and workers > 1:
                 # Cloud 29c840566f36: the runner was OOM-killed under a 512 MiB
-                # cgroup; two repair rounds were wasted on a non-failure.
+                # cgroup. The memory a suite needs is not known before running it,
+                # so give the box a count it can hold instead of abandoning the
+                # repairs on the first kill.
+                workers = max(1, workers // 2)
+                log(f"[acceptance] full suite runner was killed; retrying with {workers} worker(s)")
+                summary = self.run_specs(all_specs, workers=workers, grader_like=True)
+            if summary.error and summary.killed:
                 log(f"[acceptance] full suite could not run ({summary.error[:120]}); keeping per-node verdicts")
                 break
             if summary.error:

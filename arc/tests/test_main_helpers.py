@@ -964,3 +964,62 @@ class ContractPromptParityTests(unittest.TestCase):
         contract = m.UI_CONTRACT_CORE
         self.assertIn("repeated once per item", contract)
         self.assertIn("accessible name", contract)
+
+
+class KilledSuiteRetryTests(unittest.TestCase):
+    """How much memory a suite needs is not known before running it. A kill used
+    to end the repair loop outright (cloud 29c840566f36)."""
+
+    def _flow(self, outcomes):
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        for n in ("REQ-1", "REQ-2"):
+            (root / "t" / f"{n}.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.spec_map = {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": ["REQ-2.spec.ts"], None: []}
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "prepared")
+        flow.test_verdict = {"REQ-1": False}
+        flow.mem_limit = 4 * 1024 * 1024 * 1024  # 4 GiB -> four workers
+        flow.commits = []
+        self.seen = []
+        it = iter(outcomes)
+        def run_specs(specs, workers=None, grader_like=False):
+            self.seen.append(workers)
+            passed = next(it)
+            if passed is None:
+                return RunSummary(error="playwright was killed (rc=-9)", killed=True)
+            results = [TestOutcome(title=n, ok=i < passed, status="passed" if i < passed else "failed",
+                                   duration_ms=1, file=f"{n}.spec.ts")
+                       for i, n in enumerate(["REQ-1", "REQ-2"])]
+            return RunSummary(passed=passed, total=2, results=results)
+        flow.run_specs = run_specs
+        flow.head = lambda: "sha0"
+        flow.commit = lambda msg: flow.commits.append(msg) or True
+        flow.restore_app = lambda sha: None
+        flow.turn = lambda *a, **k: (True, "repaired")
+        flow.record_tests = lambda *a, **k: None
+        flow.remaining = lambda: 10_000
+        flow.wound_down = lambda: False
+        flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
+        flow.pending_corrections = []
+        return flow
+
+    def test_should_halve_the_workers_after_a_kill_instead_of_giving_up(self):
+        from unittest.mock import patch
+        flow = self._flow([None, None, 2])  # killed at 4 and at 2, runs at 1
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1"}):
+            flow.final_acceptance()
+        self.assertEqual(self.seen, [4, 2, 1])
+        self.assertTrue(all(flow.test_verdict.values()))
+
+    def test_should_stop_when_even_one_worker_is_killed(self):
+        from unittest.mock import patch
+        flow = self._flow([None, None, None])
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1"}):
+            flow.final_acceptance()
+        self.assertEqual(self.seen, [4, 2, 1])
+        self.assertFalse(flow.test_verdict["REQ-1"])  # per-node verdicts survive
