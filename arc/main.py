@@ -1398,7 +1398,11 @@ class Flow:
 
         Scope, before that A/B is priced: `sources_text` is read at three call
         sites and all three are repairs. A tool-mode implement turn is given no
-        quoted source at all. On the same stackoverflow run the split was 33
+        quoted source, but it is not left blind: it gets `source_listing` --
+        every app file with its size -- and is told to read backend/server.js
+        and the page it extends. That is deliberate, and the tool events match
+        it exactly, so do not "fix" implement turns by quoting sources into
+        them. On the same stackoverflow run the split was 33
         implement turns to 4 repairs, so the omission above reaches about a
         tenth of the turns -- the ones that decide the score, but a tenth. Its
         tool events show 148 reads, and `backend/server.js` alone accounts for
