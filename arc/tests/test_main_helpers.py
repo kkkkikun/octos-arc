@@ -1490,6 +1490,21 @@ class InlineSourceBudgetTests(unittest.TestCase):
         self.assertTrue(omitted)
         self.assertNotIn("index.html", " ".join(omitted))
 
+    def test_should_let_the_suite_repair_timeout_move_without_the_node_timeout(self):
+        """A repair answering every failing node at once is a different size of
+        job from one about a single node. Measured 2026-09-16: 207 node-phase
+        turns, none reached the 1200s cap; both of keep's full-suite repairs
+        were cut at it."""
+        import argparse, tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        root = Path(tempfile.mkdtemp())
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        self.assertEqual(flow.suite_repair_timeout(), flow.node_timeout)
+        with patch.dict("os.environ", {"OCTOS_SUITE_REPAIR_TIMEOUT": "2400"}):
+            self.assertEqual(flow.suite_repair_timeout(), 2400)
+            self.assertEqual(flow.node_timeout, 1200)      # node turns unmoved
+
     def test_should_let_the_inline_budget_move_without_the_codegen_budget(self):
         """They default to one number but bound different things: how much source
         a tool-using turn is shown, versus how much a tool-free turn is asked to

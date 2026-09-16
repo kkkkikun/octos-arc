@@ -2444,7 +2444,7 @@ class Flow:
                 sources=self.repair_requirements() + self.sources_text(),
                 corrections=self.corrections_text(), slow="",
                 smoke=self.smoke_port, port=self.web_port),
-                min(self.node_timeout, max(120, self.remaining() - 200)),
+                min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
                 f"checkpoint {index} repair {attempt + 1}/{rounds}")
             self.commit(f"fix: checkpoint {index} regression repair {attempt + 1}")
             summary = self.run_specs(specs, workers=workers, grader_like=True)
@@ -2610,7 +2610,7 @@ class Flow:
                 "(e.g. a counter that every browser session shares). Keep persisted data only where the "
                 "requirement demands persistence.\n",
                 slow="", smoke=self.smoke_port, port=self.web_port)
-            _, unfinished = self.turn(prompt, min(self.node_timeout, max(120, self.remaining() - 200)),
+            _, unfinished = self.turn(prompt, min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
                                       f"full-suite repair {attempt + 1}/{rounds}")
             wrote_last = self.commit(f"fix: full-suite repair {attempt + 1}")
         # L17 (ported from the Rust harness): deliver the best full-suite round, not the last one.
@@ -2619,6 +2619,19 @@ class Flow:
             self.restore_app(best["sha"])
             self.record_full_suite(best["summary"], best["grouped"])
             self.commit(f"chore: keep best full-suite state {best['passed']}/{best['summary'].total}")
+
+    def suite_repair_timeout(self) -> int:
+        """How long a repair that answers the whole suite at once may take.
+
+        `node_timeout` bounds a turn about one node; this bounds a turn about
+        every failing node together, and the two are not the same size of job.
+        They default to the same number. Measured on the runs of 2026-09-16:
+        across 207 node-phase turns on four tasks not one reached the 1200s cap
+        (longest 1049s), while both of 6e82a7ff571c's full-suite repairs were
+        cut at it. Keep them separate so the suite one can move without
+        shortening or lengthening every node turn with it.
+        """
+        return int(os.environ.get("OCTOS_SUITE_REPAIR_TIMEOUT", str(self.node_timeout)))
 
     def final_acceptance_passes(self) -> None:
         """Repeat the full-suite pass while it still fails and the budget allows.
