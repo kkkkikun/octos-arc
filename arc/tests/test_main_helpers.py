@@ -1354,6 +1354,60 @@ class InlineSourceBudgetTests(unittest.TestCase):
         self.assertIn("--- backend/server.js ---\n", text)
         self.assertLessEqual(len(text), 90000 + 2000)
 
+    def _oversized_app(self):
+        """A hundred-node task grows one dominant UI file past the whole budget."""
+        import tempfile
+        from pathlib import Path
+        root = Path(tempfile.mkdtemp())
+        for rel, n in (("frontend/src/index.html", 220_000), ("backend/server.js", 60_000),
+                       ("frontend/src/app.css", 18_000), ("backend/data.json", 9_000)):
+            p = root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("x" * n)
+        return root
+
+    def test_should_quote_part_of_a_file_too_large_to_fit_whole(self):
+        # Dropping it left the prompt quoting the stylesheet and the seed data
+        # and not the file every repair edits.
+        text = m.inline_sources(self._oversized_app(), 90000)
+        self.assertIn("frontend/src/index.html --- (too large to quote whole, 220000 chars", text)
+        self.assertIn("read it for the rest", text)
+        self.assertIn("characters elided", text)          # cannot read as the whole file
+
+    def test_should_share_the_budget_between_oversized_files(self):
+        text = m.inline_sources(self._oversized_app(), 90000)
+        omitted = " ".join(l for l in text.splitlines() if "(omitted," in l)
+        self.assertNotIn("index.html", omitted)
+        self.assertNotIn("server.js", omitted)            # one file cannot take it all
+        self.assertLessEqual(len(text), 90000 + 2000)
+
+    def test_should_refuse_a_tool_free_repair_when_the_source_is_only_clipped(self):
+        """A codegen repair has no tools and must re-emit the file whole, so a
+        clipped view is as disqualifying as an omitted one."""
+        import argparse, tempfile
+        from pathlib import Path
+        root = Path(tempfile.mkdtemp())
+        (root / "frontend").mkdir(); (root / "tests").mkdir()
+        (root / "frontend" / "index.html").write_text("x" * 400_000)
+        (root / "tests" / "feature.spec.ts").write_text("acceptance")
+        flow = m.Flow(argparse.Namespace(web_port=3000), root, root)
+        flow.tests_dir = root / "tests"; flow.spec_map = {"feature": ["feature.spec.ts"]}
+        sources = flow.sources_text()
+        self.assertIn("too large to quote whole", sources)   # clipped, not omitted
+        self.assertIsNone(flow.codegen_repair_prompt("feature", "evidence\n" + sources))
+
+    def test_should_still_omit_a_file_when_the_room_left_is_too_small_to_help(self):
+        # 25 chars of a 100-char file teaches nothing; say it was omitted instead.
+        import tempfile
+        from pathlib import Path
+        root = Path(tempfile.mkdtemp())
+        (root / "backend").mkdir(); (root / "frontend" / "src").mkdir(parents=True)
+        (root / "backend" / "server.js").write_text("x" * 100)
+        (root / "frontend" / "src" / "index.html").write_text("<p>hi</p>")
+        text = m.inline_sources(root, max_chars=50)
+        self.assertIn("backend/server.js --- (omitted, 100 chars", text)
+        self.assertNotIn("too large to quote whole", text)
+
     def test_should_omit_the_least_important_file_when_it_cannot_fit_everything(self):
         root = self._app()
         omitted = [l for l in m.inline_sources(root, 80000).splitlines() if "(omitted," in l]

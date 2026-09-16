@@ -354,6 +354,20 @@ def inline_sources(output_dir: Path, max_chars: int = 90000, exts: tuple = (".js
         except OSError:
             continue
         if total + len(text) > max_chars:
+            # A task with a hundred nodes grows one dominant UI file past the
+            # whole budget on its own. Dropping it left the prompt quoting the
+            # stylesheet and the seed data and not the file every repair edits,
+            # which is the failure the largest-first order was meant to prevent.
+            # Give any file too big to quote whole a share of the budget instead
+            # of nothing, capped at half so one file cannot crowd out the rest;
+            # the elision marker keeps it from reading as the complete file.
+            room = min(max_chars // 2, max_chars - total)
+            if room >= 2000:
+                total += room
+                parts.append(f"--- {path.relative_to(output_dir)} --- (too large to quote whole, "
+                             f"{len(text)} chars; the part shown is clipped, read it for the rest)\n"
+                             f"{clip_ends(text, room)}\n")
+                continue
             parts.append(f"--- {path.relative_to(output_dir)} --- (omitted, {len(text)} chars; read it if you must change it)\n")
             continue
         total += len(text)
@@ -1524,7 +1538,11 @@ class Flow:
         current_sources = self.sources_text()
         if current_sources.strip() and current_sources in prompt:
             sources = inline_sources(self.output_dir, self.codegen_context_chars()) + "\n"
-            if any(line.startswith("--- ") and " --- (omitted," in line
+            # A clipped file is no safer here than an omitted one: this turn has
+            # no tools, so it cannot read the part it was not shown, and it is
+            # asked to re-emit the file whole. Fall back to a tool-based repair.
+            if any(line.startswith("--- ") and (" --- (omitted," in line
+                                                or " --- (too large to quote whole," in line)
                    for line in sources.splitlines()):
                 return None
             prompt = prompt.replace(current_sources, sources, 1)
