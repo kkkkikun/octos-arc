@@ -919,12 +919,21 @@ class OctosDriver:
 # Prompt text is deliberately static (no timestamps, fixed section order) so
 # that identical turns share the provider's prefix cache.
 
+# Measured on cloud 6e82a7ff571c's own app (32 official specs, 3 runs each, a
+# pristine store per run). Its note actions were `visibility: hidden; opacity: 0`
+# revealed on hover, and every one of the twelve graded failures was a note-card
+# action, so a clause telling the model not to hide them looked obvious. It is
+# wrong. Baseline 16/16/16; fading opacity alone 15/14/15; leaving the controls
+# always visible 15/15/15. Both alternatives fixed REQ-2.5.4 and REQ-2.7.4 and
+# broke REQ-2.6.1, REQ-2.7.2 and REQ-2.8.3. Hiding an item's controls until the
+# pointer arrives is what keeps a name-based lookup landing on the hovered card,
+# which is what the per-item bullet below already says. Do not add a clause
+# against hover-hiding without measuring it on a real app first.
 UI_CONTRACT_CORE = """\
 UI behavior follows the requirement and the current application:
 - Use semantic controls, accessible names and labels appropriate to each action. Preserve required routes, text, visibility, enabled states and interactions. Choose input types and validation behavior from the requirements; hidden views, dialogs and dynamic rendering are allowed when needed.
 - Keep IDs unique and label associations correct. Repeated text and links can be valid. If an actual locator is ambiguous, inspect its scope and the intended interaction instead of deleting unrelated content.
 - A control repeated once per item needs an accessible name that says which item it acts on. Identical names across items leave a name-based lookup resolving to an arbitrary one, and a control that stays exposed after the pointer leaves its item makes that worse.
-- An item's action controls stay reachable whether or not the pointer is over the item. `display: none` and `visibility: hidden` each take a control out of the page -- no hit area, no accessible name -- so a touch user, and anything that has not moved a pointer, cannot reach it at all. To reveal controls on hover, fade opacity alone; a control at `opacity: 0` keeps its box and stays operable. Do not add `visibility: hidden` alongside it, the usual way to keep a fade-out from leaving a transparent element behind, because that puts the control back out of reach.
 - Keep simultaneously available controls independently operable by pointer and keyboard. When adding controls, update their shared layout so their hit areas do not overlap and intercept each other's input.
 - Derive state ownership and persistence from requirements: distinguish per-view, per-session and shared data. Do not reset persisted user data on startup. For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it. Provide a loading state when initialization is asynchronous.
 - Use local assets where practical. Add styling, animation, asynchronous updates or external services when required; keep interactions responsive and report failures clearly.
