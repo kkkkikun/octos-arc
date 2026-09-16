@@ -2299,12 +2299,17 @@ class Flow:
                 self.test_verdict[node] = True
                 self.mark("test_passed", node, "previously regressed behavior passed its checkpoint specs")
         if grouped:
-            evidence = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
+            # Build the evidence to fit the correction instead of cutting it to
+            # length afterwards: a head-only slice of richer evidence drops the
+            # last regressions entirely and always drops the source context.
+            budget = int(os.environ.get("OCTOS_ARC_CHECKPOINT_EVIDENCE", "12000"))
+            evidence = (failure_summaries(summary, max_snapshots=budget // 2)
+                        + failure_source_context(summary, self.tests_dir))
             self.pending_corrections.append(
                 "Previously passing behavior failed when checked together after recent changes. "
                 "Repair the observed failures while preserving other working behavior. "
                 "Tests ran together against one server; use this evidence when implementing the next node.\n"
-                + evidence[:8000])
+                + clip_ends(evidence, budget))
 
     def final_acceptance(self) -> None:
         """Run EVERY spec file together against one server with the configured workers.

@@ -1193,3 +1193,54 @@ class SlowTestThresholdTests(unittest.TestCase):
 
     def test_should_keep_a_floor_for_a_tiny_timeout(self):
         self.assertEqual(self._flow(timeout_ms=500).slow_test_ms(), 1000)
+
+
+class CheckpointEvidenceTests(unittest.TestCase):
+    """A regression checkpoint queues its evidence as a correction for the next
+    node's turn. With a page snapshot per failure that evidence runs past
+    14000 characters for two regressions, and the old head-only slice at 8000
+    dropped the later ones and the source context with them."""
+
+    def _summary(self, failures):
+        from acceptance import RunSummary, TestOutcome
+        tree = "\n".join(f"- generic [ref=e{n}]: row {n}" for n in range(300))
+        return RunSummary(passed=0, total=failures, results=[
+            TestOutcome(title=f"REQ-{i}: behaviour {i}", ok=False, status="timedOut", duration_ms=1,
+                        file=f"REQ-{i}.spec.ts", message="TimeoutError: locator.click", rendered_page=tree)
+            for i in range(failures)])
+
+    def _correction(self, failures):
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "prepared", timeout_ms=10000)
+        flow.spec_map = {f"REQ-{i}": [f"REQ-{i}.spec.ts"] for i in range(failures)}
+        flow.spec_map[None] = []
+        flow.test_verdict = {f"REQ-{i}": True for i in range(failures)}
+        flow.pending_corrections = []
+        flow.min_repair_seconds = 300
+        flow.remaining = lambda: 10_000
+        flow.run_specs = lambda specs, workers=None, grader_like=False: self._summary(failures)
+        flow.mark = lambda *a, **k: None
+        with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
+            flow.regression_checkpoint(2, 8)
+        return flow.pending_corrections[-1]
+
+    def test_should_describe_every_regression_it_reports(self):
+        correction = self._correction(3)
+        for i in range(3):
+            self.assertIn(f"REQ-{i}: behaviour {i}", correction)
+
+    def test_should_stay_within_its_budget(self):
+        self.assertLessEqual(len(self._correction(3)), 12000 + 400)
+
+    def test_should_keep_both_ends_when_it_has_to_cut(self):
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"OCTOS_ARC_CHECKPOINT_EVIDENCE": "2000"}):
+            correction = self._correction(4)
+        self.assertIn("REQ-0: behaviour 0", correction)
+        self.assertIn("elided", correction)
