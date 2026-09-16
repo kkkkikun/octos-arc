@@ -1430,3 +1430,34 @@ class IntermittentNoteTests(unittest.TestCase):
         prompt = flow.turn.call_args.args[0]
         self.assertIn("already passed in an earlier round", prompt)
         self.assertIn("REQ-2", prompt)
+
+
+class VerificationDemandTests(unittest.TestCase):
+    """`verify_text` has the proxy drop the shell tools in minimal mode. The
+    guard then asked a turn that cannot run a command why it had not run one."""
+
+    def _monitor_for(self, dropped):
+        import argparse
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        flow = m.Flow(argparse.Namespace(web_port=1), Path('.'), Path('.'))
+        flow.n_nodes = 32
+        flow.llm_proxy = SimpleNamespace(mode='x', phase='', turn_budget=0, turn_requests=0,
+                                         extra_drop_tools=dropped, begin_turn=lambda b: None)
+        flow.driver = SimpleNamespace(run=lambda *a, **k: (True, 'done'))
+        flow.probe_summaries = {}; flow.turn_count = 0
+        flow.protected_prefixes = lambda: []
+        flow.restore_protected = lambda: []
+        flow.pending_corrections = []; flow.guard_enabled = True
+        seen = {}
+        real = m.TurnMonitor
+        with patch.object(m, 'TurnMonitor', lambda *a, **k: seen.setdefault('m', real(*a, **k))):
+            flow.turn(prompt='p', timeout=60, label='REQ-1 implement')
+        return seen['m']
+
+    def test_should_not_demand_verification_without_a_shell(self):
+        self.assertFalse(self._monitor_for({'bash', 'shell'}).expect_verification)
+
+    def test_should_still_demand_it_when_the_shell_is_there(self):
+        self.assertTrue(self._monitor_for(set()).expect_verification)

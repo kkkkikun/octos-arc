@@ -1357,9 +1357,13 @@ class Flow:
 
     def turn(self, prompt: str, timeout: int, label: str, expect_verification: bool = True,
              request_budget: int | None = None) -> tuple[bool, str]:
-        monitor = TurnMonitor(self.protected_prefixes(), expect_verification=expect_verification,
-                              allowed_prefixes=[".arc/design/", str(self.output_dir / ".arc" / "design")])
         proxy = getattr(self, "llm_proxy", None)
+        # `verify_text` has the proxy drop the shell tools in minimal mode. A turn
+        # that cannot run a command must not then be told off for not running one.
+        no_shell = bool(getattr(proxy, "extra_drop_tools", None))
+        monitor = TurnMonitor(self.protected_prefixes(),
+                              expect_verification=expect_verification and not no_shell,
+                              allowed_prefixes=[".arc/design/", str(self.output_dir / ".arc" / "design")])
         if proxy is not None:
             # Per-turn reasoning: OCTOS_ARC_IMPLEMENT_REASONING (e.g. "none") applies
             # to first implement turns of small tasks; rewrite/repair keep the base mode.
