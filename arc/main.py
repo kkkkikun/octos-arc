@@ -1360,8 +1360,16 @@ class Flow:
             is_implement = label.endswith(" implement") or label.startswith("skeleton")
             proxy.mode = impl_mode if (impl_mode and is_implement and self.minimal_mode(getattr(self, "n_nodes", 99))) else base_mode
             if request_budget is None:
-                request_budget = int(os.environ.get("OCTOS_ARC_REPAIR_REQUESTS", "10")) if "repair" in label else \
-                    int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"))
+                # A repair has to understand a failure before it can edit, so it
+                # cannot need less room than the turn that wrote the code. Both
+                # follow the same default; the per-turn timeout and the cost
+                # guard still bound them. Cloud 746c81a2b5aa and 3ffe9702bf15 hit
+                # the old fixed cap of 10 on 17% and 23% of their repair turns —
+                # including the last repair of every node that stayed broken —
+                # while spending 7% of the token budget and 7% of the time.
+                default = "20" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"
+                request_budget = int(os.environ.get("OCTOS_ARC_REPAIR_REQUESTS", default)) if "repair" in label else \
+                    int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", default))
             proxy.phase = ("repair" if any(word in label for word in ("repair", "rewrite")) else
                            "verify" if "final check" in label else
                            "design" if "design" in label else "implement")

@@ -1116,3 +1116,43 @@ class InterferenceNoteTests(unittest.TestCase):
         prompt = flow.turn.call_args.args[0]
         self.assertIn("passed when their own spec ran alone", prompt)
         self.assertIn("REQ-2", prompt)
+
+
+class RepairRequestBudgetTests(unittest.TestCase):
+    """Cloud 746c81a2b5aa and 3ffe9702bf15 hit a fixed 10-request cap on 17% and
+    23% of their repair turns — the last repair of every node that stayed broken
+    among them — while using 7% of the token budget and 7% of the time."""
+
+    def _budget(self, label, nodes):
+        import argparse
+        from pathlib import Path
+        from types import SimpleNamespace
+        flow = m.Flow(argparse.Namespace(web_port=1), Path('.'), Path('.'))
+        flow.n_nodes = nodes
+        seen = {}
+        flow.llm_proxy = SimpleNamespace(mode='x', phase='', turn_budget=0, turn_requests=0,
+                                         begin_turn=lambda b: seen.setdefault('budget', b))
+        flow.driver = SimpleNamespace(run=lambda *a, **k: (True, 'done'))
+        flow.probe_summaries = {}
+        flow.turn_count = 0
+        flow.protected_prefixes = lambda: []
+        flow.restore_protected = lambda: []
+        flow.pending_corrections = []
+        flow.guard_enabled = True
+        flow.turn(prompt='p', timeout=60, label=label)
+        return seen['budget']
+
+    def test_should_give_a_repair_the_same_room_as_the_turn_that_wrote_the_code(self):
+        self.assertEqual(self._budget('REQ-1 repair 1/3', nodes=32),
+                         self._budget('REQ-1 implement', nodes=32))
+
+    def test_should_not_cap_a_repair_below_ten_on_a_large_tree(self):
+        self.assertEqual(self._budget('REQ-1 repair 3/3', nodes=32), 0)  # 0 = uncapped
+
+    def test_should_keep_a_cap_on_a_small_task(self):
+        self.assertEqual(self._budget('REQ-1 repair 1/3', nodes=1), 20)
+
+    def test_should_still_honour_an_explicit_override(self):
+        from unittest.mock import patch
+        with patch.dict('os.environ', {'OCTOS_ARC_REPAIR_REQUESTS': '4'}):
+            self.assertEqual(self._budget('REQ-1 repair 1/3', nodes=32), 4)
