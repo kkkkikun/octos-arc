@@ -263,6 +263,53 @@ class FinalWorkersAndReapTests(unittest.TestCase):
         self.assertEqual(workers_for_final(512 * 1024**2, 4), 1)
         self.assertEqual(workers_for_final(None, 4), 4)
 
+    def test_should_free_only_the_ports_our_own_tree_is_holding(self):
+        """A leftover listener stops the harness binding its own port, so these
+        get killed. It matches on cwd alone, not on the command, so the
+        must-not-kill direction is the one that matters: a listener belonging to
+        anything else on a shared host has to survive."""
+        import os, signal, socket, subprocess, tempfile, time
+        from pathlib import Path
+        from acceptance import free_owned_ports
+
+        def free_port():
+            s = socket.socket(); s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]; s.close(); return port
+
+        root = Path(tempfile.mkdtemp())
+        (root / "backend").mkdir()
+        outside = Path(tempfile.mkdtemp())
+        mine_port, theirs_port = free_port(), free_port()
+        listen = ("import socket,time;s=socket.socket();"
+                  "s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);"
+                  "s.bind(('127.0.0.1',%d));s.listen(5);time.sleep(30)")
+        mine = subprocess.Popen(["python3", "-c", listen % mine_port], cwd=root / "backend",
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        theirs = subprocess.Popen(["python3", "-c", listen % theirs_port], cwd=outside,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(1.0)
+            if mine.poll() is not None or theirs.poll() is not None:
+                self.skipTest("could not hold the test ports")
+            free_owned_ports([mine_port, theirs_port], root)
+            deadline = time.time() + 5
+            while time.time() < deadline and mine.poll() is None:
+                time.sleep(0.1)
+            self.assertIsNotNone(mine.poll(), "our own listener was left holding the port")
+            # A killed child still polls as None until it is reaped, so checking
+            # the survivor straight away passes even when it was killed. Give the
+            # signal time to land, then require it to be alive.
+            time.sleep(1.0)
+            self.assertIsNone(theirs.poll(), "a listener outside the app tree was killed")
+        finally:
+            for proc in (mine, theirs):
+                if proc.poll() is None:
+                    try:
+                        os.kill(proc.pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+                proc.wait(timeout=5)
+
     def test_should_kill_a_stray_in_the_app_and_spare_one_outside_it(self):
         """`should_reap` decides correctly; nothing checked that the reaper asks
         it. Stubbing the whole function out left the suite green, so a rewrite
