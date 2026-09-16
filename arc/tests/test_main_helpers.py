@@ -1370,3 +1370,57 @@ class InlineSourceBudgetTests(unittest.TestCase):
         flow = m.Flow(argparse.Namespace(web_port=1), self._app(), Path('.'))
         with patch.dict('os.environ', {'OCTOS_ARC_INLINE_SOURCE_CHARS': '0'}):
             self.assertEqual(flow.sources_text(), "")
+
+
+class IntermittentNoteTests(unittest.TestCase):
+    """The same 32 specs over one unchanged app gave 25, 24, 25 — REQ-2.7.1
+    failed once and passed twice. A repair told only that it failed looks for a
+    missing feature when what it has is a race."""
+
+    def test_should_name_only_what_already_passed_this_pass(self):
+        note = m.Flow.intermittent_note({"REQ-2.7.1": [], "REQ-4.2": [], None: []},
+                                        {"REQ-2.7.1", "REQ-3.2"})
+        self.assertIn("REQ-2.7.1", note)
+        self.assertNotIn("REQ-4.2", note)   # never passed: a real defect
+        self.assertNotIn("REQ-3.2", note)   # passed and still passes
+        self.assertIn("settles", note)
+
+    def test_should_say_nothing_on_the_first_round(self):
+        self.assertEqual(m.Flow.intermittent_note({"REQ-4.2": []}, set()), "")
+
+    def test_should_reach_the_repair_prompt_after_a_flaky_round(self):
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        for n in ("REQ-1", "REQ-2"):
+            (root / "t" / f"{n}.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.spec_map = {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": ["REQ-2.spec.ts"], None: []}
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "prepared", timeout_ms=10000)
+        flow.test_verdict = {}
+        flow.requirement_nodes = {}
+        # REQ-1 stays broken so the pass keeps going; REQ-2 passes, then flakes.
+        outcomes = iter([(False, True), (False, False), (False, False)])
+        def run_specs(specs, workers=None, grader_like=False):
+            ok1, ok2 = next(outcomes)
+            rows = [TestOutcome(title="REQ-1", ok=ok1, status="passed" if ok1 else "failed",
+                                duration_ms=1, file="REQ-1.spec.ts"),
+                    TestOutcome(title="REQ-2", ok=ok2, status="passed" if ok2 else "failed",
+                                duration_ms=1, file="REQ-2.spec.ts", message="TimeoutError")]
+            return RunSummary(passed=sum(1 for r in rows if r.ok), total=2, results=rows)
+        flow.run_specs = run_specs
+        flow.head = lambda: "sha0"; flow.commit = lambda msg: True
+        flow.restore_app = lambda sha: None; flow.record_tests = lambda *a, **k: None
+        flow.remaining = lambda: 10_000; flow.wound_down = lambda: False
+        flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
+        flow.pending_corrections = []
+        flow.turn = Mock(return_value=(True, "repaired"))
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "2"}):
+            flow.final_acceptance()
+        prompt = flow.turn.call_args.args[0]
+        self.assertIn("already passed in an earlier round", prompt)
+        self.assertIn("REQ-2", prompt)

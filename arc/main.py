@@ -2380,6 +2380,7 @@ class Flow:
         # Which behaviours the per-node runs judged good, before this pass starts
         # overwriting the verdicts with full-suite ones.
         passed_alone = {node for node, verdict in self.test_verdict.items() if verdict is True}
+        passed_a_round: set = set()  # nodes this pass has already seen pass once
         best: dict | None = None  # L17: best full-suite round (passed, sha, summary, grouped)
         last_passed = -1
         for attempt in range(rounds + 1):
@@ -2409,6 +2410,11 @@ class Flow:
                 grouped = nodes_for_failures(summary.results, self.spec_map)
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
                 failures += self.interference_note(grouped, passed_alone)
+                failures += self.intermittent_note(grouped, passed_a_round)
+                owners = {Path(path).name: node for node, paths in self.spec_map.items()
+                          for path in (paths or [])}
+                passed_a_round |= {owners.get(Path(r.file or "").name)
+                                   for r in summary.results if r.ok} - {None}
             log(f"[acceptance] full suite round {attempt}: {summary.passed}/{summary.total}; failing nodes "
                 f"{sorted(k for k in grouped if k) or ('all' if None in grouped and not summary.results else [])}")
             self.record_full_suite(summary, grouped)
@@ -2478,6 +2484,23 @@ class Flow:
             self.final_acceptance()
             if self.driver:
                 self.driver.end_scope("node")
+
+    @staticmethod
+    def intermittent_note(grouped: dict, passed_a_round: set) -> str:
+        """Name the behaviours that already passed once in this pass.
+
+        Running the same 32 specs three times over one unchanged app gave 25,
+        24 and 25: REQ-2.7.1 failed once and passed twice. A repair told only
+        that it failed goes looking for a missing feature, when what it has is a
+        race — and the grader runs with retries off, so it stays worth fixing.
+        """
+        flaky = sorted(node for node in grouped if node and node in passed_a_round)
+        if not flaky:
+            return ""
+        return ("\n\nThese already passed in an earlier round of this same pass and fail now: "
+                f"{', '.join(flaky)}. The behaviour exists; what is missing is that it settles "
+                "reliably. Look for a race, an unawaited update or state left over from another "
+                "session rather than for an unimplemented feature.")
 
     @staticmethod
     def interference_note(grouped: dict, passed_alone: set) -> str:
