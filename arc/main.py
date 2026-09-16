@@ -2298,6 +2298,9 @@ class Flow:
         workers = workers_for_final(getattr(self, "mem_limit", None), int(os.environ.get("OCTOS_ARC_FINAL_WORKERS", "4")))
         previous_failing: frozenset | None = None
         repeated = False  # the last round reproduced the round before it
+        # Which behaviours the per-node runs judged good, before this pass starts
+        # overwriting the verdicts with full-suite ones.
+        passed_alone = {node for node, verdict in self.test_verdict.items() if verdict is True}
         best: dict | None = None  # L17: best full-suite round (passed, sha, summary, grouped)
         last_passed = -1
         for attempt in range(rounds + 1):
@@ -2326,6 +2329,7 @@ class Flow:
             else:
                 grouped = nodes_for_failures(summary.results, self.spec_map)
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
+                failures += self.interference_note(grouped, passed_alone)
             log(f"[acceptance] full suite round {attempt}: {summary.passed}/{summary.total}; failing nodes "
                 f"{sorted(k for k in grouped if k) or ('all' if None in grouped and not summary.results else [])}")
             self.record_full_suite(summary, grouped)
@@ -2395,6 +2399,23 @@ class Flow:
             self.final_acceptance()
             if self.driver:
                 self.driver.end_scope("node")
+
+    @staticmethod
+    def interference_note(grouped: dict, passed_alone: set) -> str:
+        """Name the behaviours that only fail in company.
+
+        Cloud 746c81a2b5aa lost REQ-5.1 this way: it passed on its own and failed
+        in the suite, where every spec drives the same server. Saying which
+        failures are of that kind separates "the behaviour is wrong" from "the
+        behaviour does not survive another session touching the same state" —
+        the evidence for both looks identical otherwise.
+        """
+        solo = sorted(node for node in grouped if node and node in passed_alone)
+        if not solo:
+            return ""
+        return ("\n\nThese passed when their own spec ran alone and fail now that every spec drives one "
+                f"server: {', '.join(solo)}. What changed is the state they share with the other sessions, "
+                "not the behaviour itself.")
 
     def record_full_suite(self, summary: RunSummary, grouped: dict) -> None:
         """Per-node verdicts and traceability from one full-suite round."""

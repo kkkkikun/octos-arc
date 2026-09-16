@@ -1063,3 +1063,56 @@ class PostflightReapTests(unittest.TestCase):
         import inspect
         teardown = inspect.getsource(m.Flow.run).rsplit('finally:', 1)[-1]
         self.assertIn('self.postflight()', teardown)
+
+
+class InterferenceNoteTests(unittest.TestCase):
+    """Cloud 746c81a2b5aa lost REQ-5.1 to shared server state: it passed alone
+    and failed in the suite, and the evidence for that looks like any other
+    failure."""
+
+    def test_should_name_only_the_behaviours_that_passed_alone(self):
+        note = m.Flow.interference_note({"REQ-5.1": [], "REQ-2.7.4": [], None: []},
+                                        {"REQ-5.1", "REQ-3.2"})
+        self.assertIn("REQ-5.1", note)
+        self.assertNotIn("REQ-2.7.4", note)  # never passed alone: an ordinary defect
+        self.assertNotIn("REQ-3.2", note)    # passed alone and still passes
+        self.assertIn("one server", note)
+
+    def test_should_say_nothing_when_no_failure_ever_passed_alone(self):
+        self.assertEqual(m.Flow.interference_note({"REQ-2.7.4": []}, {"REQ-3.2"}), "")
+        self.assertEqual(m.Flow.interference_note({}, {"REQ-3.2"}), "")
+
+    def test_should_reach_the_repair_prompt_for_a_suite_only_failure(self):
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        for n in ("REQ-1", "REQ-2"):
+            (root / "t" / f"{n}.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.spec_map = {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": ["REQ-2.spec.ts"], None: []}
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "prepared")
+        flow.test_verdict = {"REQ-1": True, "REQ-2": True}  # both passed on their own
+        flow.requirement_nodes = {}
+        flow.run_specs = lambda specs, workers=None, grader_like=False: RunSummary(
+            passed=1, total=2, results=[
+                TestOutcome(title="REQ-1", ok=True, status="passed", duration_ms=1, file="REQ-1.spec.ts"),
+                TestOutcome(title="REQ-2", ok=False, status="failed", duration_ms=1, file="REQ-2.spec.ts",
+                            message="stale shared counter")])
+        flow.head = lambda: "sha0"
+        flow.commit = lambda msg: True
+        flow.restore_app = lambda sha: None
+        flow.record_tests = lambda *a, **k: None
+        flow.remaining = lambda: 10_000
+        flow.wound_down = lambda: False
+        flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
+        flow.pending_corrections = []
+        flow.turn = Mock(return_value=(True, "repaired"))
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1"}):
+            flow.final_acceptance()
+        prompt = flow.turn.call_args.args[0]
+        self.assertIn("passed when their own spec ran alone", prompt)
+        self.assertIn("REQ-2", prompt)
