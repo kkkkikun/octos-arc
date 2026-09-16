@@ -2655,11 +2655,16 @@ class Flow:
 
         `node_timeout` bounds a turn about one node; this bounds a turn about
         every failing node together, and the two are not the same size of job.
-        They default to the same number. Measured on the runs of 2026-09-16:
-        across 207 node-phase turns on four tasks not one reached the 1200s cap
-        (longest 1049s), while both of 6e82a7ff571c's full-suite repairs were
-        cut at it. Keep them separate so the suite one can move without
-        shortening or lengthening every node turn with it.
+        They default to the same number. Measured on the runs of 2026-09-16, an
+        hour apart, because the first reading was misleading. At 207 node-phase
+        turns not one had reached the 1200s cap, longest 1049s, while both of
+        6e82a7ff571c's full-suite repairs were cut at it -- which looked like
+        the suite repairs being the long ones. By 261 turns prestashop had a
+        node-phase turn cut at 1200s on a 2 GiB container, and six turns sat
+        past 890s. So the long turns are not particular to the full suite, nor
+        to 6e82a7ff571c's 512 MiB box; six runs sharing one provider queue
+        behind each other. Keep the two separate anyway, so the suite one can
+        move without shortening or lengthening every node turn with it.
         """
         return int(os.environ.get("OCTOS_SUITE_REPAIR_TIMEOUT", str(self.node_timeout)))
 
