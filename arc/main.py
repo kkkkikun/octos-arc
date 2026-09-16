@@ -2436,7 +2436,11 @@ class Flow:
             if not grouped:
                 self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} pass (full suite)")
                 return
-            failing_signature = failure_signature(summary)
+            # A spec that has passed once in this pass and fails now is unstable;
+            # letting it count as progress hides a stall in everything else.
+            unstable = frozenset(spec for node in passed_a_round
+                                 for spec in (self.spec_map.get(node) or []))
+            failing_signature = failure_signature(summary, unstable)
             if previous_failing is not None and failing_signature == previous_failing:
                 if repeated:
                     log("[acceptance] full suite: failures unchanged after a changed approach; stopping repairs")

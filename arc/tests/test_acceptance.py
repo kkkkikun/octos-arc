@@ -884,3 +884,37 @@ class MutatedStoresTests(unittest.TestCase):
         (root / "backend" / "server.js").write_text("v2 (a repair edit)")
         snapshot_worktree(run)  # the edit is part of the snapshot, not of the run
         self.assertEqual(mutated_by_tests(run), [])
+
+
+class StallDetectionTests(unittest.TestCase):
+    """Cloud e767e871a6c6 spent four full-suite rounds on eleven failures that
+    never moved. A twelfth, REQ-2.7.4, flaked in and out, so every round looked
+    different from the one before and the stall was never noticed."""
+
+    def _summary(self, failing):
+        from acceptance import RunSummary, TestOutcome
+        names = ["REQ-a", "REQ-b", "REQ-flaky"]
+        rows = [TestOutcome(title=n, ok=n not in failing, status="failed" if n in failing else "passed",
+                            duration_ms=1, file=f"{n}.spec.ts", message="TimeoutError" if n in failing else "")
+                for n in names]
+        return RunSummary(passed=sum(1 for r in rows if r.ok), total=3, results=rows)
+
+    def test_should_see_a_stall_through_one_flaky_spec(self):
+        from acceptance import failure_signature
+        unstable = frozenset({"REQ-flaky.spec.ts"})
+        a = self._summary({"REQ-a", "REQ-b", "REQ-flaky"})
+        b = self._summary({"REQ-a", "REQ-b"})
+        self.assertNotEqual(failure_signature(a), failure_signature(b))          # today: looks like progress
+        self.assertEqual(failure_signature(a, unstable), failure_signature(b, unstable))
+
+    def test_should_still_see_real_progress(self):
+        from acceptance import failure_signature
+        unstable = frozenset({"REQ-flaky.spec.ts"})
+        a = self._summary({"REQ-a", "REQ-b"})
+        b = self._summary({"REQ-a"})
+        self.assertNotEqual(failure_signature(a, unstable), failure_signature(b, unstable))
+
+    def test_should_behave_as_before_with_nothing_unstable(self):
+        from acceptance import failure_signature
+        a = self._summary({"REQ-a"})
+        self.assertEqual(failure_signature(a), failure_signature(a, frozenset()))

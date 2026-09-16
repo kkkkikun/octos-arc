@@ -321,11 +321,16 @@ def failure_source_context(summary: RunSummary, tests_dir: Path | None, max_char
     return ('\n\n' + '\n\n'.join(blocks))[:max_chars] if blocks else ''
 
 
-def failure_signature(summary: RunSummary) -> frozenset[tuple[str, ...]]:
+def failure_signature(summary: RunSummary, unstable: frozenset[str] = frozenset()) -> frozenset[tuple[str, ...]]:
     """Detect a stalled repair by the observation, not just the test name.
 
     Ignore elapsed milliseconds and retry counts, which vary without a code
     change, but retain locator text and source location to detect progress.
+
+    `unstable` names spec files already seen to pass and fail within the same
+    pass. Cloud e767e871a6c6 spent four full-suite rounds on eleven failures
+    that never moved, because a twelfth flaked in and out and made every round
+    look different from the one before it, so the stall was never noticed.
     """
     def normalize(text: str) -> str:
         text = _ANSI.sub("", text)
@@ -335,7 +340,8 @@ def failure_signature(summary: RunSummary) -> frozenset[tuple[str, ...]]:
 
     return frozenset((r.file, r.title, r.status, r.location,
                       normalize(r.message), normalize(" | ".join(r.steps)))
-                     for r in summary.results if not r.ok)
+                     for r in summary.results
+                     if not r.ok and Path(r.file or "").name not in unstable)
 
 
 # ---------------------------------------------------------------- processes
