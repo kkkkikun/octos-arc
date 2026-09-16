@@ -2501,19 +2501,21 @@ class Flow:
     def worker_parity_note(cls, workers: int) -> str:
         """Say so when the suite could not be run the way it will be graded.
 
-        Measured twice each on one unchanged app: one worker and four both gave
-        24/32, but not the same 24 — a node that failed at one passed at four and
-        another did the reverse. A memory limit can force the count down
-        (`workers_for_final`), and the repair should then treat the list it is
-        given as one sample of a shared cause, not as the set that will be
-        scored.
+        A memory limit can force the count below the grader's (`workers_for_final`),
+        and then this run is not the run that scores the app.
+
+        An earlier version of this note claimed the count decides *which* tests
+        fail, from two runs at each of one and four workers. More repeats
+        disproved it: the same two nodes swap places between repeats at a fixed
+        count as well, so that difference is the flakiness #175 reports, not the
+        worker count. What is left is the parity gap itself, which is reason
+        enough not to read the list as the set that will be scored.
         """
         if workers >= cls.GRADER_WORKERS:
             return ""
         return (f"\n\nThis suite ran with {workers} worker(s); grading runs {cls.GRADER_WORKERS} against one "
-                "server. On an unchanged app a different worker count keeps the number of failures but can "
-                "change which tests they are, so treat these as one sample of a shared cause rather than the "
-                "exact set that will be scored.")
+                "server, so this is not the run that scores the app. Fix the cause these failures share "
+                "rather than the exact list, which a differently loaded run need not reproduce.")
 
     @staticmethod
     def intermittent_note(grouped: dict, passed_a_round: set) -> str:

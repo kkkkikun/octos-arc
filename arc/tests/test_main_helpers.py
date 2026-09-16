@@ -1464,10 +1464,11 @@ class VerificationDemandTests(unittest.TestCase):
 
 
 class WorkerParityNoteTests(unittest.TestCase):
-    """Measured twice each on one unchanged app: one worker and four both gave
-    24/32, but not the same 24 — REQ-2.7.1 failed at one and passed at four,
-    REQ-2.7.5 the reverse. A memory limit can force the count down, and the
-    repair should not then read the list as the set that will be scored."""
+    """A memory limit can force the count below the grader's, and then the run
+    the repair is shown is not the run that scores the app. (An earlier version
+    of this note blamed the count for changing which tests fail; more repeats
+    showed those two nodes swap at a fixed count too — that is flakiness, and
+    #175 covers it.)"""
 
     def test_should_say_nothing_when_it_matches_the_grader(self):
         self.assertEqual(m.Flow.worker_parity_note(4), "")
@@ -1477,7 +1478,7 @@ class WorkerParityNoteTests(unittest.TestCase):
         note = m.Flow.worker_parity_note(1)
         self.assertIn("1 worker(s)", note)
         self.assertIn("grading runs 4", note)
-        self.assertIn("sample of a shared cause", note)
+        self.assertIn("not the run that scores the app", note)
 
     def test_should_reach_the_repair_prompt(self):
         import argparse, tempfile
