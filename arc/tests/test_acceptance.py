@@ -263,6 +263,39 @@ class FinalWorkersAndReapTests(unittest.TestCase):
         self.assertEqual(workers_for_final(512 * 1024**2, 4), 1)
         self.assertEqual(workers_for_final(None, 4), 4)
 
+    def test_should_kill_a_stray_in_the_app_and_spare_one_outside_it(self):
+        """`should_reap` decides correctly; nothing checked that the reaper asks
+        it. Stubbing the whole function out left the suite green, so a rewrite
+        that skipped the predicate would kill processes it must not touch.
+        Uses real processes: one started inside backend/, one outside."""
+        import os, signal, subprocess, tempfile, time
+        from pathlib import Path
+        from acceptance import reap_workspace_processes
+        root = Path(tempfile.mkdtemp())
+        (root / "backend").mkdir()
+        outside = Path(tempfile.mkdtemp())          # not under root at all
+        inside_p = subprocess.Popen(["sh", "-c", "sleep 30; :"], cwd=root / "backend",
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        outside_p = subprocess.Popen(["sh", "-c", "sleep 30; :"], cwd=outside,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(0.4)
+            killed = reap_workspace_processes(root, lambda m: None)
+            deadline = time.time() + 5
+            while time.time() < deadline and inside_p.poll() is None:
+                time.sleep(0.1)
+            self.assertGreaterEqual(killed, 1, "the stray inside backend/ was not reaped")
+            self.assertIsNotNone(inside_p.poll(), "the stray inside backend/ is still running")
+            self.assertIsNone(outside_p.poll(), "a process outside the app tree was killed")
+        finally:
+            for proc in (inside_p, outside_p):
+                if proc.poll() is None:
+                    try:
+                        os.kill(proc.pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+                proc.wait(timeout=5)
+
     def test_should_reap_only_node_processes_inside_app_dirs(self):
         import tempfile
         from pathlib import Path
