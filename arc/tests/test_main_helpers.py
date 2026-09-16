@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from main import OctosDriver, describe_node, folder_descendants, inline_sources, inline_spec_text, unchanged_node_ids
@@ -1318,3 +1319,54 @@ class CheckpointRepairTests(unittest.TestCase):
         with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
             flow.regression_checkpoint(2, 8)
         flow.turn.assert_not_called()
+
+
+class InlineSourceBudgetTests(unittest.TestCase):
+    """Cloud e767e871a6c6 carried a 49 KB frontend/src/index.html and a 22 KB
+    backend/server.js. Quoting smallest first inside a 40000-character budget
+    spent it on seed data, lockfiles and the secondary pages, and omitted the one
+    file holding the whole UI — where nearly every failure lives."""
+
+    def _app(self):
+        import tempfile
+        from pathlib import Path
+        root = Path(tempfile.mkdtemp())
+        (root / "frontend" / "src").mkdir(parents=True)
+        (root / "backend" / "data").mkdir(parents=True)
+        (root / "frontend" / "src" / "index.html").write_text("<!--ui-->" + "u" * 49000)
+        (root / "frontend" / "src" / "about.html").write_text("<!--about-->" + "a" * 5000)
+        (root / "frontend" / "package.json").write_text('{"name":"f"}')
+        (root / "backend" / "server.js").write_text("//server\n" + "s" * 22000)
+        (root / "backend" / "data" / "notes.json").write_text("[" + '"n",' * 1200 + '"n"]')
+        (root / "backend" / "package-lock.json").write_text('{"lock":true}')
+        return root
+
+    def test_should_quote_the_biggest_source_before_the_peripheral_files(self):
+        root = self._app()
+        text = m.inline_sources(root, 90000)
+        self.assertIn("--- frontend/src/index.html ---\n", text)
+        self.assertIn("--- backend/server.js ---\n", text)
+        self.assertLessEqual(len(text), 90000 + 2000)
+
+    def test_should_omit_the_least_important_file_when_it_cannot_fit_everything(self):
+        root = self._app()
+        omitted = [l for l in m.inline_sources(root, 80000).splitlines() if "(omitted," in l]
+        self.assertTrue(omitted)
+        self.assertNotIn("index.html", " ".join(omitted))
+
+    def test_should_give_a_repair_the_budget_the_codegen_turn_gets(self):
+        import argparse
+        from pathlib import Path
+        flow = m.Flow(argparse.Namespace(web_port=1), self._app(), Path('.'))
+        self.assertIn("--- frontend/src/index.html ---\n", flow.sources_text())
+        self.assertEqual(int(os.environ.get("OCTOS_ARC_INLINE_SOURCE_CHARS",
+                                            str(flow.codegen_context_chars()))),
+                         flow.codegen_context_chars())
+
+    def test_should_still_honour_an_explicit_override(self):
+        import argparse
+        from pathlib import Path
+        from unittest.mock import patch
+        flow = m.Flow(argparse.Namespace(web_port=1), self._app(), Path('.'))
+        with patch.dict('os.environ', {'OCTOS_ARC_INLINE_SOURCE_CHARS': '0'}):
+            self.assertEqual(flow.sources_text(), "")

@@ -327,10 +327,16 @@ def write_codegen_manifests(output_dir: Path) -> list[str]:
     return written
 
 
-def inline_sources(output_dir: Path, max_chars: int = 40000, exts: tuple = (".js", ".mjs", ".cjs", ".html", ".css", ".json")) -> str:
+def inline_sources(output_dir: Path, max_chars: int = 90000, exts: tuple = (".js", ".mjs", ".cjs", ".html", ".css", ".json")) -> str:
     """Quote the app's source files (frontend sources, backend JS) so a repair
     turn edits immediately instead of spending its request budget on reads.
-    Bounded; largest files first are skipped when they would not fit."""
+
+    Bounded, largest first: whatever has to be dropped should be the file least
+    likely to need editing, and quoting smallest first made that the largest
+    one. In cloud e767e871a6c6 the seed data, the lockfiles and the secondary
+    pages were quoted and `frontend/src/index.html` — the whole UI, and where
+    nearly every failure lives — was the one file omitted.
+    """
     files: list[Path] = []
     for part in ("frontend", "backend"):
         base = output_dir / part
@@ -342,7 +348,7 @@ def inline_sources(output_dir: Path, max_chars: int = 40000, exts: tuple = (".js
                 if path.is_file() and path.suffix in exts:
                     files.append(path)
     parts, total = [], 0
-    for path in sorted(files, key=lambda p: p.stat().st_size):
+    for path in sorted(files, key=lambda p: (-p.stat().st_size, str(p))):
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -1337,7 +1343,9 @@ class Flow:
         return prefixes
 
     def sources_text(self) -> str:
-        limit = int(os.environ.get("OCTOS_ARC_INLINE_SOURCE_CHARS", "40000"))
+        # The turn that wrote the code gets codegen_context_chars of it; a repair
+        # has to understand it before editing and cannot need less.
+        limit = int(os.environ.get("OCTOS_ARC_INLINE_SOURCE_CHARS", str(self.codegen_context_chars())))
         return inline_sources(self.output_dir, limit) + "\n" if limit > 0 else ""
 
     def corrections_text(self) -> str:
