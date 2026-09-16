@@ -2362,6 +2362,27 @@ class Flow:
             self.record_full_suite(best["summary"], best["grouped"])
             self.commit(f"chore: keep best full-suite state {best['passed']}/{best['summary'].total}")
 
+    def final_acceptance_passes(self) -> None:
+        """Repeat the full-suite pass while it still fails and the budget allows.
+
+        Cloud 3ffe9702bf15 delivered 25/32 after spending 5754 s of a 48000 s
+        budget: one pass ran, its repairs stalled, and the run ended with the
+        rest of the time unused. Every pass keeps its own best state, so a
+        repeat starts from a state at least as good as the one before it.
+        """
+        passes = int(os.environ.get("OCTOS_FINAL_SUITE_PASSES", "3"))
+        for attempt in range(passes):
+            if self.time_up() or self.remaining() < self.min_repair_seconds * 3:
+                break
+            if attempt:
+                if all(verdict is not False for verdict in self.test_verdict.values()):
+                    break
+                log(f"[flow] full suite still failing with {self.remaining():.0f}s left; "
+                    f"pass {attempt + 1}/{passes}")
+            self.final_acceptance()
+            if self.driver:
+                self.driver.end_scope("node")
+
     def record_full_suite(self, summary: RunSummary, grouped: dict) -> None:
         """Per-node verdicts and traceability from one full-suite round."""
         for node_id, specs in self.spec_map.items():
@@ -2527,9 +2548,7 @@ class Flow:
                     self.regression_checkpoint(index, len(ordered))
                     self.driver.end_scope("node")
 
-                if not self.time_up():
-                    self.final_acceptance()
-                    self.driver.end_scope("node")
+                self.final_acceptance_passes()
                 undecided = [i for i in node_ids if self.test_verdict.get(i) is None and i not in self.impl_failed]
                 final_ok = None
                 if undecided and not self.time_up():

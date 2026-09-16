@@ -562,6 +562,48 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
             flow.final_acceptance()
         self.assertEqual(len(calls), 3)
 
+    def test_should_repeat_the_full_suite_pass_while_budget_remains(self):
+        from unittest.mock import patch
+        flow = self._flow([1])
+        flow.pending_corrections = []
+        flow.min_repair_seconds = 300
+        flow.driver = None
+        flow.time_up = lambda: False
+        calls = []
+        flow.final_acceptance = lambda: calls.append(dict(flow.test_verdict))
+        with patch.dict("os.environ", {"OCTOS_FINAL_SUITE_PASSES": "3"}):
+            flow.final_acceptance_passes()
+        self.assertEqual(len(calls), 3)  # REQ-1 stays False, so every pass runs
+
+    def test_should_stop_repeating_once_the_full_suite_is_green(self):
+        from unittest.mock import patch
+        flow = self._flow([1])
+        flow.pending_corrections = []
+        flow.min_repair_seconds = 300
+        flow.driver = None
+        flow.time_up = lambda: False
+        calls = []
+        def pass_everything():
+            calls.append(1)
+            flow.test_verdict = {"REQ-1": True, "REQ-2": True}
+        flow.final_acceptance = pass_everything
+        with patch.dict("os.environ", {"OCTOS_FINAL_SUITE_PASSES": "3"}):
+            flow.final_acceptance_passes()
+        self.assertEqual(len(calls), 1)
+
+    def test_should_not_start_a_pass_it_cannot_finish(self):
+        from unittest.mock import patch
+        flow = self._flow([1])
+        flow.min_repair_seconds = 300
+        flow.driver = None
+        flow.time_up = lambda: False
+        flow.remaining = lambda: 600  # under the 900 s a pass needs
+        calls = []
+        flow.final_acceptance = lambda: calls.append(1)
+        with patch.dict("os.environ", {"OCTOS_FINAL_SUITE_PASSES": "3"}):
+            flow.final_acceptance_passes()
+        self.assertEqual(calls, [])
+
     def test_should_not_restore_when_last_round_is_best(self):
         import os
         os.environ["OCTOS_FINAL_REPAIR_ROUNDS"] = "1"
