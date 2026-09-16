@@ -619,6 +619,28 @@ assert(text.includes('/more?/i'), 'locator truncated at its own ?: ' + text);
         result = subprocess.run(['node', '-e', script, str(self.REPORTER)], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_should_trace_actions_when_the_spec_itself_raises(self):
+        script = r"""
+const assert = require('assert'); const Reporter = require(process.argv[1]);
+// A spec that compares two values it collected raises outside any Playwright
+// call, so no pw:api step carries the error and the trace used to come out empty.
+const steps = [
+  {category:'pw:api', title:'Navigate', subtitle:'example.test/', duration:1, steps:[]},
+  {category:'pw:api', title:'Screenshot', subtitle:"getByText(/Garden tasks/i).first()", duration:1, steps:[]},
+  {category:'pw:api', title:'Click', subtitle:"getByRole('button', { name: /colou?r/i }).first()", duration:1, steps:[]},
+];
+const reporter = new Reporter();
+reporter.onTestEnd({id:'t'}, {status:'failed', steps, error:{message:'expect(received).toBe(expected)'}});
+const text = reporter.rows.t.join('\n');
+assert(text.includes('Actions preceding the final failed step'), 'no trace: ' + text);
+assert(text.includes('Garden tasks'), 'screenshot target missing: ' + text);
+assert(text.includes('colou?r'), 'click target missing: ' + text);
+reporter.onTestEnd({id:'ok'}, {status:'passed', steps});
+assert(!reporter.rows.ok.join('\n').includes('Actions preceding'), 'trace leaked into a passing test');
+"""
+        result = subprocess.run(['node', '-e', script, str(self.REPORTER)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_should_stay_bounded_when_targets_are_long(self):
         script = r"""
 const assert = require('assert'); const Reporter = require(process.argv[1]);

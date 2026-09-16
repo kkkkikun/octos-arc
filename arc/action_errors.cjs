@@ -57,9 +57,13 @@ module.exports = class ActionErrors {
       }
     };
     visit(result.steps);
-    if (result.status !== 'passed' && result.status !== 'skipped' && precedingFailure.length) {
+    // A spec that compares values it collected itself raises outside any
+    // Playwright call, so no step carries the error and there is nothing to cut
+    // the trace at. Everything the test did is then the trace.
+    const preceding = precedingFailure.length ? precedingFailure : recentActions;
+    if (result.status !== 'passed' && result.status !== 'skipped' && preceding.length) {
       errors.push({order:-1, duration:Number.MAX_SAFE_INTEGER,
-        text:'Actions preceding the final failed step (diagnostic only):\n'+precedingFailure.join(' -> ')});
+        text:'Actions preceding the final failed step (diagnostic only):\n'+preceding.join(' -> ')});
     }
     // Keep the most time-consuming failures, then present them in execution order.
     this.rows[test.id] = errors.sort((a,b) => b.duration-a.duration).slice(0,8)
