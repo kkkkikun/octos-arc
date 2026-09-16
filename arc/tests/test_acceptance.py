@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from acceptance import (
+    clip_ends,
     failure_summaries,
     isolated_install_env,
     map_specs_to_nodes,
@@ -729,3 +730,45 @@ class ConsoleErrorDiagnosticsTests(unittest.TestCase):
             # Ordinary chatter must not crowd out the real diagnostics.
             self.assertNotIn('chatty startup log', summary)
             self.assertNotIn('deprecated call', summary)
+
+
+class BuildFailureEvidenceTests(unittest.TestCase):
+    """npm and bundlers print the cause first and a wall of exit boilerplate
+    after it, so a tail-only excerpt of a failed build can be all noise."""
+
+    def test_should_keep_both_ends_of_a_long_tool_log(self):
+        cause = "src/app.js:12:3: ERROR: Cannot find module './notes-store'"
+        noise = "\n".join(f"npm ERR! trailing line {i}" for i in range(200))
+        text = f"{cause}\n{noise}\nnpm ERR! exit status 1"
+        kept = clip_ends(text, 600)
+        self.assertLessEqual(len(kept), 700)
+        self.assertIn(cause, kept)
+        self.assertIn("npm ERR! exit status 1", kept)
+        self.assertIn("elided", kept)
+
+    def test_should_leave_short_output_untouched(self):
+        self.assertEqual(clip_ends("  short build log  ", 600), "short build log")
+
+    def test_should_report_the_cause_of_a_real_failed_build(self):
+        from acceptance import AppServer
+        with tempfile.TemporaryDirectory(prefix='build-failure-') as folder:
+            root = Path(folder)
+            (root / "frontend").mkdir(); (root / "backend").mkdir()
+            (root / "frontend" / "package.json").write_text(
+                '{"name":"f","private":true,"scripts":{"build":"node build.js"}}')
+            (root / "frontend" / "build.js").write_text(
+                "console.error(\"src/app.js:12:3: ERROR: Cannot find module './notes-store'\");\n"
+                "for (let i = 0; i < 60; i++) console.error("
+                "`npm ERR! trailing diagnostic ${i} - a complete log of this run can be found in "
+                "/root/.npm/_logs/2026-09-16T04_00_00_000Z-debug-${i}.log`);\n"
+                "process.exit(1);\n")
+            (root / "backend" / "package.json").write_text(
+                '{"name":"b","private":true,"scripts":{"start":"node server.js"}}')
+            (root / "backend" / "server.js").write_text("")
+            error = AppServer(root, 3999, lambda _: None).build()
+            self.assertIsNotNone(error)
+            self.assertIn("Cannot find module", error)
+            # And what the rehearsal repair turn is handed must still name it.
+            import main
+            prompt = main.REHEARSAL_REPAIR_PROMPT.format(error=clip_ends(error, 1200), port=3000, smoke=3100)
+            self.assertIn("Cannot find module", prompt)

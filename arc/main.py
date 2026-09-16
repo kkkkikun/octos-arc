@@ -78,7 +78,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from arcbench_agent_runtime import AgentRuntime  # noqa: E402
 from acceptance import (  # noqa: E402
     workers_for_memory, process_cwd, workspace_contains, free_owned_ports,
-    AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, container_memory_limit, ensure_playwright,
+    AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, clip_ends, container_memory_limit, ensure_playwright,
     failure_signature, failure_summaries, failure_source_context, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
     restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes)
@@ -2437,7 +2437,7 @@ class Flow:
             if attempt == 3 or self.remaining() < -600:
                 log("[rehearsal] giving up; submitting as-is")
                 return False
-            self.turn(REHEARSAL_REPAIR_PROMPT.format(error=err[-1200:], port=self.web_port, smoke=self.smoke_port),
+            self.turn(REHEARSAL_REPAIR_PROMPT.format(error=clip_ends(err, 1200), port=self.web_port, smoke=self.smoke_port),
                       self.node_timeout, f"rehearsal repair {attempt}")
             self.commit("fix: startup rehearsal repair")
         return False

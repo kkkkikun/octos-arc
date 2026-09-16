@@ -220,6 +220,21 @@ def page_snapshot(error_context: str, max_chars: int = 4000) -> str:
     return _clip_lines(match.group(1), max_chars)
 
 
+def clip_ends(text: str, max_chars: int) -> str:
+    """Keep both ends of a tool log.
+
+    npm and the bundlers print the cause first and then a wall of exit
+    boilerplate, so a tail-only excerpt of a failed build can be nothing but log
+    paths — the line naming the missing module is the first thing dropped.
+    """
+    text = text.strip()
+    if len(text) <= max_chars:
+        return text
+    head = max_chars * 2 // 3
+    elided = len(text) - max_chars
+    return f"{text[:head]}\n… {elided} characters elided …\n{text[head - max_chars:]}"
+
+
 def _clip_lines(text: str, max_chars: int) -> str:
     """Keep whole lines only: a half-line of YAML reads as a different tree."""
     kept: list[str] = []
@@ -708,7 +723,7 @@ class AppServer:
             return 124, f"timeout after {timeout}s"
         except OSError as exc:
             return 127, str(exc)
-        return r.returncode, ((r.stdout or "") + "\n" + (r.stderr or "")).strip()[-1500:]
+        return r.returncode, clip_ends((r.stdout or "") + "\n" + (r.stderr or ""), 1500)
 
     def build(self) -> str | None:
         frontend, backend = self.project / "frontend", self.project / "backend"
