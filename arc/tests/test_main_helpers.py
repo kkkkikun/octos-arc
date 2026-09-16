@@ -1541,6 +1541,7 @@ class LastRepairDiffTests(unittest.TestCase):
         self._flow("x").last_repair_diff()
         self.assertEqual(self.args[0][:4], ["diff", "HEAD~1", "HEAD", "--stat"])
 
+
     def test_should_stay_bounded(self):
         big = "\n".join(f" file{i}.js | {i} +++" for i in range(400))
         self.assertLessEqual(len(self._flow(big).last_repair_diff()), 1200)
@@ -1555,3 +1556,133 @@ class LastRepairDiffTests(unittest.TestCase):
             raise OSError("git is gone")
         flow.runtime = SimpleNamespace(git=SimpleNamespace(run=boom))
         self.assertEqual(flow.last_repair_diff(), "")
+
+
+class UnfinishedRepairNoteTests(unittest.TestCase):
+    """Cloud e767e871a6c6 spent all three full-suite repair rounds investigating
+    and never reached an edit, finishing at 20/32; each round said where it had
+    got to and each message was thrown away, so the next round re-read the same
+    file. That run was capped at ten requests per repair and the cap has since
+    been lifted, but a turn can still end mid-plan on the per-turn timeout."""
+
+    BUDGET_GONE = ("pin/unpin helpers click the pin button only after hover which should work, but "
+                   "REQ-2.8.x failures indicate the pin toggle state/assertions need checking. Made no "
+                   "file edits this turn due to budget exhaustion before changes could be applied.")
+    NEXT_STEP = ("No files were modified in this turn because the investigation consumed the budget. "
+                 "Next step is to apply those edits to `frontend/src/index.html`, rebuild, and re-run "
+                 "the acceptance suite.")
+
+    def _flow(self):
+        import argparse
+        from pathlib import Path
+        return m.Flow(argparse.Namespace(web_port=1), Path('.'), Path('.'))
+
+    def test_should_carry_the_unfinished_next_step_forward(self):
+        note = self._flow().unfinished_repair_note(self.NEXT_STEP)
+        self.assertIn("Next step is to apply those edits", note)
+        self.assertIn("frontend/src/index.html", note)
+
+    def test_should_say_the_work_is_already_done_not_a_fresh_idea(self):
+        note = self._flow().unfinished_repair_note(self.BUDGET_GONE)
+        self.assertIn("continue from it rather than reading the same files again", note)
+        self.assertIn("budget", note)
+
+    def test_should_keep_the_tail_where_the_conclusion_sits(self):
+        body = "read a file\n" * 400 + "Next step is to apply those edits."
+        note = self._flow().unfinished_repair_note(body, max_chars=200)
+        self.assertIn("Next step is to apply those edits.", note)
+        self.assertLess(len(note), 900)
+        self.assertIn("…", note)
+
+    def test_should_stay_silent_when_the_turn_said_nothing(self):
+        for empty in ("", "   ", None):
+            self.assertEqual(self._flow().unfinished_repair_note(empty), "")
+
+    def test_should_not_clip_a_message_that_already_fits(self):
+        note = self._flow().unfinished_repair_note(self.NEXT_STEP, max_chars=700)
+        self.assertNotIn("…", note)
+        self.assertIn(self.NEXT_STEP, note)
+
+    def test_should_reach_the_next_rounds_repair_prompt(self):
+        """The helper is worthless unless final_acceptance actually threads it."""
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        (root / "t" / "REQ-1.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.spec_map = {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": ["REQ-2.spec.ts"], None: []}
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "w", timeout_ms=10000)
+        flow.test_verdict = {}; flow.requirement_nodes = {}; flow.pending_corrections = []
+        seen = []
+        def run_specs(specs, workers=None, grader_like=False):
+            seen.append(1)  # a different failure each round, so no escalation fires
+            return RunSummary(passed=0, total=1, results=[
+                TestOutcome(title="REQ-1", ok=False, status="timedOut", duration_ms=1,
+                            file="REQ-1.spec.ts", message=f"boom {len(seen)}")])
+        flow.run_specs = run_specs
+        flow.head = lambda: "sha"; flow.commit = lambda msg: True
+        flow.restore_app = lambda sha: None; flow.record_tests = lambda *a, **k: None
+        flow.record_full_suite = lambda *a, **k: None
+        flow.remaining = lambda: 10_000; flow.wound_down = lambda: False
+        flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
+        flow.last_repair_diff = lambda *a, **k: ""
+        prompts = []
+        def turn(prompt, timeout, label, **kw):
+            prompts.append(prompt)
+            return True, self.NEXT_STEP
+        flow.turn = turn
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "2"}):
+            flow.final_acceptance()
+        self.assertGreaterEqual(len(prompts), 2)
+        self.assertNotIn("Next step is to apply", prompts[0])   # nothing to carry yet
+        self.assertIn("Next step is to apply those edits", prompts[1])
+
+    def _repeat_run(self, committed):
+        """Two rounds with identical failures; `committed` is what commit() reports."""
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        (root / "t" / "REQ-1.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.spec_map = {"REQ-1": ["REQ-1.spec.ts"], "REQ-2": ["REQ-2.spec.ts"], None: []}
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "w", timeout_ms=10000)
+        flow.test_verdict = {}; flow.requirement_nodes = {}; flow.pending_corrections = []
+        flow.run_specs = lambda specs, workers=None, grader_like=False: RunSummary(
+            passed=0, total=1, results=[TestOutcome(title="REQ-1", ok=False, status="timedOut",
+                                                    duration_ms=1, file="REQ-1.spec.ts", message="boom")])
+        flow.head = lambda: "sha"
+        flow.commit = lambda msg: committed if msg.startswith("fix:") else True
+        flow.restore_app = lambda sha: None; flow.record_tests = lambda *a, **k: None
+        flow.record_full_suite = lambda *a, **k: None
+        flow.remaining = lambda: 10_000; flow.wound_down = lambda: False
+        flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
+        flow.last_repair_diff = lambda *a, **k: ""
+        prompts = []
+        def turn(prompt, timeout, label, **kw):
+            prompts.append(prompt)
+            return True, self.NEXT_STEP
+        flow.turn = turn
+        with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "2"}):
+            flow.final_acceptance()
+        return prompts, flow
+
+    def test_should_keep_carrying_when_the_last_repair_wrote_nothing(self):
+        """Nothing was edited, so there is no approach to change -- only a plan to finish."""
+        prompts, _ = self._repeat_run(committed=False)
+        self.assertIn("Next step is to apply those edits", prompts[1])
+
+    def test_should_stop_carrying_once_an_edit_failed_to_move_anything(self):
+        """It edited and nothing moved: the same prompt already says change the cause."""
+        prompts, flow = self._repeat_run(committed=True)
+        self.assertNotIn("Next step is to apply those edits", prompts[1])
+        # The escalation is queued as a correction; corrections_text() renders it.
+        self.assertTrue(any("Recheck the assumptions" in c for c in flow.pending_corrections))
+

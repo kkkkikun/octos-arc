@@ -1736,6 +1736,29 @@ class Flow:
         return ("\n\nThe previous repair changed this and the failures did not move:\n"
                 + clip_ends(stat, max_chars))
 
+    def unfinished_repair_note(self, text: str, max_chars: int = 700) -> str:
+        """Hand the previous repair turn's closing words to the next round.
+
+        A repair turn can end before it edits anything: reading one large source
+        file eats the turn, or the per-turn timeout lands mid-plan. Cloud
+        e767e871a6c6 lost all three full-suite rounds that way and finished at
+        20/32 -- "No files were modified ... Next step is to apply those edits to
+        frontend/src/index.html", then "Need one more turn to read the note-action
+        click handlers". That run was capped at ten requests per repair, a cap
+        since lifted, but the waste it exposed is not about the cap: each round
+        said exactly where it had got to, the message was dropped, and the next
+        round paid to read the same file again. Hand it forward. The conclusion
+        sits at the end of the message, so keep the tail.
+        """
+        text = (text or "").strip()
+        if not text:
+            return ""
+        if len(text) > max_chars:
+            text = "… " + text[-max_chars:].lstrip()
+        return ("\n\nWhere the last repair attempt stopped, in its own closing words. It ran on a tool "
+                "budget and may have run out before it could edit anything, so treat this as work already "
+                "done: continue from it rather than reading the same files again.\n" + text)
+
     def restore_app(self, sha: str) -> None:
         git = self.runtime.git
         for part in ("frontend", "backend"):
@@ -2417,6 +2440,8 @@ class Flow:
         passed_a_round: set = set()  # nodes this pass has already seen pass once
         best: dict | None = None  # L17: best full-suite round (passed, sha, summary, grouped)
         last_passed = -1
+        unfinished = ""  # what the previous repair turn said it had left to do
+        wrote_last = False  # whether that turn got as far as committing an edit
         for attempt in range(rounds + 1):
             summary = self.run_specs(all_specs, workers=workers, grader_like=True)
             while summary.error and summary.killed and workers > 1:
@@ -2476,6 +2501,12 @@ class Flow:
                 # tell it so, the way the per-node path already does, and retry.
                 repeated = True
                 failures += self.last_repair_diff()
+                # A repair that ran out before editing has an unfinished plan worth
+                # continuing; one that edited and moved nothing does not -- there the
+                # instruction below is to change the cause, so carrying its reasoning
+                # forward would argue against the correction in the same prompt.
+                if wrote_last:
+                    unfinished = ""
                 log("[acceptance] full suite: same failures as the previous round; changing repair approach")
                 self.pending_corrections.append(
                     'Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
@@ -2485,6 +2516,7 @@ class Flow:
             if attempt == rounds or self.remaining() < 240 or self.wound_down():
                 break
             failing = sorted(k for k in grouped if k) or ["all nodes"]
+            failures += self.unfinished_repair_note(unfinished)
             prompt = REPAIR_PROMPT.format(
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
                 test_location=self.repair_test_location(),
@@ -2494,9 +2526,9 @@ class Flow:
                 "(e.g. a counter that every browser session shares). Keep persisted data only where the "
                 "requirement demands persistence.\n",
                 slow="", smoke=self.smoke_port, port=self.web_port)
-            self.turn(prompt, min(self.node_timeout, max(120, self.remaining() - 200)),
-                      f"full-suite repair {attempt + 1}/{rounds}")
-            self.commit(f"fix: full-suite repair {attempt + 1}")
+            _, unfinished = self.turn(prompt, min(self.node_timeout, max(120, self.remaining() - 200)),
+                                      f"full-suite repair {attempt + 1}/{rounds}")
+            wrote_last = self.commit(f"fix: full-suite repair {attempt + 1}")
         # L17 (ported from the Rust harness): deliver the best full-suite round, not the last one.
         if best is not None and best["sha"] and last_passed < best["passed"]:
             log(f"[acceptance] full suite: last round {last_passed} < best {best['passed']}; restoring the best state")
