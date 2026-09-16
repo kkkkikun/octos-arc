@@ -1396,6 +1396,23 @@ class Flow:
                 + ", ".join(restored[:5]) + ". They are read-only ground truth — fix the app instead.")
         return ok, text
 
+    def slow_test_ms(self) -> int:
+        """Half the budget a test is graded against.
+
+        The threshold was a flat 3000 ms, tuned when the harness also imposed a
+        4000 ms action deadline — a test near 3 s was then near failing. With the
+        deadlines matched to the grader (10 s per test) it is not: in cloud
+        3ffe9702bf15 three of the twenty-five tests the grader passed ran between
+        3.4 s and 3.9 s, and each was handed to the model as something to
+        optimise. Editing passing code to make it faster is a regression risk
+        taken for nothing. Above half the budget there is real cause to look.
+        """
+        configured = os.environ.get("OCTOS_ARC_SLOW_MS")
+        if configured:
+            return int(configured)
+        timeout = getattr(getattr(self, "runner", None), "timeout_ms", 10000)
+        return max(1000, timeout // 2)
+
     def perf_text(self) -> str:
         return PERFORMANCE_CONTRACT if self.perf_contract and self.needs_session else ""
 
@@ -1926,7 +1943,7 @@ class Flow:
                     f"keeping the best state")
                 break
             self.snapshot_sources(node_id, attempt)
-            slow = summary.slow(int(os.environ.get("OCTOS_ARC_SLOW_MS", "3000")))
+            slow = summary.slow(self.slow_test_ms())
             slow_text = ("These tests exceeded the configured slow-test threshold: " + "; ".join(slow) +
                          ". Inspect the failed operations and measured timings before optimizing.\n" + self.perf_text()) if slow else ""
             if passed == 0 and rebuild_prompt is not None and not rewrite_used \

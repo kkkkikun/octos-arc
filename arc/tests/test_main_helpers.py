@@ -1156,3 +1156,40 @@ class RepairRequestBudgetTests(unittest.TestCase):
         from unittest.mock import patch
         with patch.dict('os.environ', {'OCTOS_ARC_REPAIR_REQUESTS': '4'}):
             self.assertEqual(self._budget('REQ-1 repair 1/3', nodes=32), 4)
+
+
+class SlowTestThresholdTests(unittest.TestCase):
+    """In cloud 3ffe9702bf15 the grader passed twenty-five tests; three of them
+    ran 3.4-3.9 s and the flat 3000 ms threshold handed all three to the model as
+    work to optimise."""
+
+    GRADED_PASSING_MS = [2500, 2999, 3401, 3804, 3893, 2106, 2101, 1844, 1026, 805, 2395,
+                         1285, 1095, 2500, 906, 1107, 1403, 2091, 1890, 922, 1512, 1891,
+                         1081, 1189, 1412]
+
+    def _flow(self, timeout_ms=10000):
+        import argparse
+        from pathlib import Path
+        from types import SimpleNamespace
+        flow = m.Flow(argparse.Namespace(web_port=1), Path('.'), Path('.'))
+        flow.runner = SimpleNamespace(timeout_ms=timeout_ms)
+        return flow
+
+    def test_should_follow_the_budget_a_test_is_graded_against(self):
+        self.assertEqual(self._flow(timeout_ms=10000).slow_test_ms(), 5000)
+        self.assertEqual(self._flow(timeout_ms=6000).slow_test_ms(), 3000)
+
+    def test_should_not_flag_tests_the_grader_passed_comfortably(self):
+        threshold = self._flow().slow_test_ms()
+        flagged = [ms for ms in self.GRADED_PASSING_MS if ms >= threshold]
+        self.assertEqual(flagged, [])
+        # the old flat threshold flagged three of them
+        self.assertEqual(len([ms for ms in self.GRADED_PASSING_MS if ms >= 3000]), 3)
+
+    def test_should_still_honour_an_explicit_override(self):
+        from unittest.mock import patch
+        with patch.dict('os.environ', {'OCTOS_ARC_SLOW_MS': '1500'}):
+            self.assertEqual(self._flow().slow_test_ms(), 1500)
+
+    def test_should_keep_a_floor_for_a_tiny_timeout(self):
+        self.assertEqual(self._flow(timeout_ms=500).slow_test_ms(), 1000)
