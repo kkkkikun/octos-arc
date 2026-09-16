@@ -614,6 +614,38 @@ def port_open(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def listening_ports(root: Path) -> list[int]:
+    """Ports held by processes started from inside the app tree.
+
+    A backend that ignores PORT and binds its own is a common way to miss the
+    port the harness and the grader wait on. Naming the port it did take turns a
+    bare timeout into a one-line fix. Foreign listeners are left out, the way
+    `free_owned_ports` leaves them alone."""
+    try:
+        out = subprocess.run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"],
+                             capture_output=True, text=True, timeout=15).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    ports: set[int] = set()
+    owned: dict[str, bool] = {}
+    pid = ""
+    for line in out.splitlines():
+        if line.startswith("p"):
+            pid = line[1:]
+        elif line.startswith("n") and pid:
+            port = line.rsplit(":", 1)[-1]
+            if not port.isdigit():
+                continue
+            if pid not in owned:
+                try:
+                    owned[pid] = workspace_contains(process_cwd(int(pid)), root)
+                except ValueError:
+                    owned[pid] = False
+            if owned[pid]:
+                ports.add(int(port))
+    return sorted(ports)
+
+
 def tree_digest(root: Path) -> dict[str, str]:
     """rel path -> sha256 for every regular file under root (node_modules skipped)."""
     import hashlib
@@ -784,8 +816,12 @@ class AppServer:
                     return f"{err}\nserver log tail:\n{tail}"
                 return None
             time.sleep(0.5)
+        # Ask before stopping: the process still holds whatever it did bind.
+        elsewhere = [p for p in listening_ports(self.project) if p != self.port]
         self.stop()
-        return f"backend did not bind port {self.port} within {wait_seconds}s:\n" + \
+        where = (f" It is listening on {', '.join(str(p) for p in elsewhere)} instead."
+                 if elsewhere else " Nothing started from the app tree is listening on any port.")
+        return f"backend did not bind port {self.port} within {wait_seconds}s.{where}\n" + \
             (self.log_file.read_text(errors="replace")[-1500:] if self.log_file else "")
 
     def extra_ports_bound(self, wait_seconds: float = 5.0) -> str | None:

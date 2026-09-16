@@ -772,3 +772,44 @@ class BuildFailureEvidenceTests(unittest.TestCase):
             import main
             prompt = main.REHEARSAL_REPAIR_PROMPT.format(error=clip_ends(error, 1200), port=3000, smoke=3100)
             self.assertIn("Cannot find module", prompt)
+
+
+class BoundPortEvidenceTests(unittest.TestCase):
+    """A backend that ignores PORT and binds its own is a common way to miss the
+    expected port; a bare timeout says nothing about where it went."""
+
+    def test_should_name_the_port_the_backend_bound_instead(self):
+        from acceptance import AppServer
+        with tempfile.TemporaryDirectory(prefix='wrong-port-') as folder:
+            root = Path(folder)
+            (root / "frontend").mkdir(); (root / "backend").mkdir()
+            (root / "backend" / "package.json").write_text(
+                '{"name":"b","private":true,"scripts":{"start":"node server.js"}}')
+            # Ignores PORT, the way a hardcoded server does.
+            (root / "backend" / "server.js").write_text(
+                "require('http').createServer((q,s)=>s.end('ok')).listen(38217);\n")
+            server = AppServer(root, 38218, lambda _: None)
+            try:
+                error = server.start(wait_seconds=8)
+            finally:
+                server.stop()
+            self.assertIsNotNone(error)
+            self.assertIn("did not bind port 38218", error)
+            self.assertIn("38217", error)
+
+    def test_should_say_so_when_nothing_in_the_tree_is_listening(self):
+        from acceptance import AppServer
+        with tempfile.TemporaryDirectory(prefix='no-port-') as folder:
+            root = Path(folder)
+            (root / "frontend").mkdir(); (root / "backend").mkdir()
+            (root / "backend" / "package.json").write_text(
+                '{"name":"b","private":true,"scripts":{"start":"node server.js"}}')
+            (root / "backend" / "server.js").write_text("setTimeout(() => {}, 60000);\n")
+            server = AppServer(root, 38219, lambda _: None)
+            try:
+                error = server.start(wait_seconds=6)
+            finally:
+                server.stop()
+            self.assertIsNotNone(error)
+            self.assertIn("did not bind port 38219", error)
+            self.assertIn("Nothing started from the app tree is listening", error)
