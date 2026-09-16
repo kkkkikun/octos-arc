@@ -2543,13 +2543,19 @@ class Flow:
         failures are of that kind separates "the behaviour is wrong" from "the
         behaviour does not survive another session touching the same state" —
         the evidence for both looks identical otherwise.
+
+        The claim is only as fresh as the per-node verdict it rests on, and later
+        nodes change the app. Measured on one delivered app, seven of its eight
+        suite failures also failed with the rest of the suite removed, so the note
+        asks for the check rather than asserting the conclusion.
         """
         solo = sorted(node for node in grouped if node and node in passed_alone)
         if not solo:
             return ""
-        note = ("\n\nThese passed when their own spec ran alone and fail now that every spec drives one "
-                f"server: {', '.join(solo)}. What changed is the state they share with the other sessions, "
-                "not the behaviour itself.")
+        note = ("\n\nThese passed their own node run earlier and fail now that every spec drives one "
+                f"server: {', '.join(solo)}. That earlier result is from before the later nodes were "
+                "built, so check the behaviour still works on its own: if it does, the difference is "
+                "state shared with the other sessions; if it does not, it was broken since.")
         if stores_written:
             note += (" The suite run left these files changed on disk: "
                      f"{', '.join(stores_written)} — whatever one session writes there is still there for "

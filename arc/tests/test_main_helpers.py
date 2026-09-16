@@ -1083,7 +1083,7 @@ class InterferenceNoteTests(unittest.TestCase):
         self.assertIn("REQ-5.1", note)
         self.assertNotIn("REQ-2.7.4", note)  # never passed alone: an ordinary defect
         self.assertNotIn("REQ-3.2", note)    # passed alone and still passes
-        self.assertIn("one server", note)
+        self.assertIn("check the behaviour still works on its own", note)
 
     def test_should_say_nothing_when_no_failure_ever_passed_alone(self):
         self.assertEqual(m.Flow.interference_note({"REQ-2.7.4": []}, {"REQ-3.2"}), "")
@@ -1121,7 +1121,7 @@ class InterferenceNoteTests(unittest.TestCase):
         with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1"}):
             flow.final_acceptance()
         prompt = flow.turn.call_args.args[0]
-        self.assertIn("passed when their own spec ran alone", prompt)
+        self.assertIn("passed their own node run earlier", prompt)
         self.assertIn("REQ-2", prompt)
 
 
