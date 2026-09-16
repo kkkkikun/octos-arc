@@ -1366,10 +1366,26 @@ class Flow:
             prefixes.append(str(self.tests_dir))
         return prefixes
 
+    def inline_source_chars(self) -> int:
+        """How much of the app to quote into a turn that edits with tools.
+
+        This is an input budget and the context window bounds it;
+        `codegen_context_chars` is an output budget, bounding what a tool-free
+        turn is asked to re-emit. They default to the same number and are easy
+        to mistake for one thing, but raising that one to quote more source
+        would also start asking codegen turns for larger files than they should
+        be asked for. Keep them separate so either can move on its own.
+
+        The default is unchanged. Whether a larger share of a 1048576 token
+        window helps a repair more than it dilutes it is not something the
+        harness can answer offline; it needs a cloud run against the same task.
+        """
+        return int(os.environ.get("OCTOS_ARC_INLINE_SOURCE_CHARS", str(self.codegen_context_chars())))
+
     def sources_text(self) -> str:
-        # The turn that wrote the code gets codegen_context_chars of it; a repair
-        # has to understand it before editing and cannot need less.
-        limit = int(os.environ.get("OCTOS_ARC_INLINE_SOURCE_CHARS", str(self.codegen_context_chars())))
+        # A repair has to understand the code before editing it, so it cannot be
+        # quoted less than the turn that wrote the code was.
+        limit = self.inline_source_chars()
         return inline_sources(self.output_dir, limit) + "\n" if limit > 0 else ""
 
     def corrections_text(self) -> str:

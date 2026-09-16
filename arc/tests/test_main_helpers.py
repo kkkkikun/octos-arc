@@ -1418,6 +1418,20 @@ class InlineSourceBudgetTests(unittest.TestCase):
         self.assertTrue(omitted)
         self.assertNotIn("index.html", " ".join(omitted))
 
+    def test_should_let_the_inline_budget_move_without_the_codegen_budget(self):
+        """They default to one number but bound different things: how much source
+        a tool-using turn is shown, versus how much a tool-free turn is asked to
+        re-emit. Raising one must not drag the other along."""
+        import argparse, tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        root = Path(tempfile.mkdtemp())
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        self.assertEqual(flow.inline_source_chars(), flow.codegen_context_chars())
+        with patch.dict("os.environ", {"OCTOS_ARC_INLINE_SOURCE_CHARS": "250000"}):
+            self.assertEqual(flow.inline_source_chars(), 250000)
+            self.assertEqual(flow.codegen_context_chars(), 90000)   # output budget unmoved
+
     def test_should_give_a_repair_the_budget_the_codegen_turn_gets(self):
         import argparse
         from pathlib import Path
