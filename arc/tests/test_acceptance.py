@@ -690,3 +690,42 @@ for (const fail of [false,true]) test('api status '+fail,async({page})=>{
             self.assertIn('/api/notes', summary)
             diagnostics = summary.split('Browser diagnostics', 1)[-1]
             self.assertNotIn('private-value', diagnostics)
+
+
+class ConsoleErrorDiagnosticsTests(unittest.TestCase):
+    """An app that catches its own failure and logs it renders a placeholder and
+    throws nothing, so `pageerror` never fires and the cause is lost."""
+
+    BODY = ("<h1>Notes</h1><div id=list>Failed to load notes</div><script>"
+            "try { JSON.parse('not json'); } catch (e) { console.error('loadNotes failed', e.message); }"
+            "console.log('chatty startup log'); console.warn('deprecated call');"
+            "</script>")
+
+    def test_should_report_a_caught_error_the_app_logged(self):
+        from acceptance import AcceptanceRunner
+        import json, os
+        install = os.environ.get('OCTOS_TEST_PLAYWRIGHT_ROOT')
+        if not install:
+            self.skipTest('requires installed Playwright')
+        root = Path(install)
+        with tempfile.TemporaryDirectory(prefix='console-error-', dir=root) as folder:
+            base = Path(folder); specs = base / 'source'; specs.mkdir()
+            source = ("import {test,expect} from '@playwright/test';\n"
+                      "const BODY = " + json.dumps(self.BODY) + ";\n"
+                      "for (const fail of [false,true]) test('console status '+fail,async({page})=>{\n"
+                      " await page.route('http://example.test/**', route=>route.fulfill("
+                      "{status:200,contentType:'text/html',body:BODY}));\n"
+                      " await page.goto('http://example.test/');\n"
+                      " await page.waitForTimeout(200);\n"
+                      " expect(fail).toBe(false);\n"
+                      "});\n")
+            spec = specs / 'console.spec.ts'; spec.write_text(source)
+            runner = AcceptanceRunner(root, specs, base / 'prepared', lambda _: None, workers=1)
+            result = runner.run(['console.spec.ts'], 'http://127.0.0.1:1')
+            self.assertEqual((result.passed, result.total), (1, 2), result.error)
+            self.assertEqual(spec.read_text(), source)
+            summary = failure_summaries(result)
+            self.assertIn('loadNotes failed', summary)
+            # Ordinary chatter must not crowd out the real diagnostics.
+            self.assertNotIn('chatty startup log', summary)
+            self.assertNotIn('deprecated call', summary)

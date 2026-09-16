@@ -29,9 +29,24 @@ export function register() {
         reported.add(line);
         report(line);
       };
-      listeners.set(page, { onError, onResponse });
+      // An app that catches its own failure renders a placeholder and throws
+      // nothing, so `pageerror` never fires and only the symptom survives. Take
+      // its error log, on a small budget of its own so ordinary chatter cannot
+      // crowd out the page errors and failed requests above.
+      let logged = 3;
+      const onConsole = message => {
+        const text = String(message.text());
+        // The browser's own note for a failed request; `onResponse` already
+        // reports those with their method, status and path.
+        if (message.type() !== 'error' || text.startsWith('Failed to load resource')) return;
+        if (reported.has(text) || logged-- <= 0) return;
+        reported.add(text);
+        report('Console error: ' + text);
+      };
+      listeners.set(page, { onError, onResponse, onConsole });
       page.on('pageerror', onError);
       page.on('response', onResponse);
+      page.on('console', onConsole);
     };
     context.pages().forEach(attach);
     context.on('page', attach);
@@ -41,6 +56,7 @@ export function register() {
       for (const [page, listener] of listeners) {
         page.off('pageerror', listener.onError);
         page.off('response', listener.onResponse);
+        page.off('console', listener.onConsole);
       }
     }
   } });
