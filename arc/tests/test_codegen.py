@@ -333,7 +333,7 @@ class RepairEntryTests(unittest.TestCase):
 class RegressionCheckpointTests(unittest.TestCase):
     def test_should_bound_checkpoint_gaps_and_skip_final_or_disabled(self):
         import main
-        self.assertEqual([i for i in range(1,33) if main.regression_checkpoint_due(i,32,4)], [4,8,16,24])
+        self.assertEqual([i for i in range(1,33) if main.regression_checkpoint_due(i,32,4)], [4,8,16,24,28])
         self.assertEqual([i for i in range(1,20) if main.regression_checkpoint_due(i,20,3)], [3,6,12,18])
         self.assertFalse(main.regression_checkpoint_due(4,20,0))
         points = [0] + [i for i in range(1, 122) if main.regression_checkpoint_due(i, 121, 4)] + [121]
@@ -411,3 +411,23 @@ class CodegenRepairEvidenceTests(unittest.TestCase):
             self.assertIsNone(flow.codegen_repair_prompt('node', 'failure and sources'))
         flow.spec_bodies = lambda _: '(none)'
         self.assertIsNone(flow.codegen_repair_prompt('node', 'failure and sources'))
+
+
+class TailCheckpointTests(unittest.TestCase):
+    """Cloud 746c81a2b5aa: the doubling schedule leaves the end of a 32-node run
+    unchecked from node 24 to the full suite, where the app is most layered."""
+
+    def test_should_guard_the_last_interval_before_the_end(self):
+        import main
+        self.assertIn(28, [i for i in range(1, 33) if main.regression_checkpoint_due(i, 32, 4)])
+
+    def test_should_not_add_checkpoints_the_schedule_already_covers(self):
+        import main
+        self.assertEqual([i for i in range(1, 20) if main.regression_checkpoint_due(i, 20, 3)], [3, 6, 12, 18])
+        self.assertEqual([i for i in range(1, 122) if main.regression_checkpoint_due(i, 121, 4)],
+                         [4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120])
+
+    def test_should_still_skip_the_final_node_and_a_disabled_interval(self):
+        import main
+        self.assertFalse(main.regression_checkpoint_due(32, 32, 4))
+        self.assertFalse(main.regression_checkpoint_due(4, 20, 0))

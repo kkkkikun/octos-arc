@@ -1228,11 +1228,17 @@ def acceptance_tests_prompt(tests_dir: Path | None, web_port: int, smoke_port: i
 # ---------------------------------------------------------------- flow
 
 def regression_checkpoint_due(index: int, total: int, start: int) -> bool:
-    """Start with short checks, then cap gaps at twice the interval; skip the final node."""
+    """Start with short checks, then cap gaps at twice the interval; skip the final node.
+
+    The last interval always checks. Cloud 3ffe9702bf15 / 746c81a2b5aa run 32
+    nodes, so the doubling leaves nodes 25-32 unchecked until the full suite --
+    the widest gap, over the most layered state, right where a regression costs
+    the most to find.
+    """
     if start <= 0 or index < start or index >= total or index % start:
         return False
     multiple = index // start
-    return multiple == 1 or multiple % 2 == 0
+    return multiple == 1 or multiple % 2 == 0 or index + start >= total
 
 
 class Flow:
