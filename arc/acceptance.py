@@ -263,7 +263,11 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
     # test could see, so the share has a floor. Above roughly twenty failures the
     # floor wins every time and `max_snapshots` stops bounding anything: a
     # 125-spec suite failing wholesale produced 100000 characters of trees under
-    # an 18000 budget, and a 236000-character prompt. Keep the floor, and spend it
+    # an 18000 budget, and a 236000-character prompt. That prompt still fits the
+    # model -- deepseek-v4-flash carries a 1048576 token window, and 236000
+    # characters is about 59000 -- so this bounds cost and noise, not a context
+    # overflow; do not reintroduce the floor believing the prompt would be
+    # rejected. Keep the floor, and spend it
     # on as many failures as the budget really covers; the rest still report their
     # feature, location, observation and steps, which is what names the cause.
     per_snapshot = max(800, max_snapshots // failing)
