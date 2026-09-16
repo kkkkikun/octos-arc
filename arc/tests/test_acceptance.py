@@ -333,6 +333,10 @@ class FinalWorkersAndReapTests(unittest.TestCase):
                 time.sleep(0.1)
             self.assertGreaterEqual(killed, 1, "the stray inside backend/ was not reaped")
             self.assertIsNotNone(inside_p.poll(), "the stray inside backend/ is still running")
+            # A killed child polls as None until it is reaped, so checking the
+            # survivor straight away can pass even when it was killed. Give the
+            # signal time to land first.
+            time.sleep(1.0)
             self.assertIsNone(outside_p.poll(), "a process outside the app tree was killed")
         finally:
             for proc in (inside_p, outside_p):
