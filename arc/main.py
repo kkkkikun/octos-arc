@@ -2545,6 +2545,14 @@ class Flow:
                 # five failures the pass began with. Two rounds behind the best
                 # is a trend rather than one flaky spec, which is the same
                 # threshold the node loop uses.
+                #
+                # Two and not one, and the same run shows why: 6e82a7ff571c went
+                # 27/32, lost a repair to the timeout, measured 17/32, lost the
+                # next repair to the timeout as well -- and then measured 28/32,
+                # past the best it had. A rollback on the first dip would have
+                # returned to 27 and never reached 28. Damage from a cut turn is
+                # recoverable, so this waits for a trend and the pass still
+                # delivers its best round either way.
                 regressions += 1
                 if regressions >= 2 and best["sha"]:
                     self.restore_app(best["sha"])
