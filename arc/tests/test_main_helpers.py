@@ -1509,3 +1509,49 @@ class WorkerParityNoteTests(unittest.TestCase):
         with patch.dict("os.environ", {"OCTOS_FINAL_REPAIR_ROUNDS": "1"}):
             flow.final_acceptance()
         self.assertIn("grading runs 4", flow.turn.call_args.args[0])
+
+
+class LastRepairDiffTests(unittest.TestCase):
+    """Cloud e767e871a6c6 ran four full-suite rounds over eleven failures that
+    never budged. "You changed these files and nothing moved" is a different
+    instruction from "it failed again"."""
+
+    def _flow(self, stdout):
+        import argparse
+        from pathlib import Path
+        from types import SimpleNamespace
+        flow = m.Flow(argparse.Namespace(web_port=1), Path('.'), Path('.'))
+        self.args = []
+        flow.runtime = SimpleNamespace(git=SimpleNamespace(
+            run=lambda a, check=True: (self.args.append(a),
+                                       SimpleNamespace(stdout=stdout))[1]))
+        return flow
+
+    def test_should_name_what_the_last_repair_touched(self):
+        note = self._flow(" frontend/src/index.html | 12 ++++---\n 1 file changed\n").last_repair_diff()
+        self.assertIn("frontend/src/index.html", note)
+        self.assertIn("did not move", note)
+
+    def test_should_say_plainly_when_nothing_was_written(self):
+        note = self._flow("").last_repair_diff()
+        self.assertIn("left frontend/ and backend/ unchanged", note)
+        self.assertIn("Make an edit this time", note)
+
+    def test_should_compare_the_last_commit_against_the_one_before(self):
+        self._flow("x").last_repair_diff()
+        self.assertEqual(self.args[0][:4], ["diff", "HEAD~1", "HEAD", "--stat"])
+
+    def test_should_stay_bounded(self):
+        big = "\n".join(f" file{i}.js | {i} +++" for i in range(400))
+        self.assertLessEqual(len(self._flow(big).last_repair_diff()), 1200)
+
+    def test_should_stay_silent_rather_than_break_the_loop(self):
+        import argparse
+        from pathlib import Path
+        from types import SimpleNamespace
+        flow = m.Flow(argparse.Namespace(web_port=1), Path('.'), Path('.'))
+        self.assertEqual(flow.last_repair_diff(), "")          # no runtime at all
+        def boom(*a, **k):
+            raise OSError("git is gone")
+        flow.runtime = SimpleNamespace(git=SimpleNamespace(run=boom))
+        self.assertEqual(flow.last_repair_diff(), "")

@@ -1711,6 +1711,31 @@ class Flow:
             log(f"[git] commit failed: {exc}")
             return False
 
+    def last_repair_diff(self, max_chars: int = 900) -> str:
+        """What the previous repair commit actually changed.
+
+        The harness commits after every repair, so when a round reproduces the
+        round before it, git can say whether anything moved and where. Cloud
+        e767e871a6c6 ran four rounds over eleven failures that never budged, and
+        the in-repo record of 91aaecaf31af and 5747e6bcf530 is that repeated
+        repairs re-emit the same files. "You changed these and nothing moved" is
+        a different instruction from "it failed again".
+        """
+        git = getattr(getattr(self, "runtime", None), "git", None)
+        if git is None:
+            return ""  # a diagnostic must never be what breaks the repair loop
+        try:
+            result = git.run(["diff", "HEAD~1", "HEAD", "--stat", "--", "frontend", "backend"], check=False)
+        except Exception as exc:  # noqa: BLE001
+            log(f"[git] could not read the last repair: {exc}")
+            return ""
+        stat = (getattr(result, "stdout", "") or "").strip()
+        if not stat:
+            return ("\n\nThe previous repair left frontend/ and backend/ unchanged, so this result is the "
+                    "same code measured twice. Make an edit this time.")
+        return ("\n\nThe previous repair changed this and the failures did not move:\n"
+                + clip_ends(stat, max_chars))
+
     def restore_app(self, sha: str) -> None:
         git = self.runtime.git
         for part in ("frontend", "backend"):
@@ -2450,6 +2475,7 @@ class Flow:
                 # repair missed the cause, not that the cause cannot be fixed --
                 # tell it so, the way the per-node path already does, and retry.
                 repeated = True
+                failures += self.last_repair_diff()
                 log("[acceptance] full suite: same failures as the previous round; changing repair approach")
                 self.pending_corrections.append(
                     'Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
