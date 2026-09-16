@@ -476,6 +476,14 @@ class HiddenControlDiagnosticTests(unittest.TestCase):
         self.assertIn('display:none', text)
         self.assertIn('.acts', text)          # the rule's owner, so the fix is findable
 
+    def test_should_name_a_control_hidden_by_visibility(self):
+        # The exact rule cloud 6e82a7ff571c generated: opacity for the fade and
+        # `visibility: hidden` so it does not linger. Playwright treats that as
+        # not visible, and the ARIA snapshot drops it.
+        text = self._run('visibility: hidden; opacity: 0; transition: visibility .2s, opacity .2s;')
+        self.assertIn('Pin note Groceries', text)
+        self.assertIn('visibility:hidden', text)
+
     def test_should_not_flag_a_control_that_is_only_transparent(self):
         # opacity keeps the box and the hit area, so the control stays operable
         # -- it is the styling the contract recommends, not a defect.

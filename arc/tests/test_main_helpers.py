@@ -967,9 +967,14 @@ class ContractPromptParityTests(unittest.TestCase):
         # the control out of the page until a pointer arrives.
         contract = m.UI_CONTRACT_CORE
         self.assertIn("display: none", contract)
-        self.assertIn(":hover", contract)
+        self.assertIn("visibility: hidden", contract)
         self.assertIn("opacity", contract)
         self.assertIn("touch user", contract)
+        # Cloud 6e82a7ff571c wrote `visibility: hidden; opacity: 0` with a
+        # transition on both -- it reached for opacity and still hid the
+        # control. Naming opacity alone is not enough; the pairing must be
+        # called out or the next run writes the same rule.
+        self.assertIn("Do not add `visibility: hidden` alongside it", contract)
 
     def test_should_require_per_item_controls_to_name_their_item(self):
         # Cloud 746c81a2b5aa: every note card rendered `button "More options"`,
