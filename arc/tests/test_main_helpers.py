@@ -1226,6 +1226,7 @@ class CheckpointEvidenceTests(unittest.TestCase):
         flow.remaining = lambda: 10_000
         flow.run_specs = lambda specs, workers=None, grader_like=False: self._summary(failures)
         flow.mark = lambda *a, **k: None
+        flow.repair_regressions = lambda *a, **k: None  # covered by CheckpointRepairTests
         with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
             flow.regression_checkpoint(2, 8)
         return flow.pending_corrections[-1]
@@ -1244,3 +1245,76 @@ class CheckpointEvidenceTests(unittest.TestCase):
             correction = self._correction(4)
         self.assertIn("REQ-0: behaviour 0", correction)
         self.assertIn("elided", correction)
+
+
+class CheckpointRepairTests(unittest.TestCase):
+    """Cloud e767e871a6c6: checkpoint 8 reported REQ-2.3.1/2/3 broken, checkpoint
+    16 reported the same three plus four more, and no recovery was recorded in
+    between. Queueing the evidence for the next node's turn fixes nothing — that
+    turn has its own node, and its acceptance covers only its own spec."""
+
+    def _flow(self, rounds_results):
+        import argparse, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        names = ["REQ-1", "REQ-2"]
+        for n in names:
+            (root / "t" / f"{n}.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.spec_map = {n: [f"{n}.spec.ts"] for n in names}; flow.spec_map[None] = []
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "prepared", timeout_ms=10000)
+        flow.test_verdict = {n: True for n in names}
+        flow.requirement_nodes = {}
+        flow.pending_corrections = []
+        flow.min_repair_seconds = 300
+        flow.remaining = lambda: 10_000
+        flow.wound_down = lambda: False
+        flow.mark = lambda *a, **k: None
+        flow.commit = lambda msg: True
+        flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
+        flow.record_tests = lambda *a, **k: None
+        flow.turn = Mock(return_value=(True, "repaired"))
+        it = iter(rounds_results)
+        def run_specs(specs, workers=None, grader_like=False):
+            passed = next(it)
+            return RunSummary(passed=passed, total=2, results=[
+                TestOutcome(title=n, ok=i < passed, status="passed" if i < passed else "failed",
+                            duration_ms=1, file=f"{n}.spec.ts") for i, n in enumerate(names)])
+        flow.run_specs = run_specs
+        return flow
+
+    def test_should_repair_a_regression_before_the_next_node(self):
+        from unittest.mock import patch
+        flow = self._flow([1, 2])  # checkpoint finds one broken, the repair fixes it
+        with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
+            flow.regression_checkpoint(2, 8)
+        self.assertEqual(flow.turn.call_count, 1)
+        self.assertIn("checkpoint 2 repair", flow.turn.call_args.args[2])
+        self.assertTrue(all(flow.test_verdict.values()))
+
+    def test_should_not_repair_when_nothing_regressed(self):
+        from unittest.mock import patch
+        flow = self._flow([2])
+        with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
+            flow.regression_checkpoint(2, 8)
+        flow.turn.assert_not_called()
+
+    def test_should_leave_the_verdict_false_when_the_repair_does_not_take(self):
+        from unittest.mock import patch
+        flow = self._flow([1, 1])
+        with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
+            flow.regression_checkpoint(2, 8)
+        self.assertEqual(flow.turn.call_count, 1)
+        self.assertFalse(flow.test_verdict["REQ-2"])
+
+    def test_should_skip_the_repair_when_the_budget_is_gone(self):
+        from unittest.mock import patch
+        flow = self._flow([1])
+        flow.remaining = lambda: 10
+        with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
+            flow.regression_checkpoint(2, 8)
+        flow.turn.assert_not_called()

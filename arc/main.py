@@ -2310,6 +2310,47 @@ class Flow:
                 "Repair the observed failures while preserving other working behavior. "
                 "Tests ran together against one server; use this evidence when implementing the next node.\n"
                 + clip_ends(evidence, budget))
+            self.repair_regressions(index, specs, verified, tracked, summary, grouped, workers)
+
+    def repair_regressions(self, index: int, specs: list[str], verified: dict, tracked: set,
+                           summary: RunSummary, grouped: dict, workers: int) -> None:
+        """Fix what a checkpoint found before building anything else on top.
+
+        Queueing the evidence for the next node's turn does not work: that turn
+        is busy with its own node, and its acceptance run only covers its own
+        spec, so nothing re-checks the regression until the next checkpoint. In
+        cloud e767e871a6c6 checkpoint 8 reported REQ-2.3.1, REQ-2.3.2 and
+        REQ-2.3.3 broken; by checkpoint 16 the same three were still broken and
+        four more had joined them, with no recovery recorded in between.
+        """
+        rounds = int(os.environ.get("OCTOS_ARC_CHECKPOINT_REPAIRS", "1"))
+        for attempt in range(rounds):
+            if not grouped or self.remaining() < self.min_repair_seconds or self.wound_down():
+                return
+            failing = sorted(node for node in grouped if node) or ["the regressed behaviours"]
+            failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
+            self.turn(REPAIR_PROMPT.format(
+                node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
+                test_location=self.repair_test_location(),
+                sources=self.repair_requirements() + self.sources_text(),
+                corrections=self.corrections_text(), slow="",
+                smoke=self.smoke_port, port=self.web_port),
+                min(self.node_timeout, max(120, self.remaining() - 200)),
+                f"checkpoint {index} repair {attempt + 1}/{rounds}")
+            self.commit(f"fix: checkpoint {index} regression repair {attempt + 1}")
+            summary = self.run_specs(specs, workers=workers, grader_like=True)
+            if summary.error:
+                return
+            grouped = nodes_for_failures(summary.results, verified)
+            log(f"[acceptance] checkpoint {index} after repair: {summary.passed}/{summary.total}; "
+                f"still regressed {sorted(node for node in grouped if node)}")
+            for node in verified:
+                if node and node not in grouped:
+                    tracked.discard(node)
+                    self.test_verdict[node] = True
+                elif node:
+                    tracked.add(node)
+                    self.test_verdict[node] = False
 
     def final_acceptance(self) -> None:
         """Run EVERY spec file together against one server with the configured workers.

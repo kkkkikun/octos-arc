@@ -354,6 +354,7 @@ class RegressionCheckpointTests(unittest.TestCase):
             flow.run_specs=Mock(return_value=RunSummary(passed=1,total=2,results=[
                 TestOutcome('old behavior',False,'failed',1,file='old.spec.ts',message='handler undefined')]))
             with patch.dict('os.environ',{'OCTOS_ARC_REGRESSION_CHECKPOINT':'4','OCTOS_ARC_FINAL_WORKERS':'4'}):
+                flow.repair_regressions = lambda *a, **k: None  # covered by CheckpointRepairTests
                 flow.regression_checkpoint(4,12)
             flow.run_specs.assert_called_once_with(['new.spec.ts','old.spec.ts'],workers=4,grader_like=True)
             self.assertIs(flow.test_verdict['old'],False)
