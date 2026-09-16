@@ -520,6 +520,33 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         self.assertEqual(flow.restored, ["sha0"])
         self.assertTrue(flow.test_verdict["REQ-1"]); self.assertFalse(flow.test_verdict["REQ-2"])
 
+    def test_should_not_restore_on_a_single_round_behind_the_best(self):
+        """One round behind can be a flaky spec. The node loop waits for two and
+        so does this one; restoring on every dip would chase a lucky round."""
+        import os
+        os.environ["OCTOS_FINAL_REPAIR_ROUNDS"] = "2"
+        try:
+            flow = self._flow([1, 0, 2])      # dip once, then beat the best
+            flow.final_acceptance()
+        finally:
+            del os.environ["OCTOS_FINAL_REPAIR_ROUNDS"]
+        self.assertEqual(flow.restored, [])   # the dip alone must not roll back
+
+    def test_should_tell_the_model_when_it_rolled_the_app_back(self):
+        # Cloud 6e82a7ff571c: 27/32, repair cut at the 1200s timeout, 17/32 next.
+        # Silently swapping the code under the model leaves it repairing a tree
+        # it has not been told about.
+        import os
+        os.environ["OCTOS_FINAL_REPAIR_ROUNDS"] = "2"
+        try:
+            flow = self._flow([1, 0, 0])
+            flow.final_acceptance()
+        finally:
+            del os.environ["OCTOS_FINAL_REPAIR_ROUNDS"]
+        self.assertEqual(flow.restored, ["sha0"])
+        self.assertTrue(any("restored frontend/ and backend/ to the best state" in c
+                            for c in flow.pending_corrections))
+
     def test_should_continue_when_same_test_reaches_a_new_failed_operation(self):
         from unittest.mock import patch
         flow = self._flow([1, 1, 2])

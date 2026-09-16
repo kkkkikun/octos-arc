@@ -2491,6 +2491,7 @@ class Flow:
         # the evidence then comes from a round where the flaky specs passed, which
         # silently drops the intermittent note. Any retry needs to keep both.
         best: dict | None = None  # L17: best full-suite round (passed, sha, summary, grouped)
+        regressions = 0  # consecutive rounds behind the best one
         last_passed = -1
         unfinished = ""  # what the previous repair turn said it had left to do
         wrote_last = False  # whether that turn got as far as committing an edit
@@ -2535,6 +2536,29 @@ class Flow:
                 if attempt > 0:
                     self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} (best so far)")
                 best = {"passed": summary.passed, "sha": self.head(), "summary": summary, "grouped": grouped}
+                regressions = 0
+            elif summary.passed < best["passed"]:
+                # The per-node loop already does this; the full-suite pass did not.
+                # A repair cut at the per-turn timeout leaves the tree part
+                # written: cloud 6e82a7ff571c went 27/32 -> repair killed at 1200s
+                # -> 17/32, and the rounds after it repair that instead of the
+                # five failures the pass began with. Two rounds behind the best
+                # is a trend rather than one flaky spec, which is the same
+                # threshold the node loop uses.
+                regressions += 1
+                if regressions >= 2 and best["sha"]:
+                    self.restore_app(best["sha"])
+                    self.pending_corrections.append(
+                        f"Your last two full-suite repairs made the tests worse; the harness restored frontend/ and "
+                        f"backend/ to the best state ({best['passed']}/{best['summary'].total}). Start from that code.")
+                    log(f"[acceptance] full suite: two rounds behind {best['passed']}/{best['summary'].total}; "
+                        f"restored the best state")
+                    # The tree is the best round's again, so the verdicts have to be
+                    # too, and the restore at the end of the pass has nothing left
+                    # to do.
+                    self.record_full_suite(best["summary"], best["grouped"])
+                    last_passed = best["passed"]
+                    regressions = 0
             if not grouped:
                 self.commit(f"chore: full acceptance suite {summary.passed}/{summary.total} pass (full suite)")
                 return
