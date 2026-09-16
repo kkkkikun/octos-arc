@@ -520,6 +520,58 @@ class FinalSuiteBestRoundTests(unittest.TestCase):
         self.assertEqual(flow.restored, ["sha0"])
         self.assertTrue(flow.test_verdict["REQ-1"]); self.assertFalse(flow.test_verdict["REQ-2"])
 
+    def test_should_never_deliver_a_later_pass_that_is_worse(self):
+        """`final_acceptance_passes` says a repeat starts from a state at least as
+        good as the one before it. Cloud 6e82a7ff571c bears it out -- pass 1 ended
+        29/32 and pass 2 opened 29/32 -- but nothing pinned it. If the restore at
+        the end of a pass ever went away, a later pass could hand back worse code
+        than an earlier one already had."""
+        import argparse, os, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from acceptance import RunSummary, TestOutcome
+        root = Path(tempfile.mkdtemp()); (root / "t").mkdir()
+        names = ["REQ-1", "REQ-2", "REQ-3"]
+        for n in names:
+            (root / "t" / f"{n}.spec.ts").write_text("x")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.tests_dir = root / "t"
+        flow.spec_map = {n: [f"{n}.spec.ts"] for n in names}; flow.spec_map[None] = []
+        flow.runner = SimpleNamespace(root=root, work_dir=root / "w", timeout_ms=10000)
+        flow.mem_limit = 2 * 1024 ** 3
+        flow.test_verdict = {n: False for n in names}
+        flow.requirement_nodes = {}; flow.pending_corrections = []
+        flow.min_repair_seconds = 10
+        flow.remaining = lambda: 100_000; flow.time_up = lambda: False
+        flow.wound_down = lambda: False
+        flow.sources_text = lambda: ""; flow.corrections_text = lambda: ""
+        flow.last_repair_diff = lambda *a, **k: ""
+        flow.driver = None
+        heads = iter([f"sha{i}" for i in range(50)])
+        flow.head = lambda: next(heads)
+        flow.commit = lambda msg: True
+        flow.turn = lambda *a, **k: (True, "done")
+        flow.record_tests = lambda *a, **k: None
+        recorded = []
+        flow.record_full_suite = lambda summary, grouped: recorded.append(summary.passed)
+        flow.restore_app = lambda sha: None
+        # pass 1 peaks at 2/3; pass 2 only ever measures worse than that peak
+        scores = iter([1, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
+        def run_specs(specs, workers=None, grader_like=False):
+            k = next(scores, 1)
+            rows = [TestOutcome(title=n, ok=(i < k), status="passed" if i < k else "timedOut",
+                                duration_ms=1, file=f"{n}.spec.ts", message="boom")
+                    for i, n in enumerate(names)]
+            su = RunSummary(passed=k, total=3, results=rows); su.stores_written = []
+            return su
+        flow.run_specs = run_specs
+        with patch.dict(os.environ, {"OCTOS_FINAL_SUITE_PASSES": "2", "OCTOS_FINAL_REPAIR_ROUNDS": "2"}):
+            flow.final_acceptance_passes()
+        self.assertTrue(recorded, "no full-suite round was recorded")
+        self.assertEqual(recorded[-1], max(recorded),
+                         f"delivered {recorded[-1]} after having reached {max(recorded)}: {recorded}")
+
     def test_should_not_restore_on_a_single_round_behind_the_best(self):
         """One round behind can be a flaky spec. The node loop waits for two and
         so does this one; restoring on every dip would chase a lucky round."""
