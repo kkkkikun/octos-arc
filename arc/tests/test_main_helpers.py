@@ -1071,6 +1071,12 @@ class InterferenceNoteTests(unittest.TestCase):
     and failed in the suite, and the evidence for that looks like any other
     failure."""
 
+    def test_should_point_at_the_files_the_run_changed(self):
+        note = m.Flow.interference_note({"REQ-5.1": [], None: []}, {"REQ-5.1"},
+                                        ["backend/data/notes.json"])
+        self.assertIn("backend/data/notes.json", note)
+        self.assertNotIn("changed on disk", m.Flow.interference_note({"REQ-5.1": []}, {"REQ-5.1"}, []))
+
     def test_should_name_only_the_behaviours_that_passed_alone(self):
         note = m.Flow.interference_note({"REQ-5.1": [], "REQ-2.7.4": [], None: []},
                                         {"REQ-5.1", "REQ-3.2"})

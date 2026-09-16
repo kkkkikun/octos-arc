@@ -844,3 +844,43 @@ class GraderParityTests(unittest.TestCase):
 
     def test_should_keep_the_graders_serial_ordering_by_default(self):
         self.assertIn('fullyParallel: false', self._config())
+
+
+class MutatedStoresTests(unittest.TestCase):
+    """A spec that passes alone and fails in the suite usually shares state
+    through a file the app writes. `snapshot_worktree` staged the tree before the
+    run, so afterwards git already knows which files that was."""
+
+    def _repo(self):
+        root = Path(tempfile.mkdtemp())
+        env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@x", "PATH": "/usr/bin:/bin:/opt/homebrew/bin"}
+        run = lambda args: subprocess.run(["git", *args], cwd=root, check=False,  # noqa: E731
+                                          capture_output=True, text=True, env=env)
+        run(["init", "-q"])
+        (root / "backend" / "data").mkdir(parents=True)
+        (root / "frontend").mkdir()
+        (root / "backend" / "data" / "notes.json").write_text('["seed"]')
+        (root / "backend" / "server.js").write_text("v1")
+        run(["add", "-A"]); run(["commit", "-qm", "init"])
+        return root, run
+
+    def test_should_name_the_files_a_test_run_changed(self):
+        from acceptance import mutated_by_tests, snapshot_worktree
+        root, run = self._repo()
+        snapshot_worktree(run)
+        (root / "backend" / "data" / "notes.json").write_text('["seed","added by a test"]')
+        self.assertEqual(mutated_by_tests(run), ["backend/data/notes.json"])
+
+    def test_should_say_nothing_when_the_run_changed_nothing(self):
+        from acceptance import mutated_by_tests, snapshot_worktree
+        root, run = self._repo()
+        snapshot_worktree(run)
+        self.assertEqual(mutated_by_tests(run), [])
+
+    def test_should_not_report_the_models_own_edits(self):
+        from acceptance import mutated_by_tests, snapshot_worktree
+        root, run = self._repo()
+        (root / "backend" / "server.js").write_text("v2 (a repair edit)")
+        snapshot_worktree(run)  # the edit is part of the snapshot, not of the run
+        self.assertEqual(mutated_by_tests(run), [])

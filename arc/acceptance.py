@@ -113,6 +113,7 @@ class RunSummary:
     error: str | None = None  # infrastructure error (no report)
     killed: bool = False      # the test runner itself was killed (OOM); not a verdict
     load_errors: list[str] = field(default_factory=list)  # Playwright top-level errors
+    stores_written: list[str] = field(default_factory=list)  # files this run left changed on disk
 
     def slow(self, threshold_ms: int) -> list[str]:
         return [r.title for r in self.results if r.duration_ms >= threshold_ms]
@@ -681,6 +682,19 @@ def snapshot_worktree(git_run: Callable[[list[str]], object]) -> None:
     """Stage everything so `restore_worktree` can undo what a test run mutates
     (persisted JSON stores, uploaded files) without losing the model's edits."""
     git_run(["add", "-A"])
+
+
+def mutated_by_tests(git_run: Callable[[list[str]], object],
+                     parts: tuple[str, ...] = ("frontend", "backend")) -> list[str]:
+    """Files the test run changed, against the snapshot `snapshot_worktree` staged.
+
+    An app that keeps its state in files carries one session's actions into the
+    next, which is how a spec that passes on its own fails in the suite. Naming
+    the files turns "shared state" into somewhere to look.
+    """
+    result = git_run(["diff", "--name-only", "--", *parts])
+    out = getattr(result, "stdout", "") or ""
+    return sorted({line.strip() for line in out.splitlines() if line.strip()})[:12]
 
 
 def restore_worktree(git_run: Callable[[list[str]], object], parts: tuple[str, ...] = ("frontend", "backend")) -> None:

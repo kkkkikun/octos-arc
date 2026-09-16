@@ -81,7 +81,7 @@ from acceptance import (  # noqa: E402
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, clip_ends, container_memory_limit, ensure_playwright,
     failure_signature, failure_summaries, failure_source_context, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
-    restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes)
+    mutated_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes)
 from codegen import FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_file_blocks, write_files  # noqa: E402
 from guard import TurnMonitor  # noqa: E402
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
@@ -1849,15 +1849,20 @@ class Flow:
         git_run = lambda args: self.runtime.git.run(args, check=False)  # noqa: E731
         snapshot_worktree(git_run)
         server = self.app_server(grader_like)
+        summary: RunSummary | None = None
         try:
             err = server.build()
             if err is None:
                 err = server.start()
             if err is not None:
                 return RunSummary(error=err)
-            return self.runner.run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers)
+            summary = self.runner.run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers)
+            return summary
         finally:
             server.stop()
+            # Ask before restoring: afterwards there is nothing left to compare.
+            if summary is not None:
+                summary.stores_written = mutated_by_tests(git_run)
             restore_worktree(git_run)
 
     def record_tests(self, node_id: str, specs: list[str], summary: RunSummary) -> None:
@@ -2409,7 +2414,7 @@ class Flow:
             else:
                 grouped = nodes_for_failures(summary.results, self.spec_map)
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
-                failures += self.interference_note(grouped, passed_alone)
+                failures += self.interference_note(grouped, passed_alone, summary.stores_written)
                 failures += self.intermittent_note(grouped, passed_a_round)
                 owners = {Path(path).name: node for node, paths in self.spec_map.items()
                           for path in (paths or [])}
@@ -2503,7 +2508,7 @@ class Flow:
                 "session rather than for an unimplemented feature.")
 
     @staticmethod
-    def interference_note(grouped: dict, passed_alone: set) -> str:
+    def interference_note(grouped: dict, passed_alone: set, stores_written: list | None = None) -> str:
         """Name the behaviours that only fail in company.
 
         Cloud 746c81a2b5aa lost REQ-5.1 this way: it passed on its own and failed
@@ -2515,9 +2520,14 @@ class Flow:
         solo = sorted(node for node in grouped if node and node in passed_alone)
         if not solo:
             return ""
-        return ("\n\nThese passed when their own spec ran alone and fail now that every spec drives one "
+        note = ("\n\nThese passed when their own spec ran alone and fail now that every spec drives one "
                 f"server: {', '.join(solo)}. What changed is the state they share with the other sessions, "
                 "not the behaviour itself.")
+        if stores_written:
+            note += (" The suite run left these files changed on disk: "
+                     f"{', '.join(stores_written)} — whatever one session writes there is still there for "
+                     "the next.")
+        return note
 
     def record_full_suite(self, summary: RunSummary, grouped: dict) -> None:
         """Per-node verdicts and traceability from one full-suite round."""
