@@ -654,3 +654,39 @@ assert(rows.length <= 8 && rows.every(x => x.length <= 2000), 'unbounded diagnos
 """
         result = subprocess.run(['node', '-e', script, str(self.REPORTER)], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class ApiFailureDiagnosticsTests(unittest.TestCase):
+    """The page observer reported failed navigations only. A generated app does
+    most of its work over fetch/XHR, so a 500 from its own API left the page
+    empty and the evidence silent about why."""
+
+    def test_should_report_a_failed_api_request_without_changing_verdict(self):
+        from acceptance import AcceptanceRunner
+        import os
+        install = os.environ.get('OCTOS_TEST_PLAYWRIGHT_ROOT')
+        if not install:
+            self.skipTest('requires installed Playwright')
+        root = Path(install)
+        with tempfile.TemporaryDirectory(prefix='api-error-', dir=root) as folder:
+            base = Path(folder); specs = base/'source'; specs.mkdir()
+            source = """import {test,expect} from '@playwright/test';
+for (const fail of [false,true]) test('api status '+fail,async({page})=>{
+ await page.route('http://example.test/api/**', route=>route.fulfill({status:500,contentType:'application/json',body:'{}'}));
+ await page.route('http://example.test/', route=>route.fulfill({status:200,contentType:'text/html',body:'<h1>Notes</h1>'}));
+ await page.goto('http://example.test/');
+ await page.evaluate(() => fetch('/api/notes?token=private-value').catch(() => {}));
+ await page.waitForTimeout(300);
+ expect(fail).toBe(false);
+});
+"""
+            spec = specs/'api.spec.ts'; spec.write_text(source)
+            runner = AcceptanceRunner(root, specs, base/'prepared', lambda _: None, workers=1)
+            result = runner.run(['api.spec.ts'], 'http://127.0.0.1:1')
+            self.assertEqual((result.passed, result.total), (1, 2), result.error)
+            self.assertEqual(spec.read_text(), source)
+            summary = failure_summaries(result)
+            self.assertIn('HTTP 500', summary)
+            self.assertIn('/api/notes', summary)
+            diagnostics = summary.split('Browser diagnostics', 1)[-1]
+            self.assertNotIn('private-value', diagnostics)
