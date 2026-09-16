@@ -911,12 +911,14 @@ class AcceptanceRunner:
             f"timeout: {self.timeout_ms}, retries: 0, "
             f"fullyParallel: {'true' if os.environ.get('OCTOS_ARC_FULLY_PARALLEL') == '1' else 'false'}, "
             f"workers: {workers or self.workers}, reporter: [['list'], ['json', {{ outputFile: 'report.json' }}], ['./action_errors.cjs', {{ output: 'action-errors.json' }}]], "
-            # Action/navigation/expect timeouts sit below the 10 s test timeout on
-            # purpose: a hanging click then fails with the locator named in the
-            # call log instead of an anonymous "Test timeout exceeded".
-            f"expect: {{ timeout: {min(4000, self.timeout_ms // 2)} }}, "
-            f"use: {{ headless: true, baseURL: process.env.E2E_BASE_URL, actionTimeout: {min(4000, self.timeout_ms // 2)}, "
-            f"navigationTimeout: {min(6000, self.timeout_ms * 3 // 5)} }} }});\n")
+            # The grader's own config gives expect the full test timeout and sets
+            # no action or navigation timeout. Anything stricter here fails tests
+            # that grading would pass and spends repair rounds on them. The
+            # tighter values used to buy a named locator in the error; the page
+            # snapshot and the action trace now carry that whichever timeout
+            # fires.
+            f"expect: {{ timeout: {self.timeout_ms} }}, "
+            f"use: {{ headless: true, baseURL: process.env.E2E_BASE_URL }} }});\n")
         return self.work_dir / "playwright.config.ts"
 
     def _attach_rendered_pages(self, summary: RunSummary) -> None:

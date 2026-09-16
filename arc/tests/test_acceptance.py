@@ -813,3 +813,34 @@ class BoundPortEvidenceTests(unittest.TestCase):
             self.assertIsNotNone(error)
             self.assertIn("did not bind port 38219", error)
             self.assertIn("Nothing started from the app tree is listening", error)
+
+
+class GraderParityTests(unittest.TestCase):
+    """The official config that grades a run (read from cloud 3ffe9702bf15):
+
+        timeout: 10000, expect: { timeout: 10000 }, fullyParallel: false,
+        workers: 4, use: { baseURL, channel: 'chromium', trace/screenshot off }
+
+    Anything stricter here fails tests grading would pass, and the harness then
+    spends repair rounds on them."""
+
+    def _config(self, timeout_ms=10000):
+        from acceptance import AcceptanceRunner
+        with tempfile.TemporaryDirectory(prefix='grader-parity-') as folder:
+            base = Path(folder); specs = base / 'source'; specs.mkdir()
+            (specs / 'a.spec.ts').write_text("import {test} from '@playwright/test';\ntest('a',()=>{});\n")
+            runner = AcceptanceRunner(base / 'pw', specs, base / 'prepared', lambda _: None,
+                                      timeout_ms=timeout_ms, workers=1)
+            return runner._prepare().read_text()
+
+    def test_should_give_expect_the_whole_test_timeout(self):
+        self.assertIn('expect: { timeout: 10000 }', self._config())
+        self.assertIn('timeout: 10000', self._config())
+
+    def test_should_not_add_an_action_or_navigation_deadline_of_its_own(self):
+        config = self._config()
+        self.assertNotIn('actionTimeout', config)
+        self.assertNotIn('navigationTimeout', config)
+
+    def test_should_keep_the_graders_serial_ordering_by_default(self):
+        self.assertIn('fullyParallel: false', self._config())
