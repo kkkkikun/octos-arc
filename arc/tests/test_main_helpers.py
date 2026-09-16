@@ -959,6 +959,18 @@ class ContractPromptParityTests(unittest.TestCase):
                 self.assertEqual(getattr(m, constant).strip(),
                                  (prompts / filename).read_text().strip())
 
+    def test_should_forbid_hover_only_item_controls(self):
+        # Cloud e767e871a6c6 scored 62.5: all 12 official failures were note-card
+        # actions (Delete, Archive x4, Change color, Pin x3) and the evidence was
+        # "element is not visible", never an ambiguous locator. The generated CSS
+        # was `.note-actions { display: none }` revealed on `:hover`, which takes
+        # the control out of the page until a pointer arrives.
+        contract = m.UI_CONTRACT_CORE
+        self.assertIn("display: none", contract)
+        self.assertIn(":hover", contract)
+        self.assertIn("opacity", contract)
+        self.assertIn("touch user", contract)
+
     def test_should_require_per_item_controls_to_name_their_item(self):
         # Cloud 746c81a2b5aa: every note card rendered `button "More options"`,
         # so a name-based lookup clicked whichever card was hovered last.
