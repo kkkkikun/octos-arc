@@ -1247,9 +1247,13 @@ class CheckpointEvidenceTests(unittest.TestCase):
         self.assertLessEqual(len(self._correction(3)), 12000 + 400)
 
     def test_should_keep_both_ends_when_it_has_to_cut(self):
+        # Enough regressions that the blocks alone overrun the budget. Four no
+        # longer do: snapshots now stop at the budget instead of taking 800
+        # characters each however many failures there are, so the evidence for a
+        # handful of regressions fits without the outer cut.
         from unittest.mock import patch
         with patch.dict("os.environ", {"OCTOS_ARC_CHECKPOINT_EVIDENCE": "2000"}):
-            correction = self._correction(4)
+            correction = self._correction(12)
         self.assertIn("REQ-0: behaviour 0", correction)
         self.assertIn("elided", correction)
 

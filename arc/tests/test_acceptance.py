@@ -548,6 +548,35 @@ class FailurePageSnapshotTests(unittest.TestCase):
         quoted = sum(len(line) for line in summary.splitlines() if line.startswith('    - generic'))
         self.assertLessEqual(quoted, 8000 + 8 * 200)  # + the four-space quote indent per line
 
+    def _wholesale_failure(self, n, rows=80):
+        from acceptance import RunSummary, TestOutcome
+        tree = "\n".join(f'- generic [ref=e{i}]: row {i}' for i in range(rows))
+        return RunSummary(passed=0, total=125, results=[
+            TestOutcome(title=f'REQ-{i}', ok=False, status='timedOut', duration_ms=1,
+                        file=f'REQ-{i}.spec.ts', message='TimeoutError ' + 'd' * 600,
+                        rendered_page=tree) for i in range(n)])
+
+    def test_should_keep_snapshots_inside_their_budget_when_a_suite_fails_wholesale(self):
+        """The share has a floor, so above ~20 failures the floor won every time and
+        the budget bounded nothing: a 125-spec suite produced 100000 characters of
+        trees under an 18000 budget, in a 236000-character prompt."""
+        for failing in (40, 60, 125):
+            with self.subTest(failing=failing):
+                text = failure_summaries(self._wholesale_failure(failing), max_snapshots=18000)
+                quoted = sum(len(l) for l in text.splitlines() if l.startswith('    - generic'))
+                self.assertLessEqual(quoted, 18000 + 22 * 200)   # + the quote indent per line
+
+    def test_should_still_name_every_failure_it_cannot_show_a_page_for(self):
+        text = failure_summaries(self._wholesale_failure(125), max_snapshots=18000)
+        for i in (0, 60, 124):
+            self.assertIn(f'- Feature: REQ-{i}\n', text)         # nothing is silently dropped
+        self.assertIn('Observation:', text)
+
+    def test_should_not_change_a_suite_small_enough_to_fit(self):
+        # keep-sized runs must be byte-identical; only the runaway case changes.
+        text = failure_summaries(self._wholesale_failure(12), max_snapshots=18000)
+        self.assertEqual(text.count('Page at failure'), 12)
+
     def test_should_report_the_rendered_page_for_a_real_failure(self):
         from acceptance import AcceptanceRunner
         import os

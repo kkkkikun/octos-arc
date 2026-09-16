@@ -258,7 +258,16 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
     # The share has to clear the page chrome — header, sidebar, banner run over a
     # thousand characters before the content the test was actually looking at.
     failing = sum(1 for r in summary.results if not r.ok) or 1
+    # A share below the page chrome -- header, sidebar, banner run over a thousand
+    # characters before the content the test looked at -- shows none of what the
+    # test could see, so the share has a floor. Above roughly twenty failures the
+    # floor wins every time and `max_snapshots` stops bounding anything: a
+    # 125-spec suite failing wholesale produced 100000 characters of trees under
+    # an 18000 budget, and a 236000-character prompt. Keep the floor, and spend it
+    # on as many failures as the budget really covers; the rest still report their
+    # feature, location, observation and steps, which is what names the cause.
     per_snapshot = max(800, max_snapshots // failing)
+    snapshots_left = max(1, max_snapshots // per_snapshot)
     for r in summary.results:
         if r.ok:
             continue
@@ -273,7 +282,8 @@ def failure_summaries(summary: RunSummary, max_steps: int = 8, max_observation: 
         steps_src = r.steps or _call_log_steps(r.message)
         steps = " -> ".join(steps_src[-max_steps:]) if steps_src else "(no step trace)"
         blocks.append(f"- Feature: {r.title}\n  Failed at: {where}\n  Observation: {observation}\n  Steps: {steps}")
-        if r.rendered_page:
+        if r.rendered_page and snapshots_left > 0:
+            snapshots_left -= 1
             indented = "\n".join("    " + line for line in _clip_lines(r.rendered_page, per_snapshot).splitlines())
             blocks[-1] += ("\n  Page at failure (what the app actually rendered; roles and accessible "
                            "names the test could see):\n" + indented)
