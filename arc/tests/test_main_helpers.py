@@ -937,3 +937,30 @@ class RetryDeadlineTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertEqual(calls, expected_calls)
             self.assertEqual(now[0], expected_elapsed)
+
+
+class ContractPromptParityTests(unittest.TestCase):
+    """main.py inlines the contract prompts and arc/prompts/ ships the same text
+    to the Rust engine; an edit to one copy silently leaves the other behind."""
+
+    CONTRACTS = {
+        "UI_CONTRACT_CORE": "ui-contract-core.md",
+        "UI_CONTRACT_DATA": "ui-contract-data.md",
+        "UI_CONTRACT_SESSION": "ui-contract-session.md",
+        "ARCHITECTURE_CONTRACT": "architecture-contract.md",
+    }
+
+    def test_should_ship_the_same_contract_text_in_both_copies(self):
+        from pathlib import Path
+        prompts = Path(m.__file__).parent / "prompts"
+        for constant, filename in self.CONTRACTS.items():
+            with self.subTest(constant):
+                self.assertEqual(getattr(m, constant).strip(),
+                                 (prompts / filename).read_text().strip())
+
+    def test_should_require_per_item_controls_to_name_their_item(self):
+        # Cloud 746c81a2b5aa: every note card rendered `button "More options"`,
+        # so a name-based lookup clicked whichever card was hovered last.
+        contract = m.UI_CONTRACT_CORE
+        self.assertIn("repeated once per item", contract)
+        self.assertIn("accessible name", contract)
