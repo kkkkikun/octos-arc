@@ -81,7 +81,8 @@ from acceptance import (  # noqa: E402
     AcceptanceRunner, AppServer, RunSummary, acceptance_work_dir, clip_ends, container_memory_limit, ensure_playwright,
     failure_signature, failure_summaries, failure_source_context, find_playwright_by_search, find_playwright_root, map_specs_to_nodes,
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
-    mutated_by_tests, restore_worktree, snapshot_worktree, tree_digest, workers_for_final, reap_workspace_processes)
+    mutated_by_tests, restore_worktree, snapshot_worktree, startup_error_digest, tree_digest,
+    workers_for_final, reap_workspace_processes)
 from codegen import FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_file_blocks, write_files  # noqa: E402
 from guard import TurnMonitor  # noqa: E402
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
@@ -961,7 +962,7 @@ Requirement {node_id}: {description}
 
 Public acceptance example (implement the full requirement):
 {spec}
-Files: frontend/src/index.html (+ one html per further route); backend/server.js = CommonJS (require) Node http server on process.env.PORT||{port} serving ../frontend/dist files (index.html for /, <name>.html for /<name>) plus any API routes and persistence the requirement needs, 404 for anything else, handling request errors without hiding unexpected process failures.{ports} Initial package.json files already exist (build copies src/* to dist; start runs server.js). Preserve existing architecture; update manifests when required by dependencies or build changes.
+Files: frontend/src/index.html (+ one html per further route); backend/server.js = CommonJS (require) Node http server, never redeclaring the CommonJS globals (__dirname, __filename, require, module, exports), on process.env.PORT||{port} serving ../frontend/dist files (index.html for /, <name>.html for /<name>) plus any API routes and persistence the requirement needs, 404 for anything else, handling request errors without hiding unexpected process failures.{ports} Initial package.json files already exist (build copies src/* to dist; start runs server.js). Preserve existing architecture; update manifests when required by dependencies or build changes.
 For persistent data, initialize required records only for a new store or an explicit migration. Later startups must preserve user edits, deletions and archive state; a missing record does not mean the store is new. Reset data only when the requirements explicitly demand it.
 Rules: implement the requirement for general valid inputs and preserve existing behavior. Use required labels and accessible controls, with unique IDs and correct label associations. Derive storage, rendering, styling and validation from the task; do not hardcode test outputs. Return only requested file blocks. {size_rule}
 """
@@ -2024,7 +2025,9 @@ class Flow:
                 return None
             if summary.error:
                 log(f"[acceptance] {node_id} infrastructure error: {summary.error[:300]}")
-                failures = f"- Feature: app startup\n  Failed at: build/start\n  Observation: {summary.error[:600]}\n  Steps: npm run build -> npm start"
+                failures = (f"- Feature: app startup\n  Failed at: build/start\n"
+                            f"  Observation: {startup_error_digest(summary.error, 600)}\n"
+                            f"  Steps: npm run build -> npm start")
                 summary = RunSummary(passed=0, total=max(1, len(specs)))
                 passed = 0
             else:
@@ -2546,7 +2549,8 @@ class Flow:
                         self.test_verdict[node_id] = False
                 grouped = {None: []}
                 failures = (f"- Feature: application startup exactly as the grader runs it (only PORT set)\n"
-                            f"  Failed at: npm start\n  Observation: {summary.error[:700]}\n  Steps: npm run build -> npm start")
+                            f"  Failed at: npm start\n  Observation: {startup_error_digest(summary.error, 700)}\n"
+                            f"  Steps: npm run build -> npm start")
                 summary = RunSummary(passed=0, total=len(all_specs))
             else:
                 grouped = nodes_for_failures(summary.results, self.spec_map)
