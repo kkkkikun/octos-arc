@@ -11,7 +11,15 @@ if [ -n "$ROUTES" ]; then
     python3 -c 'import sys; from pathlib import Path; from llm_proxy import model_routes; model_routes(Path(sys.argv[1]).read_text())' "$ROUTES"
 fi
 rm -f ../octos-arc-bundle.zip
-zip -qr ../octos-arc-bundle.zip main.py rust_engine.py arc-policy.toml prompts octos_stdio.py requirement_order.py acceptance.py verify_app.py action_errors.cjs page_errors.ts guard.py llm_proxy.py codegen.py hooks requirements.txt arcbench_agent_runtime public-tests -x '*/__pycache__/*' '*.pyc'
+# public-tests/ is deliberately NOT shipped. The runner mounts the public specs at
+# /workspace/tests, which locate_acceptance_tests() prefers anyway: across 13 completed
+# cloud runs (smoke, smoke-evolution, ticket-booking, arc-bench-web, 2026-09-17) every
+# single one logged "[tests] N spec files at /workspace/tests" and none ever reached the
+# bundled copy. Shipping it would only put a per-task, task-title-keyed set of spec files
+# in the submission -- dead weight in the cloud, and indistinguishable from pre-loading
+# task data for anyone auditing the bundle. Local runs are unaffected: run-task-local.py
+# resolves BUNDLE_DIR to arc/ and reads arc/public-tests straight from the repo.
+zip -qr ../octos-arc-bundle.zip main.py rust_engine.py arc-policy.toml prompts octos_stdio.py requirement_order.py acceptance.py verify_app.py action_errors.cjs page_errors.ts guard.py llm_proxy.py codegen.py hooks requirements.txt arcbench_agent_runtime -x '*/__pycache__/*' '*.pyc'
 if [ -n "$ROUTES" ]; then
     python3 -c 'import sys; from zipfile import ZipFile; z=ZipFile("../octos-arc-bundle.zip", "a"); z.write(sys.argv[1], "model-routes.json"); z.close()' "$ROUTES"
 fi
