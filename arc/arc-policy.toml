@@ -96,6 +96,13 @@ slow_ms = 3000                   # OCTOS_ARC_SLOW_MS — slower tests are report
 workers = 2                      # OCTOS_ARC_TEST_WORKERS — per-node runs
 final_workers = 4                # OCTOS_ARC_FINAL_WORKERS — full parallel suite
 regression_checkpoint_nodes = 4 # OCTOS_ARC_REGRESSION_CHECKPOINT — check after 4, 8, 16, 24... nodes; gaps capped at twice this value; 0 disables
+checkpoint_repairs = 2          # OCTOS_ARC_CHECKPOINT_REPAIRS — repair rounds at a checkpoint that
+                                # found a regression, each re-verified before the next. Was 1, and
+                                # was missing from this file entirely: the Python adapter reads it
+                                # from the environment, and a cloud run cannot be given environment
+                                # variables, so the knob was unreachable where it matters. Cloud keep
+                                # 4e18c76637ae: one round cleared 2 of 5 regressions and left 2
+                                # broken for 97 minutes and three checkpoints until the final suite.
 memory_per_worker_mib = 700      # container memory per Chromium worker (cgroup limit / this = workers)
 final_memory_per_worker_mib = 450   # full suite: the platform grades with 4 workers in 2 GiB
 fully_parallel = false           # OCTOS_ARC_FULLY_PARALLEL — parallelism inside a spec file too

@@ -1489,13 +1489,33 @@ class CheckpointRepairTests(unittest.TestCase):
             flow.regression_checkpoint(2, 8)
         flow.turn.assert_not_called()
 
-    def test_should_leave_the_verdict_false_when_the_repair_does_not_take(self):
+    def test_should_leave_the_verdict_false_when_no_repair_round_takes(self):
         from unittest.mock import patch
-        flow = self._flow([1, 1])
+        flow = self._flow([1, 1, 1])
         with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
             flow.regression_checkpoint(2, 8)
-        self.assertEqual(flow.turn.call_count, 1)
+        self.assertEqual(flow.turn.call_count, 2)
         self.assertFalse(flow.test_verdict["REQ-2"])
+
+    def test_should_try_a_second_round_when_the_first_does_not_take(self):
+        """Cloud keep 4e18c76637ae: one round per checkpoint cleared two of five
+        regressions; REQ-2.2 and REQ-2.4 stayed broken for 97 minutes and three
+        checkpoints until the final suite caught them. On a 125-node tree the final
+        suite has no budget left to be that backstop."""
+        from unittest.mock import patch
+        flow = self._flow([1, 1, 2])   # checkpoint finds one broken, round 1 misses, round 2 fixes
+        with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2"}):
+            flow.regression_checkpoint(2, 8)
+        self.assertEqual(flow.turn.call_count, 2)
+        self.assertTrue(all(flow.test_verdict.values()))
+
+    def test_should_stop_at_one_round_when_told_to(self):
+        from unittest.mock import patch
+        flow = self._flow([1, 1])
+        with patch.dict("os.environ", {"OCTOS_ARC_REGRESSION_CHECKPOINT": "2",
+                                       "OCTOS_ARC_CHECKPOINT_REPAIRS": "1"}):
+            flow.regression_checkpoint(2, 8)
+        self.assertEqual(flow.turn.call_count, 1)
 
     def test_should_skip_the_repair_when_the_budget_is_gone(self):
         from unittest.mock import patch

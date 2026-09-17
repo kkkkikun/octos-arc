@@ -2465,7 +2465,14 @@ class Flow:
         REQ-2.3.3 broken; by checkpoint 16 the same three were still broken and
         four more had joined them, with no recovery recorded in between.
         """
-        rounds = int(os.environ.get("OCTOS_ARC_CHECKPOINT_REPAIRS", "1"))
+        # Two rounds, not one. Cloud keep 4e18c76637ae (32 nodes, 2026-09-17) regressed
+        # five nodes across checkpoints 8 and 16; one repair round per checkpoint cleared
+        # two of them (REQ-2.5.3/2.5.4, confirmed at the next checkpoint) and left
+        # REQ-2.2 and REQ-2.4 broken for 97 minutes and three checkpoints until the final
+        # suite fixed them. A 32-node tree leaves the final suite enough budget to be that
+        # backstop; a 125-node one spends the budget on nodes, so a regression found early
+        # has to be cleared where it is found.
+        rounds = int(os.environ.get("OCTOS_ARC_CHECKPOINT_REPAIRS", "2"))
         for attempt in range(rounds):
             if not grouped or self.remaining() < self.min_repair_seconds or self.wound_down():
                 return
