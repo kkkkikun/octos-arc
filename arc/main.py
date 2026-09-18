@@ -1797,8 +1797,17 @@ class Flow:
             prompt = TINY_PROMPT.format(spec=spec)
         ok, _ = self.codegen_turn(prompt, timeout, f"{node_id} implement (tiny)", spec_chars=len(spec),
                                   system=TINY_SYSTEM, format_instructions="", raw_target="frontend/src/index.html")
-        if not ok or not page.is_file() or self.runner is None or not specs:
-            log(f"[flow] {node_id}: tiny tier produced no page; compact tier next")
+        # Four different conditions used to print the same "produced no page", and only
+        # one of them is that. Reading a bundle run where the page had just been written
+        # ("wrote 1 file(s): ['frontend/src/index.html']" on the line above), the message
+        # sent me looking for a bug that was not there -- the real reason was that the
+        # task had no spec files to check the page against. Say which one fired.
+        reason = ("the turn did not complete" if not ok else
+                  "no frontend/src/index.html was written" if not page.is_file() else
+                  "no runner to serve it" if self.runner is None else
+                  "no spec files to check it against" if not specs else None)
+        if reason:
+            log(f"[flow] {node_id}: tiny tier unverified ({reason}); compact tier next")
             return False
         summary = self.run_specs(specs)
         passed = (not summary.error) and summary.total and summary.passed == summary.total
