@@ -9,6 +9,30 @@ A single "25/32" says nothing about what to change. Two very different things pr
   regressed      the node passed, then a later node's change broke it. A sequencing gap.
                  Levers: regression checkpoint interval, OCTOS_ARC_CHECKPOINT_REPAIRS.
 
+IMPORTANT about what these buckets can and cannot see, because misreading it sent me
+to the wrong lever once and the mistake is easy to repeat:
+
+`mark("test_passed"/"test_failed")` fires ONCE per acceptance_loop -- after every
+in-node repair round is already over -- so a node that ran five repair rounds and a
+node that ran none emit exactly the same single test event. **In-node repair rounds
+are invisible here.** The extra test events that make a node read as "recovered"
+come from the *later* phases that re-test an already-decided node: the regression
+checkpoint (`regression specs pass locally`, `previously regressed behavior passed
+its checkpoint specs`) and the final check.
+
+So read them as:
+  recovered      failed its own acceptance loop, then passed at a later checkpoint.
+                 NOT "its own repair turns fixed it".
+  never-passed   failed its own acceptance loop and no later phase revisited it.
+                 It did still run up to OCTOS_REPAIR_ROUNDS (default 5, lowered to 3
+                 for big trees) in-node repairs -- you just cannot see them from here.
+                 To see them you need the adapter's own `[acceptance] <node> round N:`
+                 lines, which only reach the cloud log when the container exits.
+
+Concretely: comparing two runs' "passed after repair" counts compares their
+*checkpoint recovery*, not their repair-turn quality. Concluding "this model's
+repairs recover nothing" from a zero in that column is unsupported.
+
 and one more that only the official grade can reveal:
 
   hidden interference   the node passed locally but the official pass count is lower.
@@ -154,7 +178,9 @@ def postmortem(opener, run_id: str) -> dict:
           f"  CNY {run.get('token_cost_usd') or 0:.4f}  {run.get('token_count')} tok"
           f"  {run.get('run_duration_seconds')}s")
     print(f"  passed first try        {len(c['clean'])}")
-    print(f"  passed after repair     {len(c['recovered'])} {c['recovered'][:6]}")
+    # Label says "at a later checkpoint", not "after repair": the old wording invited
+    # the reading that a node's own repair turns fixed it, which these events cannot show.
+    print(f"  passed at a checkpoint  {len(c['recovered'])} {c['recovered'][:6]}")
     print(f"  regressed (was passing) {len(c['regressed'])} {c['regressed']}")
     print(f"  never passed            {len(c['never_passed'])} {c['never_passed']}")
     broken = provider_failures(logs)
