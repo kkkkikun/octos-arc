@@ -1574,13 +1574,22 @@ class Flow:
 
         55% of the nodes, 89% of the node wall-clock, 8.8x the median per node -- and the
         split is chronological: early nodes fit, later ones do not. First-pass rate was
-        44/44, so this is not repair churn, it is the tool-mode path itself.
+        44/44, so this is not repair churn, it is the tool-mode path itself. The finished
+        run put it at 65% of nodes, 90% of wall-clock, 19.6x the median (392 s vs 20 s).
 
-        400000 characters is about 115000 tokens against a 1048576 token window, and glm
-        input is the cheap side of the bill, so the trade is wall-clock and request count
-        against input tokens. The repair-side budget (`inline_source_chars`, #199) is left
-        alone on purpose: that one is about whether more quoted source helps or dilutes a
-        repair, which is a different question and still unmeasured.
+        Raising this does NOT make the prompt bigger. What a codegen turn quotes is
+        `relevant_sources(..., codegen_context_chars() - len(spec))` — still 90000
+        characters, ranked by spec-term overlap, with the rest listed by name. This number
+        only decides eligibility. So the trade is not wall-clock against input tokens
+        (there are no extra input tokens); it is "some sources listed by name rather than
+        quoted whole" against "the whole node runs in tool mode". Round 35 built the
+        codegen prompt for exactly that partial view (backend entry first, then pages by
+        overlap, remainder listed) and #189 quotes part of an oversized file, so the
+        mechanism supports it.
+
+        The repair-side budget (`inline_source_chars`, #199) is left alone on purpose:
+        that one is about whether more quoted source helps or dilutes a repair, which is a
+        different question and still unmeasured.
         """
         return int(os.environ.get("OCTOS_ARC_CODEGEN_SOURCE_FIT_CHARS", "400000"))
 
