@@ -1507,6 +1507,10 @@ class Flow:
         self.checkpoint_regressions: set[str] = set()
         self.impl_failed: list[str] = []
         self.pending_corrections: list[str] = []
+        # 上一个 codegen 轮到底有没有把文件写到盘上。None = 未知（工具模式经工具写，
+        # 不走块解析），False = 确定什么都没写。只有 False 会改变判定，所以
+        # 工具模式的行为逐字不变。
+        self.last_codegen_wrote: bool | None = None
         self.evolution = False
         self.folder_children: dict[str, list[str]] = {}
 
@@ -1987,6 +1991,7 @@ class Flow:
             # Every file identical means this turn produced no change at all. Say so now,
             # rather than letting the next round rediscover it from a spec run that was
             # always going to fail the same way. Not a failed turn -- see the helper.
+            self.last_codegen_wrote = bool(written)
             stalled = unchanged_correction(files, idle)
             if stalled:
                 log(f"[codegen] {label}: no progress -- every returned file was byte-identical")
@@ -1996,6 +2001,7 @@ class Flow:
                 log(f"[codegen] {label}: removed static nav links duplicating the NAV placeholder in {deduped}")
             return True, text
         if ok:
+            self.last_codegen_wrote = False
             log(f"[codegen] {label}: reply contained no file blocks; {unparsed_reply_digest(text)}")
             return False, "codegen reply contained no <<<FILE>>> blocks"
         return ok, text
@@ -2360,11 +2366,39 @@ class Flow:
             was_codegen = self.codegen_mode()
             normalized = failure_signature(summary) if summary.results else failures
             if normalized and normalized == previous_failures:
-                # Cloud 91aaecaf31af: three codegen rounds, identical observation.
-                self.codegen_blocked = True
-                self.pending_corrections.append(
-                    'Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
-                log(f"[flow] {node_id}: identical failure twice; switching repairs to tool mode")
+                # An identical failure is only evidence about the *fix* if the previous
+                # round actually changed the app. When the last repair wrote nothing --
+                # a reply with no <<<FILE>>> blocks, or every block refused -- the code
+                # under test is byte-for-byte what already failed, so an identical
+                # observation is guaranteed and says nothing at all.
+                #
+                # Observed directly on a local ticket-booking run:
+                #   [acceptance] REQ-1 round 0: 0/1
+                #   [flow] REQ-1 rewrite (repair 1) ok in 3s (wrote=False): '```json\n{ ... }'
+                #   [acceptance] REQ-1 round 1: 0/1
+                #   [flow] REQ-1: identical failure twice; switching repairs to tool mode
+                # The reply was a ```json fence with no delimiters. Charging that to
+                # "tried the same fix twice" then told the model to recheck the
+                # assumptions behind its repair -- debugging reasoning that was never
+                # the problem, while the actual defect (the wrapper) went unmentioned
+                # and one of only two cheap codegen rounds was spent.
+                #
+                # `None` means "unknown" (tool-mode turns write through tools, not
+                # through parsed blocks) and keeps the original behaviour.
+                # getattr, not attribute access: this is a diagnostic refinement and it
+                # must never be the thing that breaks the repair loop. A Flow built
+                # without __init__ (tests do this) would otherwise raise here and take
+                # the whole acceptance loop down -- the same rule last_repair_diff states.
+                if getattr(self, "last_codegen_wrote", None) is False:
+                    log(f"[flow] {node_id}: identical failure, but the last repair wrote no files -- "
+                        f"the app never changed, so this repeat is not evidence about the fix; "
+                        f"staying in codegen mode")
+                else:
+                    # Cloud 91aaecaf31af: three codegen rounds, identical observation.
+                    self.codegen_blocked = True
+                    self.pending_corrections.append(
+                        'Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
+                    log(f"[flow] {node_id}: identical failure twice; switching repairs to tool mode")
             previous_failures = normalized
             if attempt >= int(os.environ.get("OCTOS_ARC_CODEGEN_REPAIRS", "2")) and passed < summary.total \
                     and self.codegen_mode():
