@@ -3218,13 +3218,14 @@ def probe_endpoint() -> None:
         return
     import urllib.request as _ur
     import urllib.error as _ue
+    from llm_proxy import open_upstream  # loopback must bypass the system proxy (6f41b052)
     headers = {"Content-Type": "application/json", "Authorization": "Bearer " + key}
     deadline = time.time() + 600
     attempt = 0
     while True:
         attempt += 1
         try:
-            with _ur.urlopen(_ur.Request(base.rstrip("/") + "/models", headers=headers), timeout=30) as resp:
+            with open_upstream(_ur.Request(base.rstrip("/") + "/models", headers=headers), 30, base) as resp:
                 log(f"[probe] GET /models -> HTTP {resp.status} (endpoint up, no tokens spent)")
                 return
         except _ue.HTTPError as exc:
@@ -3238,7 +3239,7 @@ def probe_endpoint() -> None:
             try:
                 req = _ur.Request(base.rstrip("/") + "/chat/completions", headers=headers, method="POST",
                                   data=minimal_probe_body(os.environ.get("MODEL", "deepseek-chat")))
-                with _ur.urlopen(req, timeout=60) as resp:
+                with open_upstream(req, 60, base) as resp:
                     log(f"[probe] minimal chat probe -> HTTP {resp.status}")
                     return
             except _ue.HTTPError as exc2:
