@@ -1265,6 +1265,28 @@ def locate_acceptance_tests(tree: dict, bundle_dir: Path) -> Path | None:
     return None
 
 
+def phase_for_label(label: str) -> str:
+    """Which routing phase a turn belongs to, from the label it was given.
+
+    This decides which model a request is sent to whenever model routes are
+    configured, and it was an inline conditional with no test of its own -- the
+    routing rules were covered, the thing that feeds them was not. A rule that
+    says `"phases": ["repair"]` is worth exactly as much as this function's
+    agreement about what a repair is called.
+
+    The labels are the ones the flow actually emits: `REQ-3.2 implement`,
+    `REQ-3.2 repair 1/5`, `REQ-3.2 rewrite (repair 1)`, `full-suite repair 1/3`,
+    `final check`, `design`.
+    """
+    if any(word in label for word in ("repair", "rewrite")):
+        return "repair"
+    if "final check" in label:
+        return "verify"
+    if "design" in label:
+        return "design"
+    return "implement"
+
+
 def spec_base_ports(tests_dir: Path | None) -> list[int]:
     """Ports the specs hard-code as their default base URL (e.g. 3301)."""
     if not tests_dir:
@@ -1498,9 +1520,7 @@ class Flow:
                 default = "20" if self.minimal_mode(getattr(self, "n_nodes", 99)) else "0"
                 request_budget = int(os.environ.get("OCTOS_ARC_REPAIR_REQUESTS", default)) if "repair" in label else \
                     int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", default))
-            proxy.phase = ("repair" if any(word in label for word in ("repair", "rewrite")) else
-                           "verify" if "final check" in label else
-                           "design" if "design" in label else "implement")
+            proxy.phase = phase_for_label(label)
             proxy.begin_turn(request_budget)
         # A model turn may change application files, even when it later fails.
         getattr(self, "probe_summaries", {}).clear()

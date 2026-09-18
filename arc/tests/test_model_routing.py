@@ -189,3 +189,45 @@ class ShippedEscalationRouteTests(unittest.TestCase):
         """Tool-mode repairs are the ones most likely to need the stronger model,
         so the rule must not be skipped by the tools check."""
         self.assertEqual(self._model_for(self._rules(), 'repair', tools=True), 'glm-5.3')
+
+
+class PhaseForLabelTests(unittest.TestCase):
+    """What feeds the routing rules, on the labels the flow really emits.
+
+    A rule saying `"phases": ["repair"]` is worth exactly as much as this
+    function's agreement about what counts as a repair. keep's failures in
+    submission D are logged as `acceptance specs still failing after repair
+    rounds`, so the escalation only helps if those turns really land on
+    `repair`.
+    """
+
+    def test_should_classify_the_labels_the_flow_emits(self):
+        from main import phase_for_label
+        cases = {
+            'REQ-3.2 implement': 'implement',
+            'REQ-3.2 implement (tiny)': 'implement',
+            'REQ-3.2 repair 1/5': 'repair',
+            'REQ-3.2 rewrite (repair 1)': 'repair',
+            'full-suite repair 1/3': 'repair',
+            'final check': 'verify',
+            'design': 'design',
+        }
+        for label, phase in cases.items():
+            self.assertEqual(phase_for_label(label), phase, label)
+
+    def test_should_send_every_repair_label_to_the_escalated_model(self):
+        """End to end against the shipped config: the labels that fail in D must
+        select glm-5.3, and implement must stay on the submission's own model."""
+        from pathlib import Path
+        from main import phase_for_label
+        rules = model_routes((Path(__file__).resolve().parent.parent
+                              / 'model-routes-glm-escalate.json').read_text(encoding='utf-8'))
+        body = json.dumps({'model': 'glm-5.3-flash',
+                           'messages': [{'role': 'user', 'content': 'x'}]}).encode()
+
+        def model_for(label):
+            return json.loads(route_request(body, rules, phase_for_label(label)))['model']
+
+        for label in ('REQ-3.2 repair 1/5', 'REQ-3.2 rewrite (repair 1)', 'full-suite repair 1/3'):
+            self.assertEqual(model_for(label), 'glm-5.3', label)
+        self.assertEqual(model_for('REQ-3.2 implement'), 'glm-5.3-flash')
