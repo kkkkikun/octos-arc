@@ -151,3 +151,49 @@ class SystemOverrideTests(unittest.TestCase):
         out = json.loads(replace_system_prompt(body, "short"))
         self.assertEqual([m["role"] for m in out["messages"]], ["system", "user"])
         self.assertEqual(out["messages"][0]["content"], "short")
+
+
+class LoopbackUpstreamTests(unittest.TestCase):
+    """A self-hosted upstream must not be sent through the system proxy.
+
+    `urllib.request.urlopen` honours the system proxy, and on macOS
+    `urllib.request.getproxies()` reads the *system* settings, not just http_proxy env
+    vars — on the machine this was found on it returned
+    {'http': 'http://127.0.0.1:1082', ...} with no env var set. Requests to a local model
+    server then went to that proxy, which refuses to forward to loopback and closed the
+    connection, so every turn came back as
+    `502 proxy: Remote end closed connection without response` while the identical body
+    sent with curl returned 200. OPENAI_BASE_URL pointing at ollama / llama.cpp / vLLM
+    was therefore unusable, which is the "小模型" half of the provider requirement.
+    """
+
+    def test_loopback_hosts_are_recognised(self):
+        from llm_proxy import _loopback
+        for url in ("http://127.0.0.1:11434/v1", "http://localhost:8080/v1",
+                    "http://[::1]:9000/v1", "http://dev.localhost/v1"):
+            self.assertTrue(_loopback(url), url)
+
+    def test_remote_hosts_are_not(self):
+        from llm_proxy import _loopback
+        for url in ("https://api.arc-bench.com/v1", "https://api.openai.com/v1",
+                    "http://10.0.0.5:8000/v1"):
+            self.assertFalse(_loopback(url), url)
+
+    def test_a_loopback_upstream_does_not_go_through_urlopen(self):
+        """Behaviour, not internals: loopback must not use the proxy-honouring path."""
+        from unittest.mock import patch
+        import llm_proxy
+        with patch("llm_proxy.urllib.request.urlopen") as honours_proxy:
+            with patch.object(llm_proxy, "upstream_opener") as bypass:
+                llm_proxy.open_upstream(object(), 5, "http://127.0.0.1:11434/v1")
+        self.assertFalse(honours_proxy.called, "loopback went through the proxy-honouring path")
+        self.assertTrue(bypass.called, "loopback did not use the bypassing opener")
+
+    def test_a_remote_upstream_keeps_urlopen(self):
+        """The remote path keeps urlopen: a provider often needs the configured proxy,
+        and it is the seam test_proxy_pending patches."""
+        from unittest.mock import patch
+        import llm_proxy
+        with patch("llm_proxy.urllib.request.urlopen") as honours_proxy:
+            llm_proxy.open_upstream(object(), 5, "https://api.arc-bench.com/v1")
+        self.assertTrue(honours_proxy.called, "remote upstream must keep urlopen")

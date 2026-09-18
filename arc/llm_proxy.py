@@ -18,12 +18,60 @@ import os
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 HOP_HEADERS = {"host", "content-length", "transfer-encoding", "connection", "accept-encoding"}
+
+
+def _loopback(url: str) -> bool:
+    """Is this upstream on this machine?"""
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    return host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith(".localhost")
+
+
+def upstream_opener(url: str) -> urllib.request.OpenerDirector:
+    """An opener that will actually reach `url`.
+
+    `urllib.request.urlopen` honours the system proxy, and on macOS
+    `urllib.request.getproxies()` reads the *system* settings, not just the
+    http_proxy env vars — on this machine it returns
+    {'http': 'http://127.0.0.1:1082', ...} with no env var set. A self-hosted
+    upstream then goes to that proxy, which refuses to forward to loopback and
+    closes the connection: every request came back as
+    `502 proxy: Remote end closed connection without response` while the exact
+    same body sent with curl returned 200. So OPENAI_BASE_URL pointing at a
+    local model server (ollama, llama.cpp, vLLM) could not be used at all,
+    which is the "小模型" half of the provider requirement.
+
+    Proxies are bypassed only for loopback upstreams; a remote provider keeps
+    whatever proxy the environment configures, since that is often required to
+    reach it.
+    """
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def open_upstream(req, timeout: int, url: str):
+    """Loopback goes through a proxy-bypassing opener; everything else keeps
+    `urllib.request.urlopen`.
+
+    Keeping `urlopen` on the remote path is deliberate, not incidental: a remote
+    provider often *needs* the configured proxy to be reachable at all, and
+    `llm_proxy.urllib.request.urlopen` is the seam five existing tests patch
+    (`test_proxy_pending`, upstream `http://unused/v1`). Routing everything through
+    an opener broke all five.
+    """
+    # No module-level cache for the opener: building one is cheap, and a cached
+    # instance couples tests to their run order (a test that patches
+    # `upstream_opener` would otherwise leave its mock in the cache for every later
+    # loopback call — which is exactly how this suite started failing only in the
+    # full run while the module passed alone).
+    if _loopback(url):
+        return upstream_opener(url).open(req, timeout=timeout)
+    return urllib.request.urlopen(req, timeout=timeout)
 
 
 def model_routes(raw: str) -> list[dict]:
@@ -503,7 +551,7 @@ class LlmProxy:
                                          headers=headers, method=method)
             t0 = time.time()
             try:
-                with urllib.request.urlopen(req, timeout=600) as resp:
+                with open_upstream(req, 600, self.upstream) as resp:
                     result = resp.status, resp.read(), resp.headers
             except urllib.error.HTTPError as exc:
                 result = exc.code, exc.read(), exc.headers

@@ -82,11 +82,18 @@ class RoutingTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'OCTOS_ARC_MODEL_ROUTES': json.dumps(self.rules)}):
                 log = Path(tmp) / 'usage.jsonl'
                 proxy = LlmProxy(f'http://127.0.0.1:{upstream.server_port}/v1', 'low', log_path=log, trim=False).start()
+                client = urllib.request.build_opener(urllib.request.ProxyHandler({}))
                 try:
                     for phase in ('implement', 'repair'):
                         proxy.phase = phase
                         request = urllib.request.Request(proxy.base_url + '/chat/completions', data=self.request(), headers={'Content-Type': 'application/json'})
-                        with urllib.request.urlopen(request, timeout=5) as response:
+                        # The client must bypass the system proxy, for the same reason
+                        # llm_proxy.open_upstream does: urllib honours the macOS system
+                        # proxy settings (getproxies() returns 127.0.0.1:1082 here with no
+                        # env var set), and that proxy refuses to forward to loopback, so
+                        # this call died with RemoteDisconnected and the failure was being
+                        # written off as an unfixable environment quirk.
+                        with client.open(request, timeout=5) as response:
                             self.assertEqual(response.status, 200)
                 finally:
                     proxy.stop()
