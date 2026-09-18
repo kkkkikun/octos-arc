@@ -1577,21 +1577,47 @@ class Flow:
         44/44, so this is not repair churn, it is the tool-mode path itself. The finished
         run put it at 65% of nodes, 90% of wall-clock, 19.6x the median (392 s vs 20 s).
 
-        Raising this does NOT make the prompt bigger. What a codegen turn quotes is
-        `relevant_sources(..., codegen_context_chars() - len(spec))` — still 90000
-        characters, ranked by spec-term overlap, with the rest listed by name. This number
-        only decides eligibility. So the trade is not wall-clock against input tokens
-        (there are no extra input tokens); it is "some sources listed by name rather than
-        quoted whole" against "the whole node runs in tool mode". Round 35 built the
-        codegen prompt for exactly that partial view (backend entry first, then pages by
-        overlap, remainder listed) and #189 quotes part of an oversized file, so the
-        mechanism supports it.
+        Raising this does not make the prompt bigger -- a codegen turn still quotes only
+        `relevant_sources(..., codegen_context_chars() - len(spec))`. It decides
+        eligibility, not prompt size.
+
+        **Reverted to the output budget on 2026-09-18: raising it bought speed with
+        correctness, and correctness is the eligibility gate.** The 400000 default was
+        submitted as 95da0dc11e93 and measured against 55b63aa8e5ac's runs of the same
+        tasks (`arc/postmortem.py` classifies lost nodes):
+
+            run                        path            result   regressed  never-passed
+            stackoverflow 97848d542ac8 65% tool mode   66/66    0          0
+            stackoverflow 34ca94da0075 100% codegen    33/49*   9          7
+            12306         99196f2e802b 100% codegen    46/75*   29         0
+            (* mid-run)
+
+        The tool-mode run finished with **zero** regressions; the codegen-only runs
+        regressed 9 and 29 nodes, and 12306's losses were *entirely* regressions -- not one
+        node it could not build, only nodes it built and then broke.
+
+        That is this function's own invariant being violated, and the docstring of
+        `codegen_context_fits` below states it: do not request complete file replacements
+        with omitted source bodies. A node that can see only part of a shared file (the
+        backend entry of a 117-node app is far past any budget) and is asked to return that
+        file complete will drop the handlers it never saw -- which belong to other nodes'
+        specs. Tool mode is slow precisely because it reads and edits in place instead.
+
+        So tool mode's 19.6x per-node cost is the price of not losing behaviour on a large
+        tree, and the measurements above say it is worth paying: `efficiency_eligible` on
+        the leaderboard is pass rate >= 80%, so a cheaper run that drops below it scores
+        nothing at all.
+
+        Keeping the env knob: a gate sized by the *files a node will actually rewrite*
+        (rather than the whole app) would recover most of the speed without breaking the
+        invariant, but that is a different change and is unmeasured.
 
         The repair-side budget (`inline_source_chars`, #199) is left alone on purpose:
         that one is about whether more quoted source helps or dilutes a repair, which is a
         different question and still unmeasured.
         """
-        return int(os.environ.get("OCTOS_ARC_CODEGEN_SOURCE_FIT_CHARS", "400000"))
+        return int(os.environ.get("OCTOS_ARC_CODEGEN_SOURCE_FIT_CHARS",
+                                  str(self.codegen_context_chars())))
 
     def codegen_context_fits(self, spec_text: str) -> bool:
         """Do not request complete file replacements with omitted source bodies.

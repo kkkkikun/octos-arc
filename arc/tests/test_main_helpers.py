@@ -452,11 +452,26 @@ class RelevantSourcesTests(unittest.TestCase):
                 (root / "frontend/index.html").write_text("p" * 50000)
                 self.assertTrue(flow.codegen_context_fits("x" * 12000))
 
-    def test_the_fit_gate_is_not_sized_by_the_output_budget(self):
-        """Cloud stackoverflow 97848d542ac8: sizing this gate by codegen_context_chars
-        (90000, an output budget) pushed every node after the app outgrew it into tool
-        mode -- 55% of nodes, 89% of node wall-clock, 8.8x the median per node. An app of
-        81000 characters must still take the single-request path."""
+    def test_an_app_past_the_budget_falls_back_to_tool_mode(self):
+        """An app whose sources no longer fit must NOT take the single-request path.
+
+        This gate was briefly raised to 400000 to escape tool mode (it is 65% of
+        stackoverflow 97848d542ac8's nodes and 90% of its wall clock, 19.6x the median per
+        node). The raise was submitted as 95da0dc11e93 and reverted on 2026-09-18, because
+        it bought that speed with correctness:
+
+            run                        path            result   regressed  never-passed
+            stackoverflow 97848d542ac8 65% tool mode   66/66    0          0
+            stackoverflow 34ca94da0075 100% codegen    mid-run  9          7
+            12306         99196f2e802b 100% codegen    mid-run  29         0
+
+        The tool-mode run finished with zero regressions; the codegen-only runs regressed
+        9 and 29 nodes, and 12306's losses were entirely regressions -- not one node it
+        could not build, only nodes it built and then broke. A node seeing part of a shared
+        file and asked to return it complete drops the handlers it never saw, and those
+        belong to other nodes' specs. So an app past the budget has to use tool mode, and
+        this test pins that.
+        """
         from pathlib import Path
         import argparse, tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -464,9 +479,25 @@ class RelevantSourcesTests(unittest.TestCase):
             flow = m.Flow(argparse.Namespace(web_port=1), root, root)
             (root / "backend").mkdir(); (root / "frontend").mkdir()
             (root / "backend/server.js").write_text("b" * 26000)
-            (root / "frontend/index.html").write_text("p" * 55000)
-            self.assertGreater(flow.codegen_source_fit_chars(), flow.codegen_context_chars())
-            self.assertTrue(flow.codegen_context_fits("x" * 12000))
+            (root / "frontend/index.html").write_text("p" * 55000)   # 81000 total
+            self.assertEqual(flow.codegen_source_fit_chars(), flow.codegen_context_chars())
+            self.assertFalse(flow.codegen_context_fits("x" * 12000))
+            # A small app still takes the fast path -- the revert is not "always tool mode".
+            (root / "frontend/index.html").write_text("p" * 200)
+            self.assertTrue(flow.codegen_context_fits("x" * 1000))
+
+    def test_the_fit_gate_stays_overridable(self):
+        """The knob survives the revert: a gate sized by the files a node will actually
+        rewrite (rather than the whole app) should recover most of the speed without
+        breaking the invariant, and that experiment needs to be runnable."""
+        from pathlib import Path
+        import argparse, os
+        flow = m.Flow(argparse.Namespace(web_port=1), Path("."), Path("."))
+        os.environ["OCTOS_ARC_CODEGEN_SOURCE_FIT_CHARS"] = "400000"
+        try:
+            self.assertEqual(flow.codegen_source_fit_chars(), 400000)
+        finally:
+            del os.environ["OCTOS_ARC_CODEGEN_SOURCE_FIT_CHARS"]
 
     def test_an_oversized_spec_still_falls_back(self):
         """The spec-size half of the gate is unchanged: a spec at 60% of the output
