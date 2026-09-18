@@ -21,6 +21,40 @@ class ParseTests(unittest.TestCase):
     def test_should_return_empty_when_no_blocks(self):
         self.assertEqual(parse_file_blocks("just prose"), {})
 
+    def test_should_accept_a_short_opening_delimiter(self):
+        """The reply qwen2.5-coder:7b actually produced on smoke-evolution--counter:
+        a single `>` closing the opening marker, a correct `<<<END FILE>>>`, and a
+        complete page in between. The strict pattern matched nothing, so a correct
+        implementation was discarded as "reply contained no file blocks"."""
+        text = ('<<<FILE frontend/src/index.html>\n'
+                '<div data-testid="count">0</div>\n'
+                '<<<END FILE>>>To address the failing tests, we need to...')
+        files = parse_file_blocks(text)
+        self.assertEqual(sorted(files), ["frontend/src/index.html"])
+        self.assertEqual(files["frontend/src/index.html"], '<div data-testid="count">0</div>\n')
+
+    def test_should_accept_drift_on_either_marker(self):
+        text = "<<<FILE a.js>>\nconst x = 1;\n<<<END  FILE>"
+        self.assertEqual(parse_file_blocks(text)["a.js"], "const x = 1;\n")
+
+    def test_should_still_reject_a_path_containing_the_delimiter(self):
+        """Relaxing the delimiter must not let `>` leak into a path: the path
+        pattern excludes it, so such a marker still matches nothing at all."""
+        self.assertEqual(parse_file_blocks("<<<FILE a>b.js>>>\nx\n<<<END FILE>>>"), {})
+
+
+class DelimiterDriftTests(unittest.TestCase):
+    def test_should_name_only_the_blocks_that_needed_tolerance(self):
+        from codegen import delimiter_drift
+        text = ("<<<FILE ok.js>>>\nconst a = 1;\n<<<END FILE>>>\n"
+                "<<<FILE loose.js>\nconst b = 2;\n<<<END FILE>>>")
+        self.assertEqual(delimiter_drift(text), ["loose.js"])
+
+    def test_should_be_silent_on_a_canonical_reply(self):
+        from codegen import delimiter_drift
+        self.assertEqual(delimiter_drift("<<<FILE ok.js>>>\nx\n<<<END FILE>>>"), [])
+        self.assertEqual(delimiter_drift("just prose"), [])
+
     def test_should_write_files_under_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             written = write_files(Path(tmp), {"backend/server.js": "x\n"})

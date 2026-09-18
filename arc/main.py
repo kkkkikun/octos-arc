@@ -83,7 +83,7 @@ from acceptance import (  # noqa: E402
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
     mutated_by_tests, restore_worktree, snapshot_worktree, startup_error_digest, tree_digest,
     workers_for_final, reap_workspace_processes)
-from codegen import FORMAT_INSTRUCTIONS, dedupe_nav_links, parse_file_blocks, write_files  # noqa: E402
+from codegen import FORMAT_INSTRUCTIONS, dedupe_nav_links, delimiter_drift, parse_file_blocks, write_files  # noqa: E402
 from guard import TurnMonitor  # noqa: E402
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, topo_order  # noqa: E402
@@ -1806,6 +1806,10 @@ class Flow:
             proxy.system_override = None
             self.base_reasoning_mode = saved_base
         files = parse_file_blocks(text) if ok else {}
+        drifted = delimiter_drift(text) if ok else []
+        if drifted:
+            log(f"[codegen] {label}: accepted {len(drifted)} block(s) with a non-canonical "
+                f"delimiter: {drifted[:4]}")
         if ok and not files and raw_target:
             html = strip_code_fences(text)
             if looks_like_markup(html):

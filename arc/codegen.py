@@ -17,7 +17,18 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-FILE_BLOCK = re.compile(r"<<<FILE\s+(?P<path>[^\n>]+?)\s*>>>\r?\n(?P<body>.*?)(?:\r?\n)?<<<END FILE>>>", re.S)
+CANONICAL_FILE_BLOCK = re.compile(
+    r"<<<FILE\s+(?P<path>[^\n>]+?)\s*>>>\r?\n(?P<body>.*?)(?:\r?\n)?<<<END FILE>>>", re.S)
+
+# Weaker (cheaper) models drift on the delimiter without getting the block wrong.
+# qwen2.5-coder:7b emitted `<<<FILE frontend/src/index.html>` — a single `>` — and
+# closed with a correct `<<<END FILE>>>`; the body in between was a complete, correct
+# page. The strict pattern matched nothing, so the harness logged "reply contained no
+# file blocks" and threw away 25s and a working implementation. The path pattern
+# already excludes `>`, so accepting one-or-more closes the near miss without making
+# the marker ambiguous against code or markdown.
+FILE_BLOCK = re.compile(
+    r"<<<FILE\s+(?P<path>[^\n>]+?)\s*>+\r?\n(?P<body>.*?)(?:\r?\n)?<<<END\s+FILE\s*>+", re.S)
 
 FORMAT_INSTRUCTIONS = """\
 Format, one block per file, nothing else:
@@ -44,6 +55,17 @@ def parse_file_blocks(text: str) -> dict[str, str]:
             body = inner.rsplit("```", 1)[0]
         files["/".join(parts)] = body.rstrip("\n") + "\n"
     return files
+
+
+def delimiter_drift(text: str) -> list[str]:
+    """Paths whose block only parsed because of the tolerance above.
+
+    Worth logging rather than swallowing silently: how far a model drifts off the
+    marker protocol is a property of that model, and it is what tells us whether
+    the format instructions need to be firmer for the cheap tier."""
+    def paths(pattern: re.Pattern[str]) -> set[str]:
+        return {m.group("path").strip().strip("`'\"") for m in pattern.finditer(text or "")}
+    return sorted(paths(FILE_BLOCK) - paths(CANONICAL_FILE_BLOCK))
 
 
 CHARSET_META = '<meta charset="utf-8">'
