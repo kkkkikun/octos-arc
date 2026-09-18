@@ -761,6 +761,18 @@ class DryRunDriver:
             return True, "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body><main>dry run</main></body></html>"
         return True, "dry run: no model call; nothing written."
 
+    @contextmanager
+    def without_tools(self):
+        """No-op: a dry run has no kernel and therefore no tools to take away.
+
+        #140 gave the real driver `without_tools()` and called it from every codegen
+        turn, but did not give the dry-run driver the same method, so
+        OCTOS_ARC_DRYRUN=1 aborted at the first codegen node with
+        AttributeError('DryRunDriver' object has no attribute 'without_tools') —
+        i.e. the free structural-parity path from round 31 has been broken since then.
+        """
+        yield
+
     def end_scope(self, *args, **kwargs) -> None:
         pass
 

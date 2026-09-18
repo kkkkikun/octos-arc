@@ -2110,3 +2110,23 @@ class UnseenRewriteGuardTests(unittest.TestCase):
             flow.codegen_quoted = None
             files = {"frontend/b.html": "whatever"}
             self.assertEqual(flow.drop_unseen_rewrites(files, "node"), files)
+
+
+class DryRunDriverParityTests(unittest.TestCase):
+    """The dry-run driver has to answer every call the real driver answers.
+
+    #140 gave the real driver `without_tools()` and called it from every codegen turn
+    but did not add it to DryRunDriver, so OCTOS_ARC_DRYRUN=1 aborted at the first
+    codegen node with AttributeError — the free structural-parity path from round 31 was
+    broken from then until 2026-09-18. A dry run of arc-bench-web--keep now traverses
+    30+ of its 32 nodes with no abort.
+    """
+
+    def test_dry_run_driver_answers_the_real_drivers_turn_surface(self):
+        real = {n for n in ("run", "without_tools", "end_scope") }
+        missing = [n for n in real if not hasattr(m.DryRunDriver(), n)]
+        self.assertEqual(missing, [], f"DryRunDriver is missing {missing}")
+
+    def test_without_tools_is_a_usable_context_manager(self):
+        with m.DryRunDriver().without_tools():
+            pass
