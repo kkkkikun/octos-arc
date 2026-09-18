@@ -446,6 +446,12 @@ class LlmProxy:
                  dump_dir: Path | None = None, dump_limit: int = 3, destream: bool = True, trim: bool = True,
                  extra_drop_tools: set[str] | None = None, min_max_tokens: int = 32768) -> None:
         self.upstream = upstream_base.rstrip("/")
+        # Does the upstream base already carry an API prefix of its own? By the
+        # OPENAI_BASE_URL convention it does -- clients append `/chat/completions`
+        # straight to it -- so whenever there is a path here, the `/v1` this proxy
+        # advertises locally must be dropped before forwarding. Only a bare host
+        # keeps it. See `_forward_path`.
+        self.upstream_has_prefix = bool(urllib.parse.urlsplit(self.upstream).path.strip("/"))
         self.mode = mode
         self.routes = model_routes(configured_model_routes())
         self.phase = "implement"
@@ -504,9 +510,7 @@ class LlmProxy:
                     proxy._dump(body)
                 headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
                 headers["Content-Length"] = str(len(body))
-                path = self.path
-                if path.startswith("/v1") and proxy.upstream.endswith("/v1"):
-                    path = path[3:]
+                path = proxy._forward_path(self.path)
                 status, payload, resp_headers = proxy._request_upstream(method, path, body, headers)
                 ctype = resp_headers.get("Content-Type", "application/json") if resp_headers else "application/json"
                 if was_streaming and status == 200:
@@ -531,6 +535,31 @@ class LlmProxy:
         self.port = self.server.server_address[1]
         self.base_url = f"http://{host}:{self.port}/v1"
         self._thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def _forward_path(self, local_path: str) -> str:
+        """Turn the local `/v1/...` request path into the upstream path.
+
+        This proxy advertises `http://127.0.0.1:<port>/v1` to the adapter, which
+        is only a convention for the client. The upstream base already carries
+        whichever API prefix that provider uses, so the local `/v1` has to come
+        off before forwarding.
+
+        The previous rule dropped it only when the upstream base itself ended in
+        `/v1`. Every provider whose prefix is spelled differently was therefore
+        unreachable: z.ai's coding plan is `https://api.z.ai/api/coding/paas/v4`,
+        and a request arrived as `/v4/v1/chat/completions` --
+        `{"status":404,"error":"Not Found","path":"/v4/v1/chat/completions"}`.
+        Zhipu's `open.bigmodel.cn/api/paas/v4` is the same shape.
+
+        So the test is whether the base has a path at all, not how it is spelled.
+        A bare host with no path keeps the `/v1`, since then nothing else supplies
+        one.
+        """
+        if not self.upstream_has_prefix:
+            return local_path
+        if local_path == "/v1":
+            return "/"
+        return local_path[3:] if local_path.startswith("/v1/") else local_path
 
     def _request_upstream(self, method: str, path: str, body: bytes, headers: dict) -> tuple:
         # Only pending identical completions are shared. Include credentials and

@@ -197,3 +197,33 @@ class LoopbackUpstreamTests(unittest.TestCase):
         with patch("llm_proxy.urllib.request.urlopen") as honours_proxy:
             llm_proxy.open_upstream(object(), 5, "https://api.arc-bench.com/v1")
         self.assertTrue(honours_proxy.called, "remote upstream must keep urlopen")
+
+
+class ForwardPathTests(unittest.TestCase):
+    """The local `/v1` is a client convention; the upstream base supplies the
+    real prefix. Dropping it only when the base also ended in `/v1` made every
+    provider with a differently spelled prefix unreachable."""
+
+    def _proxy(self, upstream):
+        from llm_proxy import LlmProxy
+        return LlmProxy(upstream, "none")
+
+    def test_should_reach_a_v4_provider(self):
+        p = self._proxy("https://api.z.ai/api/coding/paas/v4")
+        self.assertEqual(p._forward_path("/v1/chat/completions"), "/chat/completions")
+        self.assertEqual(p._forward_path("/v1/models"), "/models")
+
+    def test_should_keep_working_for_a_v1_provider(self):
+        for base in ("https://api.arc-bench.com/v1", "http://127.0.0.1:11434/v1"):
+            p = self._proxy(base)
+            self.assertEqual(p._forward_path("/v1/chat/completions"), "/chat/completions", base)
+
+    def test_should_keep_the_prefix_for_a_bare_host(self):
+        """Nothing else supplies a version segment, so the `/v1` has to stay."""
+        p = self._proxy("https://bare.example")
+        self.assertEqual(p._forward_path("/v1/chat/completions"), "/v1/chat/completions")
+
+    def test_should_not_mangle_a_lookalike_or_bare_root(self):
+        p = self._proxy("https://api.z.ai/api/coding/paas/v4")
+        self.assertEqual(p._forward_path("/v10/chat/completions"), "/v10/chat/completions")
+        self.assertEqual(p._forward_path("/v1"), "/")
