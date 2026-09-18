@@ -532,3 +532,29 @@ class UnchangedRewriteTests(unittest.TestCase):
         from codegen import unchanged_rewrites
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(unchanged_rewrites(Path(tmp), {"a.js": "x\n"}), [])
+
+
+class NoFilesCorrectionTests(unittest.TestCase):
+    """What the model is told after a turn that wrote nothing.
+
+    Observed on both local models: correct code, lost on the wrapper. The
+    generic correction and the repair prompt both blamed files that were never
+    written, sending the model after a logic bug that did not exist.
+    """
+
+    def test_should_name_the_wrapper_and_disown_the_missing_files(self):
+        from main import no_files_correction
+        msg = no_files_correction("codegen reply contained no <<<FILE>>> blocks")
+        self.assertIsNotNone(msg)
+        self.assertIn("<<<FILE relative/path>>>", msg)
+        self.assertIn("<<<END FILE>>>", msg)
+        self.assertIn("there", msg.lower())
+        self.assertIn("may have been correct", msg)
+
+    def test_should_stay_out_of_the_way_of_other_failures(self):
+        """A timeout or a provider error still deserves the generic correction,
+        so this must return None for anything that is not the wrapper."""
+        from main import no_files_correction
+        for text in ("", "provider quota exhausted — HTTP 402",
+                     "turn ran out of time", "some other failure"):
+            self.assertIsNone(no_files_correction(text), text)

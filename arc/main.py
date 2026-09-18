@@ -1265,6 +1265,34 @@ def locate_acceptance_tests(tree: dict, bundle_dir: Path) -> Path | None:
     return None
 
 
+def no_files_correction(text: str) -> str | None:
+    """Feedback that names the real problem when a turn wrote nothing at all.
+
+    Seen on both local models: the turn produced complete, correct code and lost
+    it on the wrapper. qwen2.5-coder:7b returned a whole working counter page
+    fenced as ```html with no delimiters; the 1.5B returned five blocks whose
+    opening markers were a character short. Nothing reaches disk, the app is
+    unchanged, and every spec fails.
+
+    What the model was told next was misleading twice over: the generic
+    correction says the implementation "did not complete", and the repair prompt
+    opens with "Your previous files (quoted below) failed every test". There were
+    no previous files, and the code may well have been right -- so the model is
+    sent looking for a logic bug that does not exist while the actual defect, the
+    wrapper, goes unmentioned.
+
+    Returns None for every other kind of failure, so the generic correction still
+    applies where it is accurate.
+    """
+    if "no <<<FILE>>> blocks" not in (text or ""):
+        return None
+    return ("Your last reply wrote no files: it contained no <<<FILE path>>> ... <<<END FILE>>> "
+            "blocks, so nothing reached disk and the application is unchanged -- the code itself "
+            "may have been correct. Ignore any suggestion that your previous files failed; there "
+            "were none. Return every file you change wrapped exactly as:\n"
+            "<<<FILE relative/path>>>\ncontents\n<<<END FILE>>>")
+
+
 def phase_for_label(label: str) -> str:
     """Which routing phase a turn belongs to, from the label it was given.
 
@@ -2463,6 +2491,7 @@ class Flow:
         if not ok and not timed_out:
             log(f"[flow] {node_id}: generation did not complete; testing the existing app")
             self.pending_corrections.append(
+                no_files_correction(text) or
                 "The implementation turn did not complete. Judge the existing files using acceptance results; "
                 "preserve working behavior and repair only failures supported by those results.")
         if timed_out:
