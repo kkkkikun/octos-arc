@@ -1046,6 +1046,7 @@ class FailedGenerationAcceptanceTests(unittest.TestCase):
                 flow.codegen_context_fits.return_value = True
                 flow.codegen_reasoning.return_value = 'none'
                 flow.codegen_context_chars.return_value = 20000
+                flow.codegen_quote_chars.return_value = 20000   # 拆分后仍与上面同值，保持这个用例原来的行为
                 flow.codegen_ports_clause.return_value = ''
                 flow.codegen_turn.return_value = (True, 'generated')
             flow.runtime = Mock()
@@ -2239,3 +2240,43 @@ class RefusalFallsBackToToolModeTests(unittest.TestCase):
             flow = self._flow(root)
             flow.drop_unseen_rewrites({"frontend/brand-new.html": "new"}, "node")
             self.assertFalse(flow.codegen_blocked)
+
+
+class CodegenQuoteCharsTests(unittest.TestCase):
+    """The quoting budget had to become its own knob before it can be measured.
+
+    `codegen_context_chars()` was doing four jobs at once, so the 6-run
+    experiment that moved it (9,000 -> 2/2 three times, 40,000 -> 1/2 three
+    times) moved the quoting budget, the inline budget, the whole-prompt ceiling
+    and the spec-size test together. Splitting it changes nothing by default.
+    """
+
+    def _flow(self):
+        import main
+        return main.Flow.__new__(main.Flow)
+
+    def test_should_default_to_the_context_budget(self):
+        from unittest.mock import patch
+        flow = self._flow()
+        with patch.dict('os.environ', {}, clear=False):
+            import os
+            os.environ.pop('OCTOS_ARC_CODEGEN_QUOTE_CHARS', None)
+            os.environ.pop('OCTOS_ARC_CODEGEN_CONTEXT_CHARS', None)
+            self.assertEqual(flow.codegen_quote_chars(), flow.codegen_context_chars())
+            self.assertEqual(flow.codegen_quote_chars(), 90000)
+
+    def test_should_follow_the_context_budget_when_that_is_set(self):
+        from unittest.mock import patch
+        flow = self._flow()
+        with patch.dict('os.environ', {'OCTOS_ARC_CODEGEN_CONTEXT_CHARS': '12000'}):
+            import os
+            os.environ.pop('OCTOS_ARC_CODEGEN_QUOTE_CHARS', None)
+            self.assertEqual(flow.codegen_quote_chars(), 12000)
+
+    def test_should_be_separable_from_the_context_budget(self):
+        from unittest.mock import patch
+        flow = self._flow()
+        with patch.dict('os.environ', {'OCTOS_ARC_CODEGEN_CONTEXT_CHARS': '90000',
+                                       'OCTOS_ARC_CODEGEN_QUOTE_CHARS': '9000'}):
+            self.assertEqual(flow.codegen_context_chars(), 90000)
+            self.assertEqual(flow.codegen_quote_chars(), 9000)

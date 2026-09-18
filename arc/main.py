@@ -1602,6 +1602,28 @@ class Flow:
     def codegen_context_chars(self) -> int:
         return int(os.environ.get("OCTOS_ARC_CODEGEN_CONTEXT_CHARS", "90000"))
 
+    def codegen_quote_chars(self) -> int:
+        """How much existing source an implement turn may be handed.
+
+        Split out of `codegen_context_chars()` so the two can be measured apart.
+        That one number was doing four jobs at once -- quoting budget, inline
+        budget, whole-prompt ceiling, and the spec-too-large test -- so an
+        experiment that moved it moved all four.
+
+        It had to be moved to learn anything: on smoke-evolution--counter with a
+        seeded 65 KB app, qwen2.5-coder:7b scored 2/2 three times out of three at
+        9,000 and 1/2 three times out of three at 40,000, and the large-budget
+        failures all looked the same -- not one file marker emitted, the whole
+        reply discarded. That symptom is on the input side; a bigger *output*
+        allowance should be more permissive, not less. But with one knob for both
+        it stays an inference.
+
+        Defaults to `codegen_context_chars()`, so nothing changes until someone
+        sets OCTOS_ARC_CODEGEN_QUOTE_CHARS. The point is to make the separating
+        experiment possible, not to guess the answer before running it.
+        """
+        return int(os.environ.get("OCTOS_ARC_CODEGEN_QUOTE_CHARS", str(self.codegen_context_chars())))
+
     def codegen_source_fit_chars(self) -> int:
         """How much existing source may be quoted before a node falls to tool mode.
 
@@ -2383,7 +2405,7 @@ class Flow:
                                             spec=spec_text, port=self.web_port, ports=self.codegen_ports_clause(),
                                             size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
             if self.has_app():  # existing app (evolution or later nodes): quote the relevant sources
-                budget = max(8000, self.codegen_context_chars() - len(spec_text))
+                budget = max(8000, self.codegen_quote_chars() - len(spec_text))
                 self.codegen_quoted = quoted_source_paths(self.output_dir, spec_text, budget)
                 compact = (compact.replace("Files:", "Existing app below; keep everything that works and output "
                                            "every changed file complete. Files:", 1)
@@ -2447,7 +2469,7 @@ class Flow:
         def rebuild_prompt(failures: str) -> str:
             if self.codegen_mode() and codegen_prompt:
                 spec_bodies = self.spec_bodies(node_id)
-                budget = max(8000, self.codegen_context_chars() - len(codegen_prompt))
+                budget = max(8000, self.codegen_quote_chars() - len(codegen_prompt))
                 self.codegen_quoted = quoted_source_paths(self.output_dir, spec_bodies, budget)
                 return (codegen_prompt + "\nYour previous files (quoted below) failed every test. Failures:\n" + failures
                         + "\n" + relevant_sources(self.output_dir, spec_bodies, budget)
