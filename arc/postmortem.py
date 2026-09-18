@@ -21,6 +21,10 @@ checkpoint (`regression specs pass locally`, `previously regressed behavior pass
 its checkpoint specs`) and the final check.
 
 So read them as:
+  clean          its acceptance loop ultimately passed -- on round 0 or on round 3,
+                 indistinguishable from here. NOT "passed first try": on submission A's
+                 keep the adapter log shows 12 of 32 nodes ran repair rounds
+                 ({round 0: 20, 1: 8, 2: 2, 3: 2}) while this bucket held 24.
   recovered      failed its own acceptance loop, then passed at a later checkpoint.
                  NOT "its own repair turns fixed it".
   never-passed   failed its own acceptance loop and no later phase revisited it.
@@ -177,10 +181,13 @@ def postmortem(opener, run_id: str) -> dict:
           f"  feature {run.get('feature_implementation_rate')}%"
           f"  CNY {run.get('token_cost_usd') or 0:.4f}  {run.get('token_count')} tok"
           f"  {run.get('run_duration_seconds')}s")
-    print(f"  passed first try        {len(c['clean'])}")
-    # Label says "at a later checkpoint", not "after repair": the old wording invited
-    # the reading that a node's own repair turns fixed it, which these events cannot show.
-    print(f"  passed at a checkpoint  {len(c['recovered'])} {c['recovered'][:6]}")
+    # Both labels were wrong in the same way and for the same reason -- one test event
+    # per acceptance_loop, emitted after all in-node repairs. "passed first try" counted
+    # every node whose loop ultimately passed, including the ones that needed three
+    # repair rounds to get there; on submission A's keep the adapter log shows 12 nodes
+    # ran repairs ({round 0: 20, 1: 8, 2: 2, 3: 2}) while this line read 24.
+    print(f"  its loop passed (any round) {len(c['clean'])}")
+    print(f"  passed at a checkpoint      {len(c['recovered'])} {c['recovered'][:6]}")
     print(f"  regressed (was passing) {len(c['regressed'])} {c['regressed']}")
     print(f"  never passed            {len(c['never_passed'])} {c['never_passed']}")
     broken = provider_failures(logs)
