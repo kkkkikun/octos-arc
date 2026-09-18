@@ -793,3 +793,39 @@ class CheckpointRepairOutcomeTests(unittest.TestCase):
         import main
         src = inspect.getsource(main.Flow.repair_regressions)
         self.assertIn("corrections=self.corrections_text()", src)
+
+
+class RehearsalRepairOutcomeTests(unittest.TestCase):
+    """启动排练的修复轮：接住结果，但**故意不往 corrections 里塞东西**。
+
+    这一条存在的意义是钉住那个「显而易见的修法其实有害」的判断，
+    免得日后有人为了跟另外两条修复路径「保持一致」而把泄漏引进来。
+    """
+
+    def test_captures_the_outcome(self):
+        import inspect
+        import main
+        src = inspect.getsource(main.Flow.rehearsal)
+        self.assertIn("reh_ok, reh_text = self.turn(", src)
+
+    def test_must_not_append_a_correction(self):
+        """`REHEARSAL_REPAIR_PROMPT` 只有 error / port / smoke 三个占位符，
+        **没有 corrections**，所以它永远不会去取 corrections 通道。
+        在这里 append 会做两件坏事：错过本该看到它的下一次排练尝试，
+        并且泄漏给下一个真正去取这个通道的、毫不相干的轮次。"""
+        import inspect
+        import main
+        src = inspect.getsource(main.Flow.rehearsal)
+        self.assertNotIn("pending_corrections", src)
+        # 判断的前提也要钉住：这个提示确实不含 corrections 占位符
+        self.assertNotIn("{corrections}", main.REHEARSAL_REPAIR_PROMPT)
+        self.assertIn("{error}", main.REHEARSAL_REPAIR_PROMPT)
+
+    def test_the_two_paths_that_do_append_read_the_channel(self):
+        """反过来确认：会 append 的那两条路径，它们的提示确实会取 corrections。
+        否则今天这三处修复里就藏着同一个泄漏。"""
+        import inspect
+        import main
+        self.assertIn("corrections=self.corrections_text()",
+                      inspect.getsource(main.Flow.repair_regressions))
+        self.assertIn("{corrections}", main.REPAIR_PROMPT)

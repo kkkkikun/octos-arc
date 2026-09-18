@@ -3246,8 +3246,24 @@ class Flow:
             if attempt == 3 or self.remaining() < -600:
                 log("[rehearsal] giving up; submitting as-is")
                 return False
-            self.turn(REHEARSAL_REPAIR_PROMPT.format(error=clip_ends(err, 1200), port=self.web_port, smoke=self.smoke_port),
-                      self.node_timeout, f"rehearsal repair {attempt}")
+            # Capture and log, but deliberately DO NOT append a correction here.
+            # REHEARSAL_REPAIR_PROMPT takes error/port/smoke only -- it has no
+            # `corrections` placeholder, so it never drains the corrections channel.
+            # An append would therefore miss the next rehearsal attempt entirely and
+            # instead surface in whatever unrelated prompt drains the channel next,
+            # telling that turn about a truncation that had nothing to do with it.
+            # The loop re-measures with a real build/start either way, so the log line
+            # is the whole value: it separates "the repair turn never finished" from
+            # "the repair ran and the app still will not start".
+            reh_ok, reh_text = self.turn(
+                REHEARSAL_REPAIR_PROMPT.format(error=clip_ends(err, 1200), port=self.web_port, smoke=self.smoke_port),
+                self.node_timeout, f"rehearsal repair {attempt}")
+            if not reh_ok:
+                log(f"[rehearsal] repair {attempt} did not complete ({str(reh_text)[-160:]}); "
+                    f"the next attempt re-measures with a real build/start")
+            elif truncation_correction(False, reh_text):
+                log(f"[rehearsal] repair {attempt} hit the output limit; "
+                    f"its edit may be partial and the next build will say so")
             self.commit("fix: startup rehearsal repair")
         return False
 
