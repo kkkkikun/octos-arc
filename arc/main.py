@@ -1283,14 +1283,26 @@ def no_files_correction(text: str) -> str | None:
 
     Returns None for every other kind of failure, so the generic correction still
     applies where it is accurate.
+
+    One case had to be added after watching a real bundle run: glm-5.3-flash
+    answered `The existing implementation already fully satisfies REQ-1 (count
+    starts at ...` and returned no files, which is the *right* answer -- the tiny
+    tier had already written a correct page. The first version of this message
+    told it to "return every file you change", which pushes a model that
+    correctly changed nothing into rewriting a working file. So the message now
+    names both cases and says the tests will confirm the no-change one.
     """
     if "no <<<FILE>>> blocks" not in (text or ""):
         return None
     return ("Your last reply wrote no files: it contained no <<<FILE path>>> ... <<<END FILE>>> "
             "blocks, so nothing reached disk and the application is unchanged -- the code itself "
             "may have been correct. Ignore any suggestion that your previous files failed; there "
-            "were none. Return every file you change wrapped exactly as:\n"
-            "<<<FILE relative/path>>>\ncontents\n<<<END FILE>>>")
+            "were none. Two cases, and only you know which applies: if you did mean to change "
+            "something, return each changed file whole, wrapped exactly as:\n"
+            "<<<FILE relative/path>>>\ncontents\n<<<END FILE>>>\n"
+            "If instead the requirement is already satisfied by the code as it stands, say so in "
+            "one line and change nothing -- the acceptance tests will confirm it. Do not rewrite a "
+            "working file merely to produce output.")
 
 
 def phase_for_label(label: str) -> str:

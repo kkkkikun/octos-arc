@@ -551,6 +551,18 @@ class NoFilesCorrectionTests(unittest.TestCase):
         self.assertIn("there", msg.lower())
         self.assertIn("may have been correct", msg)
 
+    def test_should_leave_room_for_a_correct_no_change_answer(self):
+        """Watched on a real bundle run: the model answered "The existing
+        implementation already fully satisfies REQ-1" and returned no files,
+        which was right - the tiny tier had already written a correct page.
+        Telling it to return every changed file pushes it to rewrite a working
+        one, so the message has to name that case too."""
+        from main import no_files_correction
+        msg = no_files_correction("codegen reply contained no <<<FILE>>> blocks")
+        self.assertIn("already satisfied", msg)
+        self.assertIn("change nothing", msg)
+        self.assertIn("Do not rewrite a working file", msg)
+
     def test_should_stay_out_of_the_way_of_other_failures(self):
         """A timeout or a provider error still deserves the generic correction,
         so this must return None for anything that is not the wrapper."""
