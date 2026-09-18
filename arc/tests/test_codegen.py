@@ -597,3 +597,47 @@ class TruncationCorrectionTests(unittest.TestCase):
         self.assertIsNone(truncation_correction(False, "octos turn timed out"))
         self.assertIsNone(truncation_correction(False, "provider quota exhausted"))
         self.assertIsNone(truncation_correction(False, ""))
+
+
+class UnchangedCorrectionTests(unittest.TestCase):
+    """回复「一个字节都没变」是三种无进展回复里最安静的一种。
+
+    另外两种早就有话说了：整份没有文件块 → no_files_correction；
+    中途被截断 → truncation_correction。而「原样吐回」只留下一行日志，
+    `codegen_turn` 照样返回成功，于是外层要再花一整轮 spec 才发现应用没变，
+    并把同样的证据递给下一轮——很可能换回同样的回复。
+    """
+
+    def test_should_fire_only_when_every_file_is_identical(self):
+        from main import unchanged_correction
+        files = {"a.js": "x", "b.js": "y"}
+        msg = unchanged_correction(files, ["a.js", "b.js"])
+        self.assertIsNotNone(msg)
+        self.assertIn("byte-for-byte identical", msg)
+        self.assertIn("a.js", msg)
+
+    def test_should_stay_quiet_when_part_of_the_reply_moved(self):
+        """改了一个、原样吐回三个，是**有**进展。这种情况已有
+        `(N unchanged: ...)` 那行日志，足够了；再加一条更正会把
+        一个正在推进的节点推去怀疑自己。"""
+        from main import unchanged_correction
+        self.assertIsNone(unchanged_correction({"a.js": "x", "b.js": "y"}, ["a.js"]))
+        self.assertIsNone(unchanged_correction({"a.js": "x"}, []))
+        self.assertIsNone(unchanged_correction({}, []))
+
+    def test_should_offer_the_already_correct_path_too(self):
+        """这条是从 no_files_correction 上学到的教训：把一个「正确地什么都没改」
+        的模型逼去重写一个能用的文件，只会更糟。所以消息必须同时给出
+        「本来就对」这条路，并且要它说出失败可能来自哪里——那是重复一遍给不了的东西。"""
+        from main import unchanged_correction
+        msg = unchanged_correction({"a.js": "x"}, ["a.js"])
+        self.assertIn("already correct", msg)
+        self.assertIn("do", msg.lower())
+        self.assertNotIn("return every file", msg)
+
+    def test_should_summarize_instead_of_listing_everything(self):
+        from main import unchanged_correction
+        files = {f"f{i}.js": "x" for i in range(9)}
+        msg = unchanged_correction(files, sorted(files))
+        self.assertIn("9 file(s)", msg)
+        self.assertIn("and 5 more", msg)

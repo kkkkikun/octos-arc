@@ -1334,6 +1334,48 @@ def no_files_correction(text: str) -> str | None:
             "working file merely to produce output.")
 
 
+def unchanged_correction(files: dict[str, str], idle: list[str]) -> str | None:
+    """Tell the next round that the last one returned the same bytes it was given.
+
+    There are exactly three ways a reply can fail to move the application forward,
+    and until now only two of them said so:
+
+      no blocks at all        `no_files_correction`
+      truncated mid-file      `truncation_correction`
+      every file identical    nothing -- the turn logged one line and reported success
+
+    The third is the quietest and the most expensive. `unchanged_rewrites` already
+    computes it (it is why that helper exists), but the result went only to a log
+    line while `codegen_turn` returned True; the outer loop then paid a full spec
+    run to discover the app had not changed, and handed the next round the same
+    evidence, which invites the same reply. `last_repair_diff` catches the
+    cross-round case afterwards from git, but only for repair commits and only
+    once the round is already spent.
+
+    Deliberately not treated as a failed turn. The turn *did* complete, and
+    "the file is already correct" is a legitimate conclusion -- the lesson from
+    `no_files_correction` was that pushing a model which correctly changed nothing
+    into rewriting a working file makes things worse. So this names both cases and
+    asks for the one thing a repeat cannot provide: where else the failure could be.
+
+    Returns None unless *every* returned file was byte-identical. A reply that
+    changed one file and re-sent three untouched ones did make progress, and the
+    existing `(N unchanged: ...)` log line is the right amount of attention for it.
+    """
+    if not files or len(idle) != len(files):
+        return None
+    shown = ", ".join(sorted(idle)[:4])
+    more = f" (and {len(idle) - 4} more)" if len(idle) > 4 else ""
+    return (f"Every file your last reply returned was byte-for-byte identical to what was already "
+            f"on disk -- {len(idle)} file(s): {shown}{more}. Nothing changed, so the same failures "
+            f"will reproduce exactly; sending those bytes again cannot move the result. Two cases, "
+            f"and only you know which applies: if you meant to make an edit, it did not survive -- "
+            f"make it and return that file whole. If you concluded the file is already correct, do "
+            f"not return it a third time; say so in one line and name where else the failure can "
+            f"come from -- a different file, the server wiring, the seeded data, or the test's own "
+            f"assumption about ports or selectors.")
+
+
 def phase_for_label(label: str) -> str:
     """Which routing phase a turn belongs to, from the label it was given.
 
@@ -1942,6 +1984,13 @@ class Flow:
             written = write_files(self.output_dir, files)
             same = f" ({len(idle)} unchanged: {idle[:4]})" if idle else ""
             log(f"[codegen] {label}: wrote {len(written)} file(s): {written[:8]}{same}")
+            # Every file identical means this turn produced no change at all. Say so now,
+            # rather than letting the next round rediscover it from a spec run that was
+            # always going to fail the same way. Not a failed turn -- see the helper.
+            stalled = unchanged_correction(files, idle)
+            if stalled:
+                log(f"[codegen] {label}: no progress -- every returned file was byte-identical")
+                self.pending_corrections.append(stalled)
             deduped = dedupe_nav_links(self.output_dir)
             if deduped:
                 log(f"[codegen] {label}: removed static nav links duplicating the NAV placeholder in {deduped}")
