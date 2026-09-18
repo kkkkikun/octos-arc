@@ -55,6 +55,36 @@ class DelimiterDriftTests(unittest.TestCase):
         self.assertEqual(delimiter_drift("<<<FILE ok.js>>>\nx\n<<<END FILE>>>"), [])
         self.assertEqual(delimiter_drift("just prose"), [])
 
+
+class UnparsedReplyDigestTests(unittest.TestCase):
+    def test_should_say_the_marker_is_absent(self):
+        from codegen import unparsed_reply_digest
+        d = unparsed_reply_digest("Sure! Here is the file you asked for.")
+        self.assertIn("open=absent", d)
+        self.assertIn("close=0", d)
+        self.assertIn("len=37", d)
+
+    def test_should_quote_the_opening_marker_it_could_not_use(self):
+        """The case that stayed invisible: the defect is in the opening marker
+        while the tail closes correctly, so a tail-only slice looks healthy."""
+        from codegen import unparsed_reply_digest
+        d = unparsed_reply_digest("<<<FILE a>b.js>>>\nx\n<<<END FILE>>>")
+        self.assertIn("open='<<<FILE a>b.js>>>'", d)
+        self.assertIn("close=1", d)
+
+    def test_should_report_a_truncated_reply_as_having_no_close(self):
+        from codegen import unparsed_reply_digest
+        d = unparsed_reply_digest("<<<FILE a.js>>>\n" + "x = 1;\n" * 200)
+        self.assertIn("close=0", d)
+        self.assertIn("head=", d)
+        self.assertIn("tail=", d)
+
+    def test_should_stay_bounded_and_single_line(self):
+        from codegen import unparsed_reply_digest
+        d = unparsed_reply_digest("prose\n" * 5000, limit=80)
+        self.assertNotIn("\n", d)
+        self.assertLess(len(d), 400)
+
     def test_should_write_files_under_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             written = write_files(Path(tmp), {"backend/server.js": "x\n"})

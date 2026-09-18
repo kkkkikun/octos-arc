@@ -68,6 +68,38 @@ def delimiter_drift(text: str) -> list[str]:
     return sorted(paths(FILE_BLOCK) - paths(CANONICAL_FILE_BLOCK))
 
 
+def unparsed_reply_digest(text: str, limit: int = 160) -> str:
+    """Why a reply yielded no file blocks, in one bounded line.
+
+    The paid model logged 36 "reply contained no file blocks" against 571
+    successful writes across the five long submission-C runs -- about 6% of
+    codegen turns thrown away -- and the cause cannot be established after the
+    fact: the run log keeps the harness's verdict but not the reply.
+
+    The turn line above it does print a slice of the reply, but only its *tail*.
+    That is the wrong end. The local 7B's near-miss was in the *opening* marker
+    (`<<<FILE path>` instead of `>>>`) while its tail closed correctly, so the
+    tail slice looked perfectly healthy and the real defect stayed invisible.
+
+    So report what actually separates the candidate causes: whether an opening
+    marker appeared at all and exactly how it was written, how many closing
+    markers there were, and a bounded slice from *both* ends -- a truncated
+    reply loses its close at the end, a reply that opens with prose or a fence
+    fails at the start.
+    """
+    t = text or ""
+    opens = re.findall(r"<<<\s*FILE[^\n]{0,120}", t)
+    closes = len(re.findall(r"<<<\s*END\s*FILE\s*>*", t))
+    bits = [f"len={len(t)}", f"open={opens[0]!r}" if opens else "open=absent"]
+    if len(opens) > 1:
+        bits.append(f"opens={len(opens)}")
+    bits.append(f"close={closes}")
+    bits.append(f"head={t[:limit]!r}")
+    if len(t) > limit:
+        bits.append(f"tail={t[-limit:]!r}")
+    return " ".join(bits)
+
+
 CHARSET_META = '<meta charset="utf-8">'
 
 
