@@ -39,6 +39,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 import urllib.error
 import urllib.request
 
@@ -157,7 +158,11 @@ def postmortem(opener, run_id: str) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("run_ids", nargs="+")
-    ap.add_argument("--cookie-jar", default=os.environ.get("ARC_COOKIE_JAR"))
+    # Default to the driver's jar. Without a cookie every call is 401, and the
+    # traceback points at urllib rather than at the missing session -- which cost a
+    # detour the first time this was run months after it was written.
+    default_jar = os.environ.get("ARC_COOKIE_JAR") or str(Path.home() / ".arc-web-driver" / "session.jar")
+    ap.add_argument("--cookie-jar", default=default_jar if Path(default_jar).exists() else None)
     args = ap.parse_args()
     opener = client(args.cookie_jar)
     for run_id in args.run_ids:
