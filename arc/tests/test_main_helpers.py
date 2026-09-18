@@ -2026,3 +2026,87 @@ class UnfinishedRepairNoteTests(unittest.TestCase):
         # The escalation is queued as a correction; corrections_text() renders it.
         self.assertTrue(any("Recheck the assumptions" in c for c in flow.pending_corrections))
 
+
+
+class UnseenRewriteGuardTests(unittest.TestCase):
+    """A codegen turn must not rewrite a file it was never shown.
+
+    It is asked to return every file it changes, complete. When the source budget omitted
+    a file, what it returns for that file is written from nothing, and writing that
+    deletes behaviour other requirements depend on. Cloud 12306 99196f2e802b lost 29
+    nodes to regressions and not one to a spec it could not build; the prompt had told it
+    those files were "unchanged unless the requirement needs them", which invites exactly
+    that. The prompt now forbids it and this guard enforces it.
+    """
+
+    def _app(self, root):
+        (root / "backend").mkdir()
+        (root / "frontend").mkdir()
+        (root / "backend/server.js").write_text("b" * 9000, encoding="utf-8")
+        (root / "frontend/a.html").write_text("a" * 9000, encoding="utf-8")
+        (root / "frontend/b.html").write_text("c" * 9000, encoding="utf-8")
+
+    def test_quoted_set_matches_what_the_prompt_quotes(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._app(root)
+            budget = 12000            # room for one file, not three
+            text = m.relevant_sources(root, "a.html", budget)
+            quoted = m.quoted_source_paths(root, "a.html", budget)
+            for rel in quoted:
+                self.assertIn(f"--- {rel} ---", text)
+            for rel in ("backend/server.js", "frontend/a.html", "frontend/b.html"):
+                if rel not in quoted:
+                    self.assertNotIn(f"--- {rel} ---", text)
+            self.assertTrue(0 < len(quoted) < 3)
+
+    def test_omitted_files_are_forbidden_not_invited(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._app(root)
+            text = m.relevant_sources(root, "a.html", 12000)
+            self.assertIn("do not return these", text)
+            self.assertNotIn("unchanged unless the requirement needs them", text)
+
+    def test_refuses_a_rewrite_of_an_unquoted_existing_file(self):
+        import argparse, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._app(root)
+            flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+            flow.pending_corrections = []
+            flow.codegen_quoted = {"frontend/a.html"}
+            kept = flow.drop_unseen_rewrites(
+                {"frontend/a.html": "new a", "frontend/b.html": "clobbered"}, "node")
+            self.assertEqual(set(kept), {"frontend/a.html"})
+            self.assertTrue(any("frontend/b.html" in c for c in flow.pending_corrections))
+
+    def test_allows_a_brand_new_file(self):
+        import argparse, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._app(root)
+            flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+            flow.pending_corrections = []
+            flow.codegen_quoted = {"frontend/a.html"}
+            kept = flow.drop_unseen_rewrites({"frontend/new.html": "brand new"}, "node")
+            self.assertEqual(set(kept), {"frontend/new.html"})
+            self.assertEqual(flow.pending_corrections, [])
+
+    def test_does_nothing_when_the_turn_quoted_no_sources(self):
+        """tiny tier, tool mode, skeleton turn: no quoted set, so no basis to refuse."""
+        import argparse, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._app(root)
+            flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+            flow.codegen_quoted = None
+            files = {"frontend/b.html": "whatever"}
+            self.assertEqual(flow.drop_unseen_rewrites(files, "node"), files)

@@ -405,15 +405,12 @@ def spec_terms(spec_text: str) -> set[str]:
     return {t.lower() for t in terms if t not in stop}
 
 
-def relevant_sources(output_dir: Path, spec_text: str, max_chars: int) -> str:
-    """Quote the existing sources a node most likely touches: every backend entry
-    file first (the router every node extends), then pages ranked by how many
-    of the spec's terms (locators, texts, routes) they contain, until the budget
-    is spent. JSON state follows code; the rest are listed by name so the
-    model knows they exist. The budget counts file contents, not headings."""
+def _ranked_sources(output_dir: Path, spec_text: str) -> list[tuple[int, int, int, Path, str]]:
+    """The ranking both `relevant_sources` and `quoted_source_paths` read, so the text
+    the model sees and the set the harness enforces can never drift apart."""
     files = app_source_files(output_dir)
     if not files:
-        return ""
+        return []
     terms = spec_terms(spec_text)
     scored = []
     for path in files:
@@ -428,6 +425,29 @@ def relevant_sources(output_dir: Path, spec_text: str, max_chars: int) -> str:
         priority = 2 if path.suffix == ".json" else (0 if is_backend else 1)
         scored.append((priority, -hits, len(text), rel, text))
     scored.sort(key=lambda x: (x[0], x[1], x[2]))
+    return scored
+
+
+def quoted_source_paths(output_dir: Path, spec_text: str, max_chars: int) -> set[str]:
+    """Exactly the files `relevant_sources` quotes whole for the same arguments."""
+    quoted, total = set(), 0
+    for _, _hits, size, rel, _text in _ranked_sources(output_dir, spec_text):
+        if total + size > max_chars:
+            continue
+        total += size
+        quoted.add(str(rel))
+    return quoted
+
+
+def relevant_sources(output_dir: Path, spec_text: str, max_chars: int) -> str:
+    """Quote the existing sources a node most likely touches: every backend entry
+    file first (the router every node extends), then pages ranked by how many
+    of the spec's terms (locators, texts, routes) they contain, until the budget
+    is spent. JSON state follows code; the rest are listed by name so the
+    model knows they exist. The budget counts file contents, not headings."""
+    scored = _ranked_sources(output_dir, spec_text)
+    if not scored:
+        return ""
     parts, omitted, total = [], [], 0
     for _, neg_hits, size, rel, text in scored:
         if total + size > max_chars:
@@ -437,7 +457,18 @@ def relevant_sources(output_dir: Path, spec_text: str, max_chars: int) -> str:
         parts.append(f"--- {rel} ---\n{text.rstrip()}\n")
     out = "Current source files (quoted; return every file you change, complete):\n" + "".join(parts)
     if omitted:
-        out += "Other files, unchanged unless the requirement needs them: " + "; ".join(omitted) + "\n"
+        # Was "unchanged unless the requirement needs them", which invited exactly the
+        # failure this now forbids: a turn that returns "every file you change,
+        # complete" and decides it needs a file it was never shown rewrites that file
+        # from nothing and drops whatever was in it -- behaviour belonging to other
+        # nodes' specs. Cloud 12306 99196f2e802b lost 29 nodes that way and not one to
+        # an unbuildable spec. The harness enforces this too (`codegen_turn` refuses a
+        # block for an existing unquoted file); saying it here keeps the reply useful
+        # instead of merely rejected.
+        out += ("Files NOT shown to you (do not return these -- you cannot see their "
+                "contents, so rewriting one would delete behaviour other requirements "
+                "depend on; if the requirement truly needs one, say so in one line "
+                "instead of returning it): " + "; ".join(omitted) + "\n")
     return out
 
 
@@ -1702,6 +1733,39 @@ class Flow:
         threshold = int(os.environ.get("OCTOS_ARC_CODEGEN_REASONING_CHARS", "5000"))
         return "none" if spec_chars and spec_chars < threshold else None
 
+    def drop_unseen_rewrites(self, files: dict[str, str], label: str) -> dict[str, str]:
+        """Refuse a whole-file replacement for an existing file the turn was not shown.
+
+        A codegen turn is asked to return every file it changes, complete. When the
+        source budget omitted a file, the turn cannot produce it correctly -- what it
+        returns is a file written from nothing, and writing that deletes the behaviour
+        other requirements depend on. Cloud 12306 99196f2e802b lost 29 nodes to
+        regressions and not one to a spec it could not build.
+
+        New files are allowed (nothing to destroy). Files that were quoted are allowed.
+        Only "existing on disk, never shown" is refused, and the turn is told, so the
+        next round asks for what it needs instead of silently losing it.
+        """
+        quoted = getattr(self, "codegen_quoted", None)
+        if not files or quoted is None:
+            return files
+        kept, refused = {}, []
+        for rel, body in files.items():
+            if rel in quoted or not (self.output_dir / rel).exists():
+                kept[rel] = body
+            else:
+                refused.append(rel)
+        if refused:
+            log(f"[codegen] {label}: refused {len(refused)} rewrite(s) of file(s) never shown "
+                f"to this turn: {refused[:6]}")
+            self.pending_corrections.append(
+                "A previous turn returned complete replacements for files it had not been "
+                "shown: " + ", ".join(refused[:6]) + ". Those were discarded, not written -- "
+                "rewriting a file you cannot see deletes behaviour other requirements "
+                "depend on. Change only files quoted to you; if you need another one, name "
+                "it in one line and stop.\n")
+        return kept
+
     def codegen_turn(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
                      system: str = CODEGEN_SYSTEM, format_instructions: str = FORMAT_INSTRUCTIONS,
                      raw_target: str | None = None) -> tuple[bool, str]:
@@ -1728,6 +1792,7 @@ class Flow:
             html = strip_code_fences(text)
             if looks_like_markup(html):
                 files = {raw_target: html}
+        files = self.drop_unseen_rewrites(files, label)
         if files:
             written = write_files(self.output_dir, files)
             log(f"[codegen] {label}: wrote {len(written)} file(s): {written[:8]}")
@@ -2231,6 +2296,9 @@ class Flow:
         node_id = str(node.get("id"))
         specs = list(self.spec_map.get(node_id) or [])
         self.codegen_blocked = False  # a previous node's fallback to tool mode must not leak into this one
+        # None = 本轮没有「引用了哪些源码」这回事（tiny 档位、工具模式、骨架轮，或应用还不存在），
+        # 守卫不介入；只有真正按预算引用过源码的 codegen 轮才有拒写的依据。
+        self.codegen_quoted = None
         if index > 1:
             reap_workspace_processes(self.output_dir, log)
         nodes_left = total - index + 1
@@ -2289,10 +2357,11 @@ class Flow:
                                             spec=spec_text, port=self.web_port, ports=self.codegen_ports_clause(),
                                             size_rule=CODEGEN_SIZE_SMALL if small else CODEGEN_SIZE_FULL)
             if self.has_app():  # existing app (evolution or later nodes): quote the relevant sources
+                budget = max(8000, self.codegen_context_chars() - len(spec_text))
+                self.codegen_quoted = quoted_source_paths(self.output_dir, spec_text, budget)
                 compact = (compact.replace("Files:", "Existing app below; keep everything that works and output "
                                            "every changed file complete. Files:", 1)
-                           + relevant_sources(self.output_dir, spec_text,
-                                              max(8000, self.codegen_context_chars() - len(spec_text))))
+                           + relevant_sources(self.output_dir, spec_text, budget))
             compact = corrections + compact
             codegen_prompt = compact
             write_codegen_manifests(self.output_dir)
@@ -2351,9 +2420,11 @@ class Flow:
 
         def rebuild_prompt(failures: str) -> str:
             if self.codegen_mode() and codegen_prompt:
+                spec_bodies = self.spec_bodies(node_id)
+                budget = max(8000, self.codegen_context_chars() - len(codegen_prompt))
+                self.codegen_quoted = quoted_source_paths(self.output_dir, spec_bodies, budget)
                 return (codegen_prompt + "\nYour previous files (quoted below) failed every test. Failures:\n" + failures
-                        + "\n" + relevant_sources(self.output_dir, self.spec_bodies(node_id),
-                                                   max(8000, self.codegen_context_chars() - len(codegen_prompt)))
+                        + "\n" + relevant_sources(self.output_dir, spec_bodies, budget)
                         + "Fix the root causes and return every file you change, complete.\n")
             return (prompt + "\nYOUR PREVIOUS ATTEMPT FAILED EVERY ACCEPTANCE TEST — the failures (Feature / where / "
                     "observation / steps):\n" + failures + "\n" + self.sources_text()
