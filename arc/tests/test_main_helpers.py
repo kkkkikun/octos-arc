@@ -2130,3 +2130,63 @@ class DryRunDriverParityTests(unittest.TestCase):
     def test_without_tools_is_a_usable_context_manager(self):
         with m.DryRunDriver().without_tools():
             pass
+
+
+class QuotedSetWiringTests(unittest.TestCase):
+    """The guard is only as good as the set it checks against.
+
+    Unit tests cover drop_unseen_rewrites() directly and a dry run covers that it does
+    not misfire across 30 nodes, but neither covers the wiring: that the prompt-building
+    path actually records which files it quoted, with the same budget the prompt used.
+    If codegen_quoted were left None the guard silently does nothing; if it were computed
+    with a different budget it would refuse files the model *was* shown.
+    """
+
+    def _flow_with_big_app(self, root):
+        import argparse
+        (root / "backend").mkdir()
+        (root / "frontend").mkdir()
+        # One file per 40k chars: with a 90k budget and a spec of a few hundred chars,
+        # two fit and the third cannot.
+        (root / "backend/server.js").write_text("b" * 40000, encoding="utf-8")
+        (root / "frontend/a.html").write_text("a" * 40000, encoding="utf-8")
+        (root / "frontend/z.html").write_text("z" * 40000, encoding="utf-8")
+        return m.Flow(argparse.Namespace(web_port=1), root, root)
+
+    def test_quoted_set_is_what_the_same_budget_would_quote(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flow = self._flow_with_big_app(root)
+            spec = "click the button labelled Save"
+            budget = max(8000, flow.codegen_context_chars() - len(spec))
+            quoted = m.quoted_source_paths(root, spec, budget)
+            text = m.relevant_sources(root, spec, budget)
+            self.assertTrue(quoted, "nothing quoted at a 90k budget with 120k of source")
+            self.assertLess(len(quoted), 3, "all three files fit; the case under test is an omission")
+            for rel in quoted:                      # everything claimed quoted really is
+                self.assertIn(f"--- {rel} ---", text)
+            omitted = {"backend/server.js", "frontend/a.html", "frontend/z.html"} - quoted
+            for rel in omitted:                     # and everything omitted is refused by the guard
+                flow.codegen_quoted = quoted
+                flow.pending_corrections = []
+                kept = flow.drop_unseen_rewrites({rel: "rewritten from nothing"}, "node")
+                self.assertEqual(kept, {}, f"guard let through a rewrite of unquoted {rel}")
+
+    def test_a_quoted_file_is_still_writable(self):
+        """The guard must not block the file the node was given to change."""
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flow = self._flow_with_big_app(root)
+            spec = "click the button labelled Save"
+            budget = max(8000, flow.codegen_context_chars() - len(spec))
+            quoted = m.quoted_source_paths(root, spec, budget)
+            target = sorted(quoted)[0]
+            flow.codegen_quoted = quoted
+            flow.pending_corrections = []
+            kept = flow.drop_unseen_rewrites({target: "legit edit"}, "node")
+            self.assertEqual(set(kept), {target})
+            self.assertEqual(flow.pending_corrections, [])
