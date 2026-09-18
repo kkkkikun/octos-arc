@@ -756,3 +756,40 @@ class RepairWroteNothingCorrectionTests(unittest.TestCase):
         src = inspect.getsource(main.Flow.acceptance_loop)
         self.assertEqual(src.count("repair_wrote_nothing_correction"), 2, src.count("repair_wrote_nothing_correction"))
         self.assertEqual(src.count("truncation_correction"), 2)
+
+
+class CheckpointRepairOutcomeTests(unittest.TestCase):
+    """回归检查点的修复轮，过去是「只为副作用」调用的——返回值整份丢掉。
+
+    于是一个被截断、或根本没跑完的检查点修复，看起来和「跑了但没修对」完全一样，
+    下一次尝试拿不到任何提示。这在别处是浪费，在这里是要害：
+    **检查点挽回正是提交 A 的 keep（32/32，8 个节点靠检查点挽回）
+    与 D（循环内通过 24，挽回 0）之间被实测出来的全部差距。**
+    """
+
+    def test_checkpoint_repair_captures_its_outcome(self):
+        import inspect
+        import main
+        src = inspect.getsource(main.Flow.repair_regressions)
+        # 返回值必须被接住，不能再是裸调用
+        self.assertIn("c_ok, c_text = self.turn(", src)
+        # 截断必须像节点级修复路径一样被转达给下一次尝试
+        self.assertIn("truncation_correction(c_ok, c_text)", src)
+        self.assertIn("pending_corrections.append(note)", src)
+
+    def test_checkpoint_repair_still_lets_the_specs_decide(self):
+        """没跑完**不**作致命处理：下面的 spec 运行仍然是判定者。
+        否则一次网络抖动就会把一个本来能挽回的检查点变成放弃。"""
+        import inspect
+        import main
+        src = inspect.getsource(main.Flow.repair_regressions)
+        body = src.split("c_ok, c_text = self.turn(")[1]
+        head = body.split("self.commit(")[0]
+        self.assertNotIn("return", head, "没跑完不应直接 return，spec 运行才是判定者")
+
+    def test_corrections_reach_the_next_checkpoint_attempt(self):
+        """append 了有用，必须确认这条路径真的会把 corrections 喂进提示。"""
+        import inspect
+        import main
+        src = inspect.getsource(main.Flow.repair_regressions)
+        self.assertIn("corrections=self.corrections_text()", src)

@@ -2892,7 +2892,14 @@ class Flow:
                 return
             failing = sorted(node for node in grouped if node) or ["the regressed behaviours"]
             failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
-            self.turn(REPAIR_PROMPT.format(
+            # Capture the outcome instead of discarding it. This turn used to be called
+            # for effect only: a truncated or unfinished checkpoint repair looked exactly
+            # like one that simply failed to fix anything, and the next attempt was handed
+            # no hint. That matters more here than anywhere else -- checkpoint recovery is
+            # the entire measured gap between submission A's keep (32/32, 8 nodes recovered
+            # at checkpoints) and D's (24 passed in-loop, 0 recovered). Same treatment the
+            # node-level repair path already gets.
+            c_ok, c_text = self.turn(REPAIR_PROMPT.format(
                 node_id=", ".join(failing), passed=summary.passed, total=summary.total, failures=failures,
                 test_location=self.repair_test_location(),
                 sources=self.repair_requirements() + self.sources_text(),
@@ -2900,6 +2907,17 @@ class Flow:
                 smoke=self.smoke_port, port=self.web_port),
                 min(self.suite_repair_timeout(), max(120, self.remaining() - 200)),
                 f"checkpoint {index} repair {attempt + 1}/{rounds}")
+            note = truncation_correction(c_ok, c_text)
+            if note:
+                log(f"[flow] checkpoint {index} repair {attempt + 1}: hit the output limit; "
+                    f"telling the next attempt")
+                self.pending_corrections.append(note)
+            elif not c_ok:
+                # Not treated as fatal -- the specs below still decide. But say it, so a
+                # checkpoint that recovered nothing because its repair never ran is
+                # distinguishable from one whose repair ran and was wrong.
+                log(f"[flow] checkpoint {index} repair {attempt + 1}: turn did not complete "
+                    f"({str(c_text)[-160:]})")
             self.commit(f"fix: checkpoint {index} regression repair {attempt + 1}")
             summary = self.run_specs(specs, workers=workers, grader_like=True)
             if summary.error:
