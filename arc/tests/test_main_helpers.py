@@ -435,19 +435,46 @@ class RelevantSourcesTests(unittest.TestCase):
             self.assertIn('--- backend/data/state.json ---', tight)
 
     def test_codegen_requires_existing_sources_to_fit(self):
+        """The gate itself, pinned against its own budget rather than the default."""
+        from pathlib import Path
+        from unittest.mock import patch
+        import argparse, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+            with patch.dict("os.environ", {"OCTOS_ARC_CODEGEN_SOURCE_FIT_CHARS": "90000"}):
+                self.assertTrue(flow.codegen_context_fits("x" * 12000))
+                (root / "backend").mkdir()
+                (root / "frontend").mkdir()
+                (root / "backend/server.js").write_text("b" * 26000)
+                (root / "frontend/index.html").write_text("p" * 55000)
+                self.assertFalse(flow.codegen_context_fits("x" * 12000))
+                (root / "frontend/index.html").write_text("p" * 50000)
+                self.assertTrue(flow.codegen_context_fits("x" * 12000))
+
+    def test_the_fit_gate_is_not_sized_by_the_output_budget(self):
+        """Cloud stackoverflow 97848d542ac8: sizing this gate by codegen_context_chars
+        (90000, an output budget) pushed every node after the app outgrew it into tool
+        mode -- 55% of nodes, 89% of node wall-clock, 8.8x the median per node. An app of
+        81000 characters must still take the single-request path."""
         from pathlib import Path
         import argparse, tempfile
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             flow = m.Flow(argparse.Namespace(web_port=1), root, root)
-            self.assertTrue(flow.codegen_context_fits("x" * 12000))
-            (root / "backend").mkdir()
-            (root / "frontend").mkdir()
+            (root / "backend").mkdir(); (root / "frontend").mkdir()
             (root / "backend/server.js").write_text("b" * 26000)
             (root / "frontend/index.html").write_text("p" * 55000)
-            self.assertFalse(flow.codegen_context_fits("x" * 12000))
-            (root / "frontend/index.html").write_text("p" * 50000)
+            self.assertGreater(flow.codegen_source_fit_chars(), flow.codegen_context_chars())
             self.assertTrue(flow.codegen_context_fits("x" * 12000))
+
+    def test_an_oversized_spec_still_falls_back(self):
+        """The spec-size half of the gate is unchanged: a spec at 60% of the output
+        budget cannot be answered as one complete-file reply whatever the source budget."""
+        from pathlib import Path
+        import argparse
+        flow = m.Flow(argparse.Namespace(web_port=1), Path("."), Path("."))
+        self.assertFalse(flow.codegen_context_fits("x" * int(flow.codegen_context_chars() * 0.6)))
 
     def test_codegen_applies_to_big_trees_unless_capped(self):
         import argparse, os

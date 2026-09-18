@@ -125,6 +125,13 @@ inline_specs = true          # OCTOS_ARC_INLINE_SPECS — quote the node's specs
 inline_spec_chars = 24000    # OCTOS_ARC_INLINE_SPEC_CHARS
 inline_source_chars = 40000  # OCTOS_ARC_INLINE_SOURCE_CHARS — sources quoted into repair/rewrite prompts (0 = off)
 codegen_context_chars = 90000  # OCTOS_ARC_CODEGEN_CONTEXT_CHARS — codegen prompt budget: spec must fit 60% of it; existing sources ranked by spec-term overlap fill the rest (≈26k tokens)
+codegen_source_fit_chars = 400000  # OCTOS_ARC_CODEGEN_SOURCE_FIT_CHARS — how much existing source may
+                                # be quoted before a node drops to tool mode. Separate from the line
+                                # above on purpose: that one is an output budget, and sizing this gate
+                                # by it meant an app outgrowing 90000 chars pushed every later node
+                                # into tool mode. Cloud stackoverflow 97848d542ac8 at node 44: tool
+                                # mode was 55% of nodes and 89% of node wall-clock, median 574 s vs
+                                # 65 s. ≈115k tokens of a 1048576 token window.
 perf_contract = true         # OCTOS_PERF_CONTRACT
 guard = true                 # OCTOS_GUARD — inject guard corrections into the next prompt
 # Requirement keywords (case-insensitive substrings of the tree text) that

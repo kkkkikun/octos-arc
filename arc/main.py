@@ -1557,13 +1557,40 @@ class Flow:
     def codegen_context_chars(self) -> int:
         return int(os.environ.get("OCTOS_ARC_CODEGEN_CONTEXT_CHARS", "90000"))
 
+    def codegen_source_fit_chars(self) -> int:
+        """How much existing source may be quoted before a node falls to tool mode.
+
+        Deliberately not `codegen_context_chars()`: that one is the *output* budget
+        bounding what a tool-free turn is asked to re-emit (#192 separated the two, and
+        this gate was the one place still conflating them). Sizing the gate by the output
+        budget means the app outgrowing 90000 characters pushes every later node into tool
+        mode, and tool mode is what actually costs the run.
+
+        Measured on cloud stackoverflow 97848d542ac8 (66 nodes, 2026-09-17), at node 44:
+
+            path                  nodes   median   total
+            codegen, 1 request    20        65 s   31.7 min
+            tool mode             24       574 s   244.0 min
+
+        55% of the nodes, 89% of the node wall-clock, 8.8x the median per node -- and the
+        split is chronological: early nodes fit, later ones do not. First-pass rate was
+        44/44, so this is not repair churn, it is the tool-mode path itself.
+
+        400000 characters is about 115000 tokens against a 1048576 token window, and glm
+        input is the cheap side of the bill, so the trade is wall-clock and request count
+        against input tokens. The repair-side budget (`inline_source_chars`, #199) is left
+        alone on purpose: that one is about whether more quoted source helps or dilutes a
+        repair, which is a different question and still unmeasured.
+        """
+        return int(os.environ.get("OCTOS_ARC_CODEGEN_SOURCE_FIT_CHARS", "400000"))
+
     def codegen_context_fits(self, spec_text: str) -> bool:
         """Do not request complete file replacements with omitted source bodies.
         Large existing applications use tool mode so the model can read and edit
         their files without fitting every source into one request.
         """
-        limit = self.codegen_context_chars()
-        if len(spec_text) >= limit * 0.6:
+        limit = self.codegen_source_fit_chars()
+        if len(spec_text) >= self.codegen_context_chars() * 0.6:
             return False
         remaining = max(8000, limit - len(spec_text))
         for path in app_source_files(self.output_dir):
