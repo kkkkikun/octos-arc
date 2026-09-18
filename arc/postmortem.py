@@ -114,6 +114,30 @@ def classify(events: list) -> dict:
     return out
 
 
+PROVIDER_FAILURES = (
+    "insufficient_balance", "quota exhausted", "PermanentProviderError",
+    "HTTP 402", "model not found", "rate limit", "Too Many Requests",
+)
+
+
+def provider_failures(logs: dict) -> list[str]:
+    """Which provider-level failures appear anywhere in this run's log.
+
+    Without this the "never passed" bucket is ambiguous and reads as a capability
+    gap. Submission C's keep is the example: its eight never-passed nodes are
+    REQ-2.5.1 and then REQ-3.2 through REQ-6.2 -- consecutive *late* requirements
+    in a run that died on `insufficient_balance` at the end. Those nodes almost
+    certainly never got a working model call at all, which is a very different
+    finding from "the repair turns had the evidence and still could not do it".
+
+    The classification itself only asks whether a spec ever passed, and cannot
+    tell the two apart, so the honest move is to say so when the log shows the
+    provider failing.
+    """
+    blob = json.dumps(logs, ensure_ascii=False)
+    return [sign for sign in PROVIDER_FAILURES if sign.lower() in blob.lower()]
+
+
 def postmortem(opener, run_id: str) -> dict:
     run = get(opener, f"/runs/{run_id}")
     logs = get(opener, f"/runs/{run_id}/logs")
@@ -133,6 +157,11 @@ def postmortem(opener, run_id: str) -> dict:
     print(f"  passed after repair     {len(c['recovered'])} {c['recovered'][:6]}")
     print(f"  regressed (was passing) {len(c['regressed'])} {c['regressed']}")
     print(f"  never passed            {len(c['never_passed'])} {c['never_passed']}")
+    broken = provider_failures(logs)
+    if broken and c["never_passed"]:
+        print(f"  !! the provider failed during this run ({', '.join(broken)}) --"
+              f" 'never passed' here may mean those nodes never got a working model call,"
+              f" not that they were attempted and could not be done")
     unconfirmed = [n for n in c["clean"] + c["recovered"] if n not in c["suite_verified"]]
     if unconfirmed:
         print(f"  passed its own run but never confirmed by the full suite: "
