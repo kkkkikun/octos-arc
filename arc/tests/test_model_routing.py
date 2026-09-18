@@ -153,3 +153,39 @@ class RoutingStartupTests(unittest.TestCase):
             with patch.dict('os.environ', env), patch('main.LlmProxy', side_effect=OSError('bind failed')):
                 with self.assertRaises(OSError):
                     flow.start_llm_proxy()
+
+
+class ShippedEscalationRouteTests(unittest.TestCase):
+    """`arc/model-routes-glm-escalate.json` is staged for the submission after D.
+
+    The design is cheap-first: the submission's own model (glm-5.3-flash) does
+    every implement, verify and design turn, and only a *repair* -- a turn that
+    exists because the cheap model already failed -- escalates to glm-5.3. Always
+    using the stronger model would spend more on the turns that did not need it.
+
+    Locked by a test because a staged config that nobody runs is exactly the kind
+    of thing that rots: both model IDs answer on the coding-plan endpoint today,
+    and `phases` has to stay `["repair"]` for the escalation to mean anything.
+    """
+
+    def _rules(self):
+        from pathlib import Path
+        raw = (Path(__file__).resolve().parent.parent / 'model-routes-glm-escalate.json').read_text(encoding='utf-8')
+        return model_routes(raw)
+
+    def _model_for(self, rules, phase, tools=False):
+        body = {'model': 'glm-5.3-flash', 'messages': [{'role': 'user', 'content': 'x'}]}
+        if tools:
+            body['tools'] = [{'type': 'function', 'function': {'name': 'f'}}]
+        return json.loads(route_request(json.dumps(body).encode(), rules, phase))['model']
+
+    def test_should_escalate_only_repairs(self):
+        rules = self._rules()
+        self.assertEqual(self._model_for(rules, 'repair'), 'glm-5.3')
+        for phase in ('implement', 'verify', 'design'):
+            self.assertEqual(self._model_for(rules, phase), 'glm-5.3-flash', phase)
+
+    def test_should_escalate_a_repair_that_needs_tools(self):
+        """Tool-mode repairs are the ones most likely to need the stronger model,
+        so the rule must not be skipped by the tools check."""
+        self.assertEqual(self._model_for(self._rules(), 'repair', tools=True), 'glm-5.3')
