@@ -710,3 +710,49 @@ class IdenticalFailureAfterEmptyRepairTests(unittest.TestCase):
         import main
         src = inspect.getsource(main.Flow.__init__)
         self.assertIn("self.last_codegen_wrote: bool | None = None", src)
+
+
+class RepairWroteNothingCorrectionTests(unittest.TestCase):
+    """修复轮整份丢在外壳上时，之前**什么都不会说**。
+
+    `truncation_correction` 的 docstring 早就写明「repair 与 rewrite 轮什么都不做」，
+    并补上了截断那一半；没有文件块这一半被落下了——`no_files_correction` 只挂在
+    implement 路径上。本机 ticket-booking 直接观察到后果：修复轮回复是个 ```json 围栏、
+    没有分隔符，什么都没落盘，下一轮报出完全相同的失败。
+    """
+
+    def test_should_fire_on_a_failed_repair_with_no_blocks(self):
+        from main import repair_wrote_nothing_correction
+        msg = repair_wrote_nothing_correction(False, "codegen reply contained no <<<FILE>>> blocks")
+        self.assertIsNotNone(msg)
+        self.assertIn("<<<FILE relative/path>>>", msg)
+        self.assertIn("still exactly the code that just failed", msg)
+
+    def test_should_not_claim_there_were_no_previous_files(self):
+        """这是它不能直接复用 `no_files_correction` 的唯一原因：那条消息结尾是
+        「Ignore any suggestion that your previous files failed; there were none.」
+        在 implement 路径上成立，在修复轮上是**假的**——implement 轮写过文件，而且它们确实失败了。
+        照搬会把模型引向错误结论。"""
+        from main import no_files_correction, repair_wrote_nothing_correction
+        implement = no_files_correction("codegen reply contained no <<<FILE>>> blocks")
+        self.assertIn("there were none", implement)
+        repair = repair_wrote_nothing_correction(False, "codegen reply contained no <<<FILE>>> blocks")
+        self.assertNotIn("there were none", repair)
+        # 反过来，它必须明确保住「失败仍然成立」这个上下文
+        self.assertIn("still stand", repair)
+
+    def test_should_stay_out_of_the_way_otherwise(self):
+        from main import repair_wrote_nothing_correction
+        self.assertIsNone(repair_wrote_nothing_correction(True, "codegen reply contained no <<<FILE>>> blocks"))
+        self.assertIsNone(repair_wrote_nothing_correction(False, "octos turn timed out"))
+        self.assertIsNone(repair_wrote_nothing_correction(False, "Model output was truncated (max_tokens)"))
+        self.assertIsNone(repair_wrote_nothing_correction(False, ""))
+
+    def test_both_repair_paths_consult_it(self):
+        """rewrite 轮和 repair 轮是两个独立的调用点，截断那一半当年就是只补了一处才留下这个洞。
+        这条测试盯住两处都接上了。"""
+        import inspect
+        import main
+        src = inspect.getsource(main.Flow.acceptance_loop)
+        self.assertEqual(src.count("repair_wrote_nothing_correction"), 2, src.count("repair_wrote_nothing_correction"))
+        self.assertEqual(src.count("truncation_correction"), 2)

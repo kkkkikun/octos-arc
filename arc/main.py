@@ -1294,6 +1294,36 @@ def truncation_correction(ok: bool, text: str) -> str | None:
     return TRUNCATION_CORRECTION
 
 
+def repair_wrote_nothing_correction(ok: bool, text: str) -> str | None:
+    """A repair turn whose reply contained no file blocks at all.
+
+    `truncation_correction`'s docstring already noted that "repair and rewrite turns
+    had no handling at all" and fixed the truncation half on those two call sites.
+    The no-blocks half was left behind: `no_files_correction` is only applied on the
+    implement path, so a repair reply that lost everything on the wrapper was told
+    nothing and the next round repeated it. Seen directly on a local ticket-booking
+    run -- the repair returned a ```json fence with no delimiters, nothing reached
+    disk, and the following round reported the identical failure.
+
+    Why not just reuse `no_files_correction` here: that message ends with "Ignore any
+    suggestion that your previous files failed; there were none." On the implement
+    path that is true. On a repair round it is false and actively misleading -- there
+    *are* previous files, from the implement turn, and they *did* fail. So this states
+    the wrapper problem while keeping the failing-code context intact.
+    """
+    if ok or "no <<<FILE>>> blocks" not in (text or ""):
+        return None
+    return ("Your last repair wrote no files: the reply contained no "
+            "<<<FILE path>>> ... <<<END FILE>>> blocks, so nothing reached disk. The "
+            "application is still exactly the code that just failed, and the failures "
+            "you were given still stand -- they are not evidence about whatever fix you "
+            "had in mind, because that fix was never applied. Send the change again and "
+            "wrap every file you touch exactly as:\n"
+            "<<<FILE relative/path>>>\ncontents\n<<<END FILE>>>\n"
+            "Return each file whole, not a diff or a fragment, and do not put the "
+            "blocks inside a markdown code fence.")
+
+
 def no_files_correction(text: str) -> str | None:
     """Feedback that names the real problem when a turn wrote nothing at all.
 
@@ -2462,6 +2492,10 @@ class Flow:
                 if note:
                     log(f"[flow] {node_id}: rewrite turn hit the output limit; telling the next round")
                     self.pending_corrections.append(note)
+                lost = repair_wrote_nothing_correction(r_ok, r_text)
+                if lost:
+                    log(f"[flow] {node_id}: rewrite turn wrote no files; naming the wrapper for the next round")
+                    self.pending_corrections.append(lost)
                 continue
             prompt = REPAIR_PROMPT.format(node_id=node_id, passed=passed, total=summary.total,
                                           failures=failures or "(no detail)", test_location=self.repair_test_location(specs),
@@ -2485,6 +2519,10 @@ class Flow:
             if note:
                 log(f"[flow] {node_id}: repair turn hit the output limit; telling the next round")
                 self.pending_corrections.append(note)
+            lost = repair_wrote_nothing_correction(p_ok, p_text)
+            if lost:
+                log(f"[flow] {node_id}: repair turn wrote no files; naming the wrapper for the next round")
+                self.pending_corrections.append(lost)
         # Failed repairs can leave dirty files without changing HEAD. Restore the files,
         # even when the current commit already equals the best recorded commit.
         if best_passed > 0 and best_sha:
