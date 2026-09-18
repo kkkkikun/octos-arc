@@ -169,6 +169,35 @@ def dedupe_nav_links(root: Path) -> list[str]:
     return []
 
 
+def unchanged_rewrites(root: Path, files: dict[str, str]) -> list[str]:
+    """Paths the model returned exactly as they already were on disk.
+
+    Measured on the deepseek batch: 282 codegen turns wrote 688 files, 2.44 per
+    turn, two thirds of turns writing 2 or more and ten of them writing 8 to 10.
+    The count alone cannot say how much of that was work. A file handed back
+    unchanged still cost a whole file's worth of output tokens, and turn time is
+    output tokens over generation rate -- ~12,800 output tokens per turn at
+    ~69 tokens/s on keep -- so this is the number that says how much of a turn
+    was spent producing nothing.
+
+    Normalised the way `write_files` will normalise, so the comparison is against
+    what would actually land rather than against the raw reply.
+    """
+    same = []
+    for rel, body in files.items():
+        dest = root / rel
+        if not dest.exists():
+            continue
+        if dest.suffix.lower() in (".html", ".htm"):
+            body = ensure_charset(body)
+        try:
+            if dest.read_text(encoding="utf-8") == body:
+                same.append(rel)
+        except (OSError, UnicodeDecodeError):
+            continue          # 读不出来就别猜，当作有变化
+    return sorted(same)
+
+
 def write_files(root: Path, files: dict[str, str]) -> list[str]:
     written = []
     for rel, body in files.items():

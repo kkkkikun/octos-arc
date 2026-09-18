@@ -84,7 +84,8 @@ from acceptance import (  # noqa: E402
     mutated_by_tests, restore_worktree, snapshot_worktree, startup_error_digest, tree_digest,
     workers_for_final, reap_workspace_processes)
 from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, delimiter_drift,  # noqa: E402
-                     parse_file_blocks, unparsed_reply_digest, write_files)
+                     parse_file_blocks, unchanged_rewrites, unparsed_reply_digest,
+                     write_files)
 from guard import TurnMonitor  # noqa: E402
 from llm_proxy import LlmProxy, configured_model_routes  # noqa: E402
 from requirement_order import ancestors_of, node_fingerprint, topo_order  # noqa: E402
@@ -1817,8 +1818,10 @@ class Flow:
                 files = {raw_target: html}
         files = self.drop_unseen_rewrites(files, label)
         if files:
+            idle = unchanged_rewrites(self.output_dir, files)
             written = write_files(self.output_dir, files)
-            log(f"[codegen] {label}: wrote {len(written)} file(s): {written[:8]}")
+            same = f" ({len(idle)} unchanged: {idle[:4]})" if idle else ""
+            log(f"[codegen] {label}: wrote {len(written)} file(s): {written[:8]}{same}")
             deduped = dedupe_nav_links(self.output_dir)
             if deduped:
                 log(f"[codegen] {label}: removed static nav links duplicating the NAV placeholder in {deduped}")

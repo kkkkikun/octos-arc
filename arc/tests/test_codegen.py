@@ -85,6 +85,8 @@ class UnparsedReplyDigestTests(unittest.TestCase):
         self.assertNotIn("\n", d)
         self.assertLess(len(d), 400)
 
+
+class WriteFilesTests(unittest.TestCase):
     def test_should_write_files_under_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             written = write_files(Path(tmp), {"backend/server.js": "x\n"})
@@ -496,3 +498,37 @@ class TailCheckpointTests(unittest.TestCase):
         import main
         self.assertFalse(main.regression_checkpoint_due(32, 32, 4))
         self.assertFalse(main.regression_checkpoint_due(4, 20, 0))
+
+
+class UnchangedRewriteTests(unittest.TestCase):
+    """How much of a turn produced nothing. Turn time is output tokens over
+    generation rate, so a file handed back byte-identical is pure waste."""
+
+    def test_should_name_only_the_files_that_did_not_change(self):
+        from codegen import unchanged_rewrites
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "backend").mkdir()
+            (root / "backend" / "server.js").write_text("const a = 1;\n", encoding="utf-8")
+            (root / "backend" / "db.js").write_text("const b = 2;\n", encoding="utf-8")
+            files = {"backend/server.js": "const a = 1;\n",      # 原样吐回
+                     "backend/db.js": "const b = 3;\n",          # 真的改了
+                     "backend/new.js": "const c = 4;\n"}         # 新文件
+            self.assertEqual(unchanged_rewrites(root, files), ["backend/server.js"])
+
+    def test_should_compare_html_after_the_same_charset_injection(self):
+        """write_files injects the meta tag, so comparing the raw reply would
+        report every page as changed on the turn right after it was written."""
+        from codegen import ensure_charset, unchanged_rewrites, write_files
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_files(root, {"a.html": "<html><head></head><body>x</body></html>"})
+            self.assertIn("charset", (root / "a.html").read_text(encoding="utf-8"))
+            self.assertEqual(unchanged_rewrites(root, {"a.html": "<html><head></head><body>x</body></html>"}),
+                             ["a.html"])
+            self.assertEqual(ensure_charset("<p>y</p>").count("charset"), 1)
+
+    def test_should_be_empty_when_nothing_exists_yet(self):
+        from codegen import unchanged_rewrites
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(unchanged_rewrites(Path(tmp), {"a.js": "x\n"}), [])
