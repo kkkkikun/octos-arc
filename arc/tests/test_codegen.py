@@ -242,7 +242,8 @@ class BestRepairStateTests(unittest.TestCase):
         flow.snapshot_sources = Mock()
         flow.sources_text = lambda: ''
         flow.corrections_text = lambda: ''
-        flow.turn = Mock()  # failed repair leaves uncommitted edits; HEAD remains unchanged
+        # 真实签名是 tuple[bool, str]；桩必须同形，否则解包会炸
+        flow.turn = Mock(return_value=(True, ''))  # failed repair leaves uncommitted edits; HEAD remains unchanged
         flow.commit = Mock()
         flow.restore_app = Mock()
         failure = TestOutcome('behavior', False, 'failed', 1, message='missing control')
@@ -275,7 +276,7 @@ class VerifiedBehaviorRewriteTests(unittest.TestCase):
         flow.wound_down = flow.time_up = lambda: False
         flow.sources_text = flow.corrections_text = flow.repair_test_location = lambda *args: ''
         flow.record_tests = flow.snapshot_sources = flow.commit = Mock()
-        flow.turn = Mock()
+        flow.turn = Mock(return_value=(True, ''))
         flow.smoke_port, flow.web_port = 43219, 3000
         fail = TestOutcome('new behavior', False, 'failed', 1, message='missing control')
         flow.run_specs = Mock(side_effect=[RunSummary(passed=0, total=1, results=[fail]),
@@ -329,8 +330,8 @@ class RepairModeTransitionTests(unittest.TestCase):
                 flow.sources_text = lambda: ''
                 flow.corrections_text = lambda: ''
                 flow.spec_bodies = lambda _: 'complete-spec-and-helper-evidence'
-                flow.codegen_turn = Mock()
-                flow.turn = Mock()
+                flow.codegen_turn = Mock(return_value=(True, ''))
+                flow.turn = Mock(return_value=(True, ''))
                 flow.commit = Mock()
                 flow.restore_app = Mock()
                 summaries = [RunSummary(passed=0, total=1, results=[
@@ -570,3 +571,29 @@ class NoFilesCorrectionTests(unittest.TestCase):
         for text in ("", "provider quota exhausted — HTTP 402",
                      "turn ran out of time", "some other failure"):
             self.assertIsNone(no_files_correction(text), text)
+
+
+class TruncationCorrectionTests(unittest.TestCase):
+    """截断只在 implement 轮被处理过；repair 与 rewrite 轮什么都不做。
+
+    实测：ticket-booking 上 glm-5.3-flash 的 rewrite 轮跑了 582s，返回
+    `output_truncated: Model output was truncated (max_tokens)`，
+    `completion_tokens` 恰好 32768（代理的下限）。那一轮整份作废、
+    什么都没写，REQ-1 再也没过，节点随后耗尽 1500s 预算。
+    """
+
+    def test_should_fire_only_on_a_failed_truncated_turn(self):
+        from main import truncation_correction
+        msg = truncation_correction(False, "output_truncated: Model output was truncated (max_tokens)")
+        self.assertIsNotNone(msg)
+        self.assertIn("ONE file per response", msg)
+        self.assertIn("nothing was saved", msg)
+
+    def test_should_stay_out_of_the_way_otherwise(self):
+        """成功的轮次、以及别的失败原因，都不该被安上这条更正——
+        否则模型会为了一个不存在的问题改变写法。"""
+        from main import truncation_correction
+        self.assertIsNone(truncation_correction(True, "output_truncated"))   # 成功就不提
+        self.assertIsNone(truncation_correction(False, "octos turn timed out"))
+        self.assertIsNone(truncation_correction(False, "provider quota exhausted"))
+        self.assertIsNone(truncation_correction(False, ""))

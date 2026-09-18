@@ -1265,6 +1265,35 @@ def locate_acceptance_tests(tree: dict, bundle_dir: Path) -> Path | None:
     return None
 
 
+TRUNCATION_CORRECTION = (
+    "Your previous response was cut off by the output limit and nothing was saved. "
+    "Write exactly ONE file per response, complete, and stop -- do not try to emit "
+    "several files in one turn."
+)
+
+
+def truncation_correction(ok: bool, text: str) -> str | None:
+    """Tell the next round that the last one died on the output limit.
+
+    The implement turn already retries once on truncation ("one file per response").
+    Repair and rewrite turns had no handling at all, so a truncated repair burned the
+    round silently and the node then ran out of budget.
+
+    Seen on ticket-booking with glm-5.3-flash: the rewrite turn ran 582s and came back
+    `output_truncated: Model output was truncated (max_tokens); the response is
+    incomplete`, with `completion_tokens` exactly 32768 -- the proxy's floor, which the
+    kernel's own 4096 is raised to. Nothing was written, REQ-1 never passed, and the
+    node hit its 1500s cap. A reasoning model spends part of that budget on reasoning,
+    so the room left for the file is smaller than the number suggests.
+
+    This adds no retry (the round budget is already spent); it makes the *next* round
+    aware, which is the cheap half of the fix.
+    """
+    if ok or "truncated" not in (text or "").lower():
+        return None
+    return TRUNCATION_CORRECTION
+
+
 def no_files_correction(text: str) -> str | None:
     """Feedback that names the real problem when a turn wrote nothing at all.
 
@@ -2339,11 +2368,17 @@ class Flow:
                 log(f"[flow] {node_id}: nothing passed; one full rewrite turn instead of a patch")
                 prompt = rebuild_prompt(failures or "(no detail)")
                 if self.codegen_mode():
-                    self.codegen_turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
-                                      spec_chars=getattr(self, "current_spec_chars", 0))
+                    r_ok, r_text = self.codegen_turn(
+                        prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
+                        spec_chars=getattr(self, "current_spec_chars", 0))
                 else:
-                    self.turn(prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
-                              request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20")))
+                    r_ok, r_text = self.turn(
+                        prompt, min(self.node_timeout, left), f"{node_id} rewrite (repair {attempt + 1})",
+                        request_budget=int(os.environ.get("OCTOS_ARC_IMPLEMENT_REQUESTS", "20")))
+                note = truncation_correction(r_ok, r_text)
+                if note:
+                    log(f"[flow] {node_id}: rewrite turn hit the output limit; telling the next round")
+                    self.pending_corrections.append(note)
                 continue
             prompt = REPAIR_PROMPT.format(node_id=node_id, passed=passed, total=summary.total,
                                           failures=failures or "(no detail)", test_location=self.repair_test_location(specs),
@@ -2352,14 +2387,21 @@ class Flow:
                                           sources=self.repair_requirements(node_id) + self.sources_text())
             compact = self.codegen_repair_prompt(node_id, prompt) if self.codegen_mode() else None
             if compact is not None:
-                self.codegen_turn(compact,
-                                  min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}",
-                                  spec_chars=getattr(self, "current_spec_chars", 0))
+                p_ok, p_text = self.codegen_turn(
+                    compact, min(self.node_timeout, left),
+                    f"{node_id} repair {attempt + 1}/{self.repair_rounds}",
+                    spec_chars=getattr(self, "current_spec_chars", 0))
             else:
                 if self.codegen_mode():
                     self.codegen_blocked = True
                     log(f"[flow] {node_id}: complete repair evidence unavailable within codegen budget; using tools")
-                self.turn(prompt, min(self.node_timeout, left), f"{node_id} repair {attempt + 1}/{self.repair_rounds}")
+                p_ok, p_text = self.turn(
+                    prompt, min(self.node_timeout, left),
+                    f"{node_id} repair {attempt + 1}/{self.repair_rounds}")
+            note = truncation_correction(p_ok, p_text)
+            if note:
+                log(f"[flow] {node_id}: repair turn hit the output limit; telling the next round")
+                self.pending_corrections.append(note)
         # Failed repairs can leave dirty files without changing HEAD. Restore the files,
         # even when the current commit already equals the best recorded commit.
         if best_passed > 0 and best_sha:
