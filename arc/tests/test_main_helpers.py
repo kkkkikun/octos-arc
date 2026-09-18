@@ -2190,3 +2190,52 @@ class QuotedSetWiringTests(unittest.TestCase):
             kept = flow.drop_unseen_rewrites({target: "legit edit"}, "node")
             self.assertEqual(set(kept), {target})
             self.assertEqual(flow.pending_corrections, [])
+
+
+class RefusalFallsBackToToolModeTests(unittest.TestCase):
+    """A refused rewrite must move the node to tool mode, not just drop the write.
+
+    Refusing alone leaves the node unable to finish: it asked for a file it genuinely
+    needs and got nothing, so it would keep failing its own spec. Tool mode reads and
+    edits in place instead of re-emitting whole files -- which is also why it never had
+    this failure mode -- so the refusal is the signal that this node belongs there.
+    """
+
+    def _flow(self, root):
+        import argparse
+        (root / "backend").mkdir()
+        (root / "frontend").mkdir()
+        (root / "frontend/seen.html").write_text("s" * 100, encoding="utf-8")
+        (root / "frontend/unseen.html").write_text("u" * 100, encoding="utf-8")
+        flow = m.Flow(argparse.Namespace(web_port=1), root, root)
+        flow.pending_corrections = []
+        flow.codegen_quoted = {"frontend/seen.html"}
+        flow.codegen_blocked = False
+        return flow
+
+    def test_refusal_blocks_codegen_for_this_node(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flow = self._flow(root)
+            flow.drop_unseen_rewrites({"frontend/unseen.html": "clobber"}, "node")
+            self.assertTrue(flow.codegen_blocked, "a refused node must fall back to tool mode")
+
+    def test_an_accepted_write_leaves_the_fast_path_alone(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flow = self._flow(root)
+            flow.drop_unseen_rewrites({"frontend/seen.html": "legit"}, "node")
+            self.assertFalse(flow.codegen_blocked)
+
+    def test_a_new_file_leaves_the_fast_path_alone(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flow = self._flow(root)
+            flow.drop_unseen_rewrites({"frontend/brand-new.html": "new"}, "node")
+            self.assertFalse(flow.codegen_blocked)

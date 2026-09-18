@@ -1769,13 +1769,19 @@ class Flow:
                 refused.append(rel)
         if refused:
             log(f"[codegen] {label}: refused {len(refused)} rewrite(s) of file(s) never shown "
-                f"to this turn: {refused[:6]}")
+                f"to this turn: {refused[:6]}; this node switches to tool mode")
             self.pending_corrections.append(
                 "A previous turn returned complete replacements for files it had not been "
                 "shown: " + ", ".join(refused[:6]) + ". Those were discarded, not written -- "
                 "rewriting a file you cannot see deletes behaviour other requirements "
                 "depend on. Change only files quoted to you; if you need another one, name "
                 "it in one line and stop.\n")
+            # Refusing alone would leave the node unable to finish: it asked for a file it
+            # genuinely needs and got nothing. Tool mode is where that is possible -- it
+            # reads and edits in place instead of re-emitting whole files, which is also
+            # why it never had this failure mode. So the refusal is not a dead end, it is
+            # the signal that this node belongs on the other path.
+            self.codegen_blocked = True
         return kept
 
     def codegen_turn(self, prompt: str, timeout: int, label: str, spec_chars: int = 0,
