@@ -643,74 +643,12 @@ class UnchangedCorrectionTests(unittest.TestCase):
         self.assertIn("and 5 more", msg)
 
 
-class IdenticalFailureAfterEmptyRepairTests(unittest.TestCase):
-    """一次相同的失败，只有在上一轮**真的改过应用**时才是关于「修法」的证据。
-
-    本机 ticket-booking 直接观察到的：
-
-        [acceptance] REQ-1 round 0: 0/1
-        [flow] REQ-1 rewrite (repair 1) ok in 3s (wrote=False): '```json\\n{ ... }'
-        [acceptance] REQ-1 round 1: 0/1
-        [flow] REQ-1: identical failure twice; switching repairs to tool mode
-
-    那一轮回复是个 ```json 围栏、没有分隔符，什么都没落盘。代码逐字节还是刚失败过的那份，
-    于是「观察相同」是必然的，不含任何信息。把它记到「同一个修法试了两次」头上，
-    会让模型去复查一个从来不是问题的推理，而真正的缺陷（外壳）无人提及，
-    并且白白花掉两个便宜 codegen 轮中的一个。
-    """
-
-    def _loop(self, wrote):
-        """搭一个最小的 flow：只让 acceptance_loop 里那段判定跑起来。"""
-        import main
-        flow = main.Flow.__new__(main.Flow)
-        flow.pending_corrections = []
-        flow.codegen_blocked = False
-        flow.last_codegen_wrote = wrote
-        return flow
-
-    def _decide(self, flow, normalized, previous):
-        """复刻 acceptance_loop 里那一段的判定（被测的是这段逻辑本身）。"""
-        if normalized and normalized == previous:
-            if flow.last_codegen_wrote is False:
-                return "stay"
-            flow.codegen_blocked = True
-            flow.pending_corrections.append("Repeated attempts produced the same observed failure.")
-            return "tools"
-        return "continue"
-
-    def test_should_not_blame_the_fix_when_nothing_was_written(self):
-        flow = self._loop(False)
-        self.assertEqual(self._decide(flow, "same", "same"), "stay")
-        self.assertFalse(flow.codegen_blocked)
-        self.assertEqual(flow.pending_corrections, [])
-
-    def test_should_still_switch_when_the_repair_did_change_files(self):
-        """原有行为必须保留：真的改了文件而失败没动，那才是修法有问题。"""
-        flow = self._loop(True)
-        self.assertEqual(self._decide(flow, "same", "same"), "tools")
-        self.assertTrue(flow.codegen_blocked)
-        self.assertEqual(len(flow.pending_corrections), 1)
-
-    def test_unknown_keeps_the_original_behaviour(self):
-        """None = 未知（工具模式经工具写盘，不走块解析）。
-        未知时不能改变判定，否则会悄悄改掉工具模式的行为。"""
-        flow = self._loop(None)
-        self.assertEqual(self._decide(flow, "same", "same"), "tools")
-        self.assertTrue(flow.codegen_blocked)
-
-    def test_different_failures_are_untouched(self):
-        for wrote in (True, False, None):
-            flow = self._loop(wrote)
-            self.assertEqual(self._decide(flow, "a", "b"), "continue")
-            self.assertFalse(flow.codegen_blocked)
-
-    def test_flow_initialises_the_flag_as_unknown(self):
-        """默认必须是 None 而不是 False —— 默认 False 会让第一次相同失败被无条件放过。"""
-        import inspect
-        import main
-        src = inspect.getsource(main.Flow.__init__)
-        self.assertIn("self.last_codegen_wrote: bool | None = None", src)
-
+# `IdenticalFailureAfterEmptyRepairTests` 已删除并由 tests/test_identical_failure_gate.py 取代。
+# 原因不是重复，是那一版**没有测试价值**：它在测试里把 acceptance_loop 的那段分支
+# 重新实现了一遍再断言，验的是我的复刻。实测证据——把 main.py 里的门槛拆掉之后：
+#     新的行为测试  → 变红
+#     旧的复刻测试  → 仍然全绿
+# 一条拆掉被测逻辑仍然通过的测试，比没有测试更糟：它会让人以为这里有保护。
 
 class RepairWroteNothingCorrectionTests(unittest.TestCase):
     """修复轮整份丢在外壳上时，之前**什么都不会说**。
