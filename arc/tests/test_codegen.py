@@ -969,3 +969,55 @@ class CostGuardCalibrationTests(unittest.TestCase):
         self.assertGreaterEqual(len(gates), 5,
                                 f"只找到 {len(gates)} 处独立时间判据；"
                                 f"若时间只靠 token 护栏守，抬高限额就不再安全")
+
+
+class RoutedModelMissingTests(unittest.TestCase):
+    """路由到的模型上游没有时，优雅降级而不是每轮 404。
+
+    这个失败模式是**执行发布包**时实测到的（本机跑解开的 zip，规则指向 glm-5.3
+    而本机 ollama 没有它）：
+
+        model not found — HTTP 404 - {"error":{"message":"model 'glm-5.3' not found"}}
+
+    后果不成比例：规则把修复阶段指到一个上游没有的模型，**每一个修复轮都会 404**，
+    一个配置错误于是变成整轮修复能力归零——比根本不做路由还糟。
+    """
+
+    def test_recognises_only_the_unambiguous_signal(self):
+        from llm_proxy import routed_model_missing
+        self.assertEqual(
+            routed_model_missing(404, b'{"error":{"message":"model \'glm-5.3\' not found"}}'),
+            "glm-5.3")
+        # 404 说不存在但没说是哪个：返回空串（调用方据此整份停用）
+        self.assertEqual(routed_model_missing(404, b'{"error":"model not found"}'), "")
+
+    def test_transient_and_auth_failures_must_not_count(self):
+        """限流、余额、鉴权都不是「模型不存在」。把它们也算进来，
+        会因为一次限流就**永久**丢掉一个好模型——那正是我们想升档用的那个。"""
+        from llm_proxy import routed_model_missing
+        self.assertIsNone(routed_model_missing(429, b"Too Many Requests"))
+        self.assertIsNone(routed_model_missing(402, b"insufficient_balance"))
+        self.assertIsNone(routed_model_missing(401, b"unauthorized"))
+        self.assertIsNone(routed_model_missing(500, b"model not found"))   # 5xx 不算
+        self.assertIsNone(routed_model_missing(200, b'{"choices":[]}'))
+
+    def test_drop_routes_keeps_the_others(self):
+        from llm_proxy import drop_routes_for
+        rules = [{"model": "glm-5.3", "phases": ["repair"]},
+                 {"model": "other", "phases": ["design"]}]
+        self.assertEqual(drop_routes_for(rules, "glm-5.3"), [{"model": "other", "phases": ["design"]}])
+
+    def test_unknown_model_name_disables_all_routing(self):
+        """不知道是哪个模型时无法只去掉一条，整份停用——
+        回到基座模型总比每轮 404 好。"""
+        from llm_proxy import drop_routes_for
+        self.assertEqual(drop_routes_for([{"model": "a"}, {"model": "b"}], ""), [])
+
+    def test_proxy_retries_the_original_request(self):
+        """光停用不够：当前这一轮也要救回来，所以要用**未路由**的原始请求重试一次。"""
+        import inspect
+        import llm_proxy
+        src = inspect.getsource(llm_proxy)
+        self.assertIn("unrouted = body", src)
+        self.assertIn("proxy.routes = drop_routes_for(proxy.routes, missing)", src)
+        self.assertIn("method, path, unrouted, headers", src)

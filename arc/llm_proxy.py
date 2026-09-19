@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -113,6 +114,43 @@ def configured_model_routes(env=None, bundle_dir: Path | None = None) -> str:
         raw = path.read_text(encoding="utf-8") if path.exists() else ""
     model_routes(raw)  # Reject invalid configuration before any provider request.
     return raw
+
+
+def routed_model_missing(status: int, payload: bytes) -> str | None:
+    """路由到的模型在上游不存在时，返回那个模型名；否则 None。
+
+    这是一个**明确**的信号，不是猜测：HTTP 404 且响应里写着 model not found。
+    之所以要单独处理它，是因为后果不成比例——路由规则把修复阶段指到一个上游没有的
+    模型时，**每一个修复轮都会 404**，一个配置错误于是变成整轮修复能力归零，
+    比根本不做路由还糟。实测见过这一幕（本机执行发布包时，规则指向 glm-5.3
+    而本机 ollama 没有它）：
+
+        model not found — HTTP 404 - {"error":{"message":"model 'glm-5.3' not found", ...}}
+
+    只认 404 + model not found 这一种组合。限流（429）、余额（402）、鉴权（401）
+    都不算——那些是暂时的或该报错的，把它们也当成「模型不存在」会永久丢掉一个好模型。
+    """
+    if status != 404:
+        return None
+    try:
+        text = payload.decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001
+        return None
+    if "model" not in text.lower() or "not found" not in text.lower():
+        return None
+    m = re.search(r"model ['\"]([^'\"]+)['\"] not found", text)
+    return m.group(1) if m else ""
+
+
+def drop_routes_for(rules: list[dict], model: str) -> list[dict]:
+    """把指向某个模型的规则全部去掉，其余原样保留。
+
+    空字符串表示「404 说模型不存在但没说是哪个」——那时无法安全地只去掉一条，
+    于是整份路由停用：回到基座模型总比每轮 404 好。
+    """
+    if not model:
+        return []
+    return [r for r in rules if r.get("model") != model]
 
 
 def route_request(body: bytes, rules: list[dict], phase: str) -> bytes:
@@ -506,12 +544,27 @@ class LlmProxy:
                         body = replace_system_prompt(body, proxy.system_override)
                     if proxy.destream:
                         body, was_streaming = destream_request(body)
+                    unrouted = body
                     body = route_request(body, proxy.routes, proxy.phase)
+                    rerouted = body != unrouted
                     proxy._dump(body)
                 headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
                 headers["Content-Length"] = str(len(body))
                 path = proxy._forward_path(self.path)
                 status, payload, resp_headers = proxy._request_upstream(method, path, body, headers)
+                # 路由到的模型上游没有：停用该路由并用原始请求重试一次。
+                # 不这样做的话，指错一个模型会让**每一轮修复**都 404——
+                # 一个配置错误变成整轮修复能力归零，比不做路由更糟。
+                if rerouted and proxy.routes:
+                    missing = routed_model_missing(status, payload)
+                    if missing is not None:
+                        proxy.routes = drop_routes_for(proxy.routes, missing)
+                        log(f"[proxy] routed model {missing or '(unnamed)'} not found upstream; "
+                            f"dropping that route and retrying on the caller's model "
+                            f"({len(proxy.routes)} route(s) left)")
+                        headers["Content-Length"] = str(len(unrouted))
+                        status, payload, resp_headers = proxy._request_upstream(
+                            method, path, unrouted, headers)
                 ctype = resp_headers.get("Content-Type", "application/json") if resp_headers else "application/json"
                 if was_streaming and status == 200:
                     payload, ctype = to_sse(payload), "text/event-stream; charset=utf-8"
