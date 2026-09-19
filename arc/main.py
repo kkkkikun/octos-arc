@@ -1687,8 +1687,13 @@ class Flow:
         t0 = time.time()
         self.turn_count += 1
         ok, text = self.driver.run(prompt, max(60, int(timeout)), monitor)
-        log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {time.time()-t0:.0f}s "
+        elapsed = time.time() - t0
+        log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {elapsed:.0f}s "
             f"(tools={monitor.tool_calls} wrote={monitor.wrote_files} verified={monitor.verified}): {text[-240:]!r}")
+        # 记下修复轮真实花了多久。`repair_needs()` 用它判断「还够不够再来一轮」——
+        # 那个判断原先用一个固定的 300 秒，而实测一轮约 600 秒。
+        if "repair" in label or "rewrite" in label:
+            self.repair_durations = (getattr(self, "repair_durations", []) + [elapsed])[-12:]
         if not ok and permanent_provider_error(text):
             raise PermanentProviderError(text[:1000])
         if proxy is not None and proxy.turn_budget and proxy.turn_requests > proxy.turn_budget:
@@ -2479,10 +2484,11 @@ class Flow:
             if attempt == self.repair_rounds or self.wound_down():
                 break
             left = deadline - time.time()
-            if left < self.min_repair_seconds or self.time_up():
+            if left < self.repair_needs() or self.time_up():
                 # A repair turn that starts with only a couple of minutes left
                 # times out too (keep-local-3); keep the best state instead.
-                log(f"[flow] {node_id}: {left:.0f}s left, below the {self.min_repair_seconds}s a repair needs; "
+                log(f"[flow] {node_id}: {left:.0f}s left, below the {self.repair_needs():.0f}s a repair needs "
+                    f"(measured from {len(getattr(self, 'repair_durations', []))} repair turn(s)); "
                     f"keeping the best state")
                 break
             self.snapshot_sources(node_id, attempt)
@@ -2586,6 +2592,28 @@ class Flow:
                         content=f"{route.get('method', '')} {route.get('path', '')}".strip(), emit_event=False)
         except Exception as exc:  # noqa: BLE001
             log(f"[trace] design not recorded: {exc}")
+
+    def repair_needs(self) -> float:
+        """再来一轮修复，实际需要多少秒——**按这个模型自己的表现算**，不是按一个猜的常数。
+
+        原先这里是固定的 `min_repair_seconds`（默认 300）。意图是对的，代码注释写得很清楚：
+        「只剩几分钟才开始的修复轮同样会超时，不如保住当前最好的状态」。
+        但那个数字是猜的，而 keep @ D 的实测是**一轮修复约 600 秒**——整整两倍。
+        猜小了的后果不是保守，是**反过来**：在只剩 300–600 秒时它会放行一轮注定被砍断的修复，
+        那一轮什么都留不下（甚至可能留下改了一半的文件），时间也没了。
+
+        所以改成用观察值：取最近若干轮的中位数、留 10% 余量，并且**不低于**配置的下限
+        （下限仍然是 `OCTOS_MIN_REPAIR_SECONDS`，所以这条改动只会让判断更严、不会更松）。
+        还没跑过修复轮时就用下限，行为与原先一致。
+
+        只留最近 12 轮：模型和题目会变，很久以前的耗时不该继续影响现在的决定。
+        """
+        seen = [d for d in getattr(self, "repair_durations", []) if d and d > 0]
+        if not seen:
+            return float(self.min_repair_seconds)
+        seen = sorted(seen)
+        median = seen[len(seen) // 2] if len(seen) % 2 else (seen[len(seen) // 2 - 1] + seen[len(seen) // 2]) / 2
+        return max(float(self.min_repair_seconds), median * 1.1)
 
     def banked_surplus(self, index: int, total: int) -> float:
         """已经**省下来**的预算里，可以拿给这个节点用的部分。
