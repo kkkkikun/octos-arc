@@ -884,3 +884,42 @@ class FullSuiteRepeatedFailureTests(unittest.TestCase):
         import main
         self.assertIn("left frontend/ and backend/ unchanged",
                       inspect.getsource(main.Flow.last_repair_diff))
+
+
+class RepeatedFailureCorrectionSitesTests(unittest.TestCase):
+    """「观察相同」那条更正只能从**真的改过应用**的分支里发出来。
+
+    这个逻辑错误在代码里有两处实例（节点级验收循环、全量套件），两处都修过了。
+    这条测试是给**第三处**准备的：如果有人以后在别处再加一次而忘了加门槛，
+    它会红。用眼睛看守不住这种事——今天前四处就是一个一个看出来的。
+
+    （顺带纠自己一次：我曾把「检查点修复轮返回值被丢弃」也算进这一类，说成三处。
+     那是另一类缺陷——结果被丢掉，由 `audit_discarded.py` 机械看守。这一类是两处。）
+    """
+
+    CORRECTION = "Repeated attempts produced the same observed failure"
+
+    def test_exactly_two_sites_and_both_are_gated(self):
+        import main
+        from pathlib import Path
+        src = Path(main.__file__).read_text(encoding="utf-8")
+        lines = src.splitlines()
+        sites = [i for i, line in enumerate(lines) if self.CORRECTION in line]
+        self.assertEqual(len(sites), 2,
+                         f"追加这条更正的地方应为 2 处，实际 {len(sites)} 处；"
+                         f"新增的那一处必须也以「上一轮是否真的改过应用」为门槛")
+        for i in sites:
+            window = "\n".join(lines[max(0, i - 12):i])
+            gated = ("last_codegen_wrote" in window) or ("if wrote_last:" in window)
+            self.assertTrue(gated,
+                            f"main.py:{i + 1} 的这条更正没有门槛——"
+                            f"上一轮什么都没写时，失败相同是必然的，不是关于修法的证据")
+
+    def test_both_failure_signature_comparisons_are_accounted_for(self):
+        """比较失败签名的地方也只有两处；多出来的那处很可能就是没加门槛的新实例。"""
+        import main
+        from pathlib import Path
+        src = Path(main.__file__).read_text(encoding="utf-8")
+        compares = [ln for ln in src.splitlines()
+                    if "== previous_failures" in ln or "== previous_failing" in ln]
+        self.assertEqual(len(compares), 2, compares)
