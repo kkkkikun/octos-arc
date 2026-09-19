@@ -1690,10 +1690,19 @@ class Flow:
         elapsed = time.time() - t0
         log(f"[flow] {label} {'ok' if ok else 'FAILED'} in {elapsed:.0f}s "
             f"(tools={monitor.tool_calls} wrote={monitor.wrote_files} verified={monitor.verified}): {text[-240:]!r}")
-        # 记下修复轮真实花了多久。`repair_needs()` 用它判断「还够不够再来一轮」——
-        # 那个判断原先用一个固定的 300 秒，而实测一轮约 600 秒。
+        # 记下修复轮真实花了多久，**按模式分桶**。`repair_needs()` 用它判断
+        # 「还够不够再来一轮」——那个判断原先用一个固定的 300 秒，实测一轮约 600 秒。
+        #
+        # 为什么必须分桶：本仓库自己的记录是「工具模式单节点慢 19.6 倍（392s vs 20s）」。
+        # 混在一个中位数里，一轮工具模式修复就会把门槛抬到天上去，
+        # 于是后面的节点连一轮**便宜的** codegen 修复都不敢起——那正好是反效果。
         if "repair" in label or "rewrite" in label:
-            self.repair_durations = (getattr(self, "repair_durations", []) + [elapsed])[-12:]
+            mode = "tool" if getattr(self, "codegen_blocked", False) else "codegen"
+            seen = getattr(self, "repair_durations", None)
+            if not isinstance(seen, dict):
+                seen = {}
+            seen[mode] = (seen.get(mode, []) + [elapsed])[-12:]
+            self.repair_durations = seen
         if not ok and permanent_provider_error(text):
             raise PermanentProviderError(text[:1000])
         if proxy is not None and proxy.turn_budget and proxy.turn_requests > proxy.turn_budget:
@@ -2608,7 +2617,14 @@ class Flow:
 
         只留最近 12 轮：模型和题目会变，很久以前的耗时不该继续影响现在的决定。
         """
-        seen = [d for d in getattr(self, "repair_durations", []) if d and d > 0]
+        # 取**接下来真正会跑的那个模式**的观察值：节点一旦转入工具模式，
+        # 下一轮就是工具模式，拿 codegen 的耗时去估它会严重低估（本仓库记录相差 19.6 倍）。
+        buckets = getattr(self, "repair_durations", None)
+        mode = "tool" if getattr(self, "codegen_blocked", False) else "codegen"
+        if isinstance(buckets, dict):
+            seen = [d for d in buckets.get(mode, []) if d and d > 0]
+        else:                       # 兼容：万一还是旧的列表形态
+            seen = [d for d in (buckets or []) if d and d > 0]
         if not seen:
             return float(self.min_repair_seconds)
         seen = sorted(seen)
