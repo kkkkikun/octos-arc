@@ -1497,7 +1497,22 @@ class Flow:
         # turns were cut at 283 s; Web nodes need 10-20 min of implementation.
         self.seconds_per_node = int(os.environ.get("OCTOS_SECONDS_PER_NODE", "1500"))
         self.min_repair_seconds = int(os.environ.get("OCTOS_MIN_REPAIR_SECONDS", "300"))
-        self.node_budget_cap = int(os.environ.get("OCTOS_NODE_TIME_BUDGET", "1500"))
+        # 1500 → 3000。这个上限的作用是「别让一个节点吃掉全部预算」，
+        # 但那件事 `remaining / nodes_left` 已经在做了——它每个节点重算一次，
+        # 超支会自动把后面的份额压下去。而这个 **硬上限** 做的是另一件事：
+        # 它把快节点省下来的余额**锁住不让慢节点用**。
+        #
+        # keep @ D 的实测，直接说明代价（2026-09-19）：
+        #     全程预算 48,000s，实际用掉 30,240s —— **剩 17,760s（37%）没用**
+        #     而六个失败节点各自只超出单节点上限 13–18 秒就被砍断：
+        #     implement 900s（0.6 × 1500 的上限）+ 验收循环 613s = 1513s > 1500s
+        #     于是 `left < min_repair_seconds` 成立，修复停在 round 1，节点判负。
+        # 六个节点在 37% 的余额面前，因为差十几秒而失败。
+        #
+        # 抬到 3000 之后，`node_timeout`（1200）会先卡住 implement 轮，
+        # 剩下的 ≥1800s 归验收循环——够两到三轮修复，而不是恰好一轮。
+        # 上限仍在（不是取消），且 `remaining / nodes_left` 继续保护后面的节点。
+        self.node_budget_cap = int(os.environ.get("OCTOS_NODE_TIME_BUDGET", "3000"))
         self.repair_rounds = int(os.environ.get("OCTOS_REPAIR_ROUNDS", "5"))
         self.repair_rounds_explicit = bool(os.environ.get("OCTOS_REPAIR_ROUNDS"))
         # Run-wide cost guard. Defaults scale with the tree and sit ~3x above a normal run
