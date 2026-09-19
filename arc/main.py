@@ -2625,8 +2625,15 @@ class Flow:
         if index > 1:
             reap_workspace_processes(self.output_dir, log)
         nodes_left = total - index + 1
+        # 用 try 取结余：这是一个**预算上的改良**，绝不能成为压垮节点循环的那一环。
+        # 既有测试用 Mock 搭 Flow，`banked_surplus` 会返回 Mock，`float + Mock` 直接 TypeError
+        # 把整个 node_cycle 带崩——和 `last_codegen_wrote` 用 getattr 读取是同一条规矩。
+        try:
+            surplus = float(self.banked_surplus(index, total))
+        except Exception:  # noqa: BLE001
+            surplus = 0.0
         node_budget = min(self.node_budget_cap,
-                          max(240, self.remaining() / nodes_left + self.banked_surplus(index, total)))
+                          max(240, self.remaining() / nodes_left + surplus))
         deadline = time.time() + node_budget
         log(f"[flow] node {index}/{total} {node_id} starting (budget {node_budget:.0f}s, specs={specs})")
 
