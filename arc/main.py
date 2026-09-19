@@ -2587,6 +2587,34 @@ class Flow:
         except Exception as exc:  # noqa: BLE001
             log(f"[trace] design not recorded: {exc}")
 
+    def banked_surplus(self, index: int, total: int) -> float:
+        """已经**省下来**的预算里，可以拿给这个节点用的部分。
+
+        `remaining / nodes_left` 假设剩下每个节点都花一样多。实际不是：大多数节点几秒就过，
+        少数难节点要好几分钟。keep @ D 全程只用掉预算的 63%，而它丢掉的六个节点里有三个
+        在**开局附近**——那时余额还没攒出来，份额恰好 1500，离它们需要的 1813 差 287 秒，
+        于是修复停在第一轮。开局保守的代价，就是早期的难节点拿不到它们需要的时间。
+        （抬高 `node_budget_cap` 救不了这三个：第 4 个节点的份额只有 1592，上限根本没顶到。）
+
+        这里只动用**已经证明省下来的**那部分，不向未来借钱：
+
+            按进度本该花掉的 = 总预算 × 已完成节点数 / 总节点数
+            结余             = max(0, 本该花掉的 − 实际花掉的)
+
+        进度落后时结余为 0，行为逐字不变——所以一个已经超支的运行不会因此继续超支。
+        只拿结余的一半，另一半留给后面，免得开局几个难节点把余额吃光、把尾巴饿到地板。
+
+        四个约束是叠加的不是替换的：`remaining / nodes_left` 仍是基数、
+        `node_budget_cap` 仍封顶、240 秒地板仍在。
+        """
+        budget = getattr(self, "budget", 0) or 0
+        if budget <= 0 or total <= 0:
+            return 0.0
+        done = max(0, index - 1)
+        should_have_used = budget * done / total
+        actually_used = budget - self.remaining()
+        return max(0.0, should_have_used - actually_used) / 2.0
+
     def node_cycle(self, node: dict, ordered: list[dict], index: int, total: int) -> None:
         node_id = str(node.get("id"))
         specs = list(self.spec_map.get(node_id) or [])
@@ -2597,7 +2625,8 @@ class Flow:
         if index > 1:
             reap_workspace_processes(self.output_dir, log)
         nodes_left = total - index + 1
-        node_budget = min(self.node_budget_cap, max(240, self.remaining() / nodes_left))
+        node_budget = min(self.node_budget_cap,
+                          max(240, self.remaining() / nodes_left + self.banked_surplus(index, total)))
         deadline = time.time() + node_budget
         log(f"[flow] node {index}/{total} {node_id} starting (budget {node_budget:.0f}s, specs={specs})")
 
