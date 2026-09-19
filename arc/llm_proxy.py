@@ -526,6 +526,9 @@ class LlmProxy:
                 length = int(self.headers.get("Content-Length") or 0)
                 body = self.rfile.read(length) if length else b""
                 was_streaming = False
+                # 这两个在下面的 POST 块里才会被赋值，但**在块外被读到**。
+                # 不预置的话，一个 GET 请求会 NameError，连接被直接关掉、没有任何响应。
+                unrouted, rerouted = body, False
                 if method == "POST" and self.path.rstrip("/").endswith("/chat/completions"):
                     body = inject_reasoning(body, proxy.mode)
                     body = ensure_max_tokens(body, proxy.min_max_tokens)
@@ -559,9 +562,9 @@ class LlmProxy:
                     missing = routed_model_missing(status, payload)
                     if missing is not None:
                         proxy.routes = drop_routes_for(proxy.routes, missing)
-                        log(f"[proxy] routed model {missing or '(unnamed)'} not found upstream; "
-                            f"dropping that route and retrying on the caller's model "
-                            f"({len(proxy.routes)} route(s) left)")
+                        print(f"[proxy] routed model {missing or '(unnamed)'} not found upstream; "
+                              f"dropping that route and retrying on the caller's model "
+                              f"({len(proxy.routes)} route(s) left)", flush=True)
                         headers["Content-Length"] = str(len(unrouted))
                         status, payload, resp_headers = proxy._request_upstream(
                             method, path, unrouted, headers)
