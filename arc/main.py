@@ -3064,9 +3064,23 @@ class Flow:
                 # forward would argue against the correction in the same prompt.
                 if wrote_last:
                     unfinished = ""
-                log("[acceptance] full suite: same failures as the previous round; changing repair approach")
-                self.pending_corrections.append(
-                    'Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
+                    log("[acceptance] full suite: same failures as the previous round; changing repair approach")
+                    self.pending_corrections.append(
+                        'Repeated attempts produced the same observed failure. Recheck the assumptions behind the repair: inspect expected and received values, preceding actions, locator scope, and actual application state. Change the cause supported by this evidence. Do not manufacture the expected output or bypass the underlying operation; preserve behavior for other inputs.')
+                else:
+                    # The previous repair committed nothing, so the suite just measured the
+                    # same code twice and identical failures are guaranteed -- they are not
+                    # evidence that the repair missed the cause. `last_repair_diff()` above
+                    # already added the accurate line for this case ("left frontend/ and
+                    # backend/ unchanged ... Make an edit this time"), and `unfinished` is
+                    # deliberately kept so the half-finished plan carries forward. Adding
+                    # "recheck the assumptions behind the repair" on top of that argues
+                    # against it in the same prompt: one line says finish what you started,
+                    # the other says abandon your reasoning and change the cause.
+                    # Same defect, and the same fix, as the per-node identical-failure path.
+                    log("[acceptance] full suite: same failures, but the previous repair committed "
+                        "nothing -- the suite measured identical code, so this repeat is not "
+                        "evidence about the repair; keeping the unfinished plan")
             else:
                 repeated = False
             previous_failing = failing_signature

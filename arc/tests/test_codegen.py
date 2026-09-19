@@ -829,3 +829,58 @@ class RehearsalRepairOutcomeTests(unittest.TestCase):
         self.assertIn("corrections=self.corrections_text()",
                       inspect.getsource(main.Flow.repair_regressions))
         self.assertIn("{corrections}", main.REPAIR_PROMPT)
+
+
+class FullSuiteRepeatedFailureTests(unittest.TestCase):
+    """全量套件那条路上的同一个缺陷——而且它本来就**已经算出了答案**。
+
+    `wrote_last = self.commit(...)`（提交真的产生了变更才为 True）原先只用来决定
+    要不要把未完成的计划带到下一轮；「观察相同」那条更正却是**无条件**追加的。
+    上一轮什么都没提交时，套件只是把同一份代码量了两遍，失败相同是必然的。
+
+    更糟的是那两句话在同一个提示里互相矛盾：`last_repair_diff()` 已经加了准确的一行
+    （「上一次修复没动 frontend/ 和 backend/，这是同一份代码量了两遍，这次请真的改一处」），
+    而「复查你修法背后的假设、改掉病因」是叫它放弃刚才的推理——
+    一个说把没做完的做完，一个说别想了换个方向。
+    """
+
+    def _decide(self, wrote_last):
+        """复刻被测的那段分支。"""
+        corrections, logs, unfinished = [], [], "half a plan"
+        if wrote_last:
+            unfinished = ""
+            logs.append("changing repair approach")
+            corrections.append("Repeated attempts produced the same observed failure.")
+        else:
+            logs.append("committed nothing -- keeping the unfinished plan")
+        return corrections, logs, unfinished
+
+    def test_no_commit_means_the_repeat_is_not_evidence(self):
+        corrections, logs, unfinished = self._decide(False)
+        self.assertEqual(corrections, [], "什么都没提交时不该追加「复查你的修法」")
+        self.assertEqual(unfinished, "half a plan", "未完成的计划必须保留，好让它接着做")
+        self.assertIn("committed nothing", logs[0])
+
+    def test_a_real_edit_still_changes_the_approach(self):
+        """原有行为必须保留：真的改了东西而失败没动，那才该叫它换方向。"""
+        corrections, logs, unfinished = self._decide(True)
+        self.assertEqual(len(corrections), 1)
+        self.assertEqual(unfinished, "", "改过东西之后，旧计划不该再带下去")
+
+    def test_the_source_gates_the_correction_on_wrote_last(self):
+        import inspect
+        import main
+        src = inspect.getsource(main.Flow.final_acceptance)
+        head = src.split("if wrote_last:")[1].split("else:")[0]
+        self.assertIn("pending_corrections.append", head,
+                      "那条更正必须落在 wrote_last 为真的分支里")
+        tail = src.split("if wrote_last:")[1].split("else:")[1][:600]
+        self.assertNotIn("pending_corrections.append", tail,
+                         "wrote_last 为假的分支不得追加那条更正")
+
+    def test_last_repair_diff_already_covers_the_no_change_case(self):
+        """不追加不等于不告知——准确的那句话由 last_repair_diff 提供，这里钉住它还在。"""
+        import inspect
+        import main
+        self.assertIn("left frontend/ and backend/ unchanged",
+                      inspect.getsource(main.Flow.last_repair_diff))
