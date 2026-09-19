@@ -3333,8 +3333,28 @@ class Flow:
             if not self.repair_rounds_explicit and self.n_nodes > 2:
                 self.repair_rounds = 3  # big trees: identical-failure/no-improvement stops make 5 rounds rare anyway
             if self.max_total_tokens < 0:
-                self.max_total_tokens = max(6_000_000, 2_500_000 * self.n_nodes)   # ~3x the calibrated 0.8M/node
+                # Raised from 2.5M/node to 8M/node. The token limb of this guard exists to
+                # bound *cost*, and that is no longer a thing it can buy: the platform meters
+                # its own access key, a submission that brings its own key records 0, and
+                # `_cost_efficiency` returns None for cost <= 0 -- so spend has no effect on
+                # the leaderboard at all. Meanwhile tripping it is expensive in the only
+                # currency left: `wound_down()` shuts off every repair turn for the rest of
+                # the run, including the checkpoint repairs that recovered 8 of submission A's
+                # 32 keep nodes.
+                #
+                # And the old margin was razor thin, measured not guessed: A's keep finished
+                # on 78,211,655 tokens against an 80,000,000 limit -- 97.8%, i.e. it did not
+                # trip by 2.2%. Any run slightly less frugal than the best one we have would
+                # have lost all of its repairs to a guard protecting nothing.
+                #
+                # Safe to raise because wall-clock is guarded separately and does not depend
+                # on this number: every repair site already gates on `self.remaining()` /
+                # `time_up()` against OCTOS_TIME_BUDGET (main.py 2467, 2826, 2891, 3087, 3138).
+                # 8M/node is 10x the calibrated 0.8M/node and 3.3x A's measured 2.44M/node.
+                self.max_total_tokens = max(6_000_000, 8_000_000 * self.n_nodes)
             if self.max_turns < 0:
+                # Turns are left alone: unlike tokens, turn count is a proxy for wall-clock
+                # rather than for money, and that is still a real constraint.
                 self.max_turns = max(24, 4 * self.n_nodes)                          # ~3.5x the calibrated 1.1/node
             log(f"[guard] cost guard: {self.max_total_tokens} tokens / {self.max_turns} turns"
                 + (f" / absolute {self.max_total_tokens_abs}" if self.max_total_tokens_abs else ""))

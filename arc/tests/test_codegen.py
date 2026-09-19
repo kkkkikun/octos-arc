@@ -923,3 +923,49 @@ class RepeatedFailureCorrectionSitesTests(unittest.TestCase):
         compares = [ln for ln in src.splitlines()
                     if "== previous_failures" in ln or "== previous_failing" in ln]
         self.assertEqual(len(compares), 2, compares)
+
+
+class CostGuardCalibrationTests(unittest.TestCase):
+    """成本护栏的 token 限额，是在「费用会被计量、效率决定名次」的世界里校准的。
+
+    那个世界没了：平台计量的是它自己那把 access key，自带 key 的提交费用记 0，
+    而 `_cost_efficiency` 对 cost <= 0 返回 None——**花多少对名次毫无影响**。
+    而它跳闸的代价是唯一还在的那种货币：`wound_down()` 会关掉此后**全部**修复轮，
+    包括那些在提交 A 的 keep 上挽回了 8 个节点（共 32 个）的检查点修复。
+
+    旧余量是实测出来的、薄到离谱：A 的 keep 用掉 78,211,655 token，限额 80,000,000，
+    **97.8%**——只差 2.2% 没跳闸。任何比我们手上最省的那次稍微费一点的运行，
+    都会把全部修复能力交给一个已经保护不了任何东西的护栏。
+    """
+
+    def test_token_limit_leaves_real_headroom_over_the_best_measured_run(self):
+        import main
+        nodes = 32                      # A 的 keep
+        measured = 78_211_655           # A 的 keep 实际用量
+        limit = max(6_000_000, 8_000_000 * nodes)
+        self.assertGreater(limit, measured * 2,
+                           f"限额 {limit} 对实测 {measured} 的余量不足 2 倍")
+        src = __import__("inspect").getsource(main.Flow.run)
+        self.assertIn("8_000_000 * self.n_nodes", src)
+
+    def test_turn_limit_deliberately_unchanged(self):
+        """轮次是墙钟的代理、不是钱的代理，所以不动。
+        两者一起放开会把时间预算也一起放开，而那是真约束。"""
+        import inspect
+        import main
+        src = inspect.getsource(main.Flow.run)
+        self.assertIn("max(24, 4 * self.n_nodes)", src)
+
+    def test_wall_clock_is_gated_independently_of_the_token_guard(self):
+        """抬高 token 限额之所以安全，靠的是时间被**另外**守住。
+        这条测试钉住那个前提：每个修复点都有独立的时间判据，
+        不是只靠 wound_down()。"""
+        import main
+        from pathlib import Path
+        src = Path(main.__file__).read_text(encoding="utf-8")
+        gates = [ln for ln in src.splitlines()
+                 if ("self.remaining() <" in ln or "self.time_up()" in ln)
+                 and "def " not in ln]
+        self.assertGreaterEqual(len(gates), 5,
+                                f"只找到 {len(gates)} 处独立时间判据；"
+                                f"若时间只靠 token 护栏守，抬高限额就不再安全")
