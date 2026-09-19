@@ -60,3 +60,59 @@ class BankedSurplusTests(unittest.TestCase):
         raw = f.remaining() / 1 + f.banked_surplus(32, 32)
         self.assertGreater(raw, 3000)
         self.assertEqual(min(3000, max(240, raw)), 3000, "cap 仍然封得住")
+
+
+class BudgetIsParetoSafeTests(unittest.TestCase):
+    """这组改动**不可能**让任何节点拿到比旧参数更少的预算。
+
+    代数上显然：`surplus >= 0` 且上限只升不降，所以
+        新 = min(3000, max(240, share + surplus)) >= min(1500, max(240, share)) = 旧
+    但「显然」是我这一段里被推翻过好几次的词，所以跑一遍模拟把它钉住——
+    尤其要排除「抬高开局的份额会把尾巴饿到 240 秒地板」这个真实担忧。
+    """
+
+    @staticmethod
+    def _old(remaining, nodes_left):
+        return min(1500, max(240, remaining / nodes_left))
+
+    @staticmethod
+    def _new(flow, index, total):
+        try:
+            surplus = float(flow.banked_surplus(index, total))
+        except Exception:
+            surplus = 0.0
+        return min(flow.node_budget_cap, max(240, flow.remaining() / (total - index + 1) + surplus))
+
+    def _simulate(self, total, greed):
+        """greed = 每个节点实际用掉它拿到预算的比例。1.0 是最坏情况。"""
+        budget = 1500 * total
+        f = _Flow(budget, 0)
+            
+        f.node_budget_cap = 3000
+        worst_new, floors = float("inf"), 0
+        for i in range(1, total + 1):
+            new = self._new(f, i, total)
+            old = self._old(f.remaining(), total - i + 1)
+            self.assertGreaterEqual(round(new, 6), round(old, 6),
+                                    f"节点 {i}：新参数给的 {new:.0f}s 少于旧参数的 {old:.0f}s")
+            worst_new = min(worst_new, new)
+            floors += new <= 240.0001
+            f._used += new * greed
+        return worst_new, floors
+
+    def test_never_less_than_the_old_parameters_at_any_greed(self):
+        for total in (32, 66, 125):
+            for greed in (0.0, 0.4, 1.0):
+                worst, floors = self._simulate(total, greed)
+                self.assertGreaterEqual(worst, 1500,
+                                        f"{total} 节点 / 用量 {greed}：最小节点预算跌到 {worst:.0f}s")
+                self.assertEqual(floors, 0,
+                                 f"{total} 节点 / 用量 {greed}：有 {floors} 个节点被饿到 240s 地板")
+
+    def test_the_worry_that_motivated_this_test(self):
+        """担忧原文：开局几个难节点吃光余额，把尾巴饿到地板。
+        最坏情况（每个节点用光）下并没有发生——因为结余只在**领先进度**时才放，
+        而领先意味着份额本来就不低于公平份额。"""
+        worst, floors = self._simulate(66, 1.0)
+        self.assertEqual(floors, 0)
+        self.assertGreaterEqual(worst, 1500)
