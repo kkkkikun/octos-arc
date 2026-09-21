@@ -83,6 +83,7 @@ from acceptance import (  # noqa: E402
     nodes_for_failures, playwright_candidates, playwright_version_hint, restore_tree,
     mutated_by_tests, restore_worktree, snapshot_worktree, startup_error_digest, tree_digest,
     workers_for_final, reap_workspace_processes)
+from aria_lint import extract_contracts, lint_spec_source  # noqa: E402
 from codegen import (FORMAT_INSTRUCTIONS, dedupe_nav_links, delimiter_drift,  # noqa: E402
                      parse_file_blocks, unchanged_rewrites, unparsed_reply_digest,
                      write_files)
@@ -1085,7 +1086,19 @@ UI_CONTRACT_SESSION = """\
 - Derive authentication routes, redirects, labels and session lifetime from the requirements and existing app. Keep authentication state isolated between users; preserve sessions only as required. Failed authentication must not create a session or mutate protected data. Choose error disclosure appropriate to the security requirements.
 """
 
-UI_CONTRACT = UI_CONTRACT_CORE + UI_CONTRACT_DATA + UI_CONTRACT_SESSION  # full set (multi-node tasks)
+UI_CONTRACT_ARIA = """\
+Accessibility-name contracts (mandatory; graders locate controls by role plus exact accessible name):
+- A backtick-quoted name in the requirements ("a button named `Take a note`") is the exact accessible name that control must expose. Render it literally -- <button>Take a note</button> or aria-label="Take a note" -- never a synonym, paraphrase or extra words.
+- Every input needs an accessible name: <label for> or aria-label (a textbox named `Search` is <input type="search" aria-label="Search">, a form named `Login form` is <form aria-label="Login form">). Icon-only buttons need aria-label; named regions are role="region" aria-label (e.g. `Notes workspace`).
+- Repeated items (notes, books, shelves...) are <article> elements, one per item, with per-item action buttons INSIDE the article. Keep the requirement's exact control name without appending the item title: "scoped to that note" means DOM containment inside the article, not a renamed button.
+- Dialogs named in requirements open with role="dialog" (or <dialog>) and aria-label exactly as named; their textboxes/buttons reuse the quoted names.
+- Toggle buttons (view switches) carry aria-pressed reflecting state; expand/collapse buttons carry aria-expanded.
+- Status messages render the exact quoted text ("Note trashed") with role="status", alongside any named action button (`Undo`) while shown.
+- "Exactly one" / "unique" means one such element in its scope.
+- Seed data quoted in requirements (pinned note "Sprint goals") must exist as real records on first load.
+"""
+
+UI_CONTRACT = UI_CONTRACT_CORE + UI_CONTRACT_ARIA + UI_CONTRACT_DATA + UI_CONTRACT_SESSION  # full set (multi-node tasks)
 
 PERFORMANCE_CONTRACT = """\
 Performance and robustness:
@@ -1480,6 +1493,21 @@ def regression_checkpoint_due(index: int, total: int, start: int) -> bool:
     return multiple == 1 or multiple % 2 == 0 or index + start >= total
 
 
+def compose_ui_contract(needs_data: bool = True, needs_session: bool = True) -> str:
+    """The ARIA block is on by default: every web task is graded by
+    accessible-name lookups now (official strict specs, 2026-09-21).
+    OCTOS_ARC_ARIA_PROMPT=0 drops it -- the A/B leg for attributing D3's
+    prompt half separately from the lint half."""
+    blocks = [UI_CONTRACT_CORE]
+    if os.environ.get("OCTOS_ARC_ARIA_PROMPT", "1") != "0":
+        blocks.append(UI_CONTRACT_ARIA)
+    if needs_data:
+        blocks.append(UI_CONTRACT_DATA)
+    if needs_session:
+        blocks.append(UI_CONTRACT_SESSION)
+    return "".join(blocks)
+
+
 class Flow:
     def __init__(self, args, output_dir: Path, req_dir: Path) -> None:
         self.args = args
@@ -1489,6 +1517,13 @@ class Flow:
         self.smoke_port = int(os.environ.get("OCTOS_SMOKE_PORT", "3100"))
         if self.smoke_port == self.web_port:
             self.smoke_port += 1
+        # ARIA lint (D3): requirement-derived accessible-name contracts. Empty
+        # until run() parses the tree; helpers must survive a Flow built in
+        # tests (getattr everywhere), same rule as last_repair_diff.
+        self.aria_contracts: dict = {}
+        self.lint_dir: Path | None = None
+        self.lint_runner: AcceptanceRunner | None = None
+        self.last_lint_summary: RunSummary | None = None
         self.node_timeout = int(os.environ.get("OCTOS_NODE_TIMEOUT", "1200"))
         self.design_timeout = int(os.environ.get("OCTOS_DESIGN_TIMEOUT", "420"))
         self.budget = int(os.environ["OCTOS_TIME_BUDGET"]) if os.environ.get("OCTOS_TIME_BUDGET") else 3600
@@ -1746,12 +1781,7 @@ class Flow:
         self.needs_data = bool(re.search(r"seed|published|fixture|option|select|dropdown|nationalit|车次|train|选项|下拉|预置", text))
 
     def ui_contract(self) -> str:
-        blocks = [UI_CONTRACT_CORE]
-        if getattr(self, "needs_data", True):
-            blocks.append(UI_CONTRACT_DATA)
-        if getattr(self, "needs_session", True):
-            blocks.append(UI_CONTRACT_SESSION)
-        return "".join(blocks)
+        return compose_ui_contract(getattr(self, "needs_data", True), getattr(self, "needs_session", True))
 
     SHELL_TOOLS = {"bash", "shell", "exec_command"}
 
@@ -2237,7 +2267,7 @@ class Flow:
         Run da9a64b32c09: an unisolated install made the platform's own
         `npx playwright test` resolve a different version whose chromium build
         was missing, and every graded test failed."""
-        if not self.tests_dir:
+        if not self.tests_dir and not self.aria_contracts:
             return
         env_extra: dict = {}
         root = find_playwright_root(playwright_candidates(BUNDLE_DIR, self.tests_dir, self.output_dir))
@@ -2256,9 +2286,27 @@ class Flow:
         limit = container_memory_limit()
         self.mem_limit = limit
         workers = workers_for_memory(limit, int(os.environ.get("OCTOS_ARC_TEST_WORKERS", "2")))
-        self.runner = AcceptanceRunner(root, self.tests_dir, acceptance_work_dir(root), log,
+        # ARIA lint specs live in our own dir (the runner's /workspace/tests is
+        # read-only and its spec set must stay exactly what the platform
+        # grades with). Without official tests the lint dir is the runner's
+        # only test tree: it is what gives a formal (hidden-test) run any
+        # harness-side verification.
+        runner_tests = self.tests_dir
+        if self.aria_contracts:
+            self.lint_dir = self.output_dir / ".arc" / "aria-lint"
+            self.lint_dir.mkdir(parents=True, exist_ok=True)
+            self.lint_runner = AcceptanceRunner(root, self.lint_dir, acceptance_work_dir(root), log,
+                                                timeout_ms=int(os.environ.get("OCTOS_ARC_TEST_TIMEOUT_MS", "10000")),
+                                                workers=workers, env_extra=env_extra)
+            if runner_tests is None:
+                runner_tests = self.lint_dir
+        if runner_tests is None:
+            return
+        self.runner = AcceptanceRunner(root, runner_tests, acceptance_work_dir(root), log,
                                        timeout_ms=int(os.environ.get("OCTOS_ARC_TEST_TIMEOUT_MS", "10000")),
                                        workers=workers, env_extra=env_extra)
+        if self.lint_runner is not None and self.runner.tests_dir == self.lint_dir:
+            self.lint_runner = self.runner  # one runner, one work dir, sequential use
         log(f"[acceptance] using Playwright at {root}; workers={workers}"
             + (f" (container memory limit {limit // (1024 * 1024)} MiB)" if limit else ""))
 
@@ -2356,10 +2404,15 @@ class Flow:
         return AppServer(self.output_dir, self.smoke_port, log, grader_like=grader_like,
                          extra_ports=[p for p in spec_base_ports(self.tests_dir) if p != self.web_port])
 
-    def run_specs(self, specs: list[str], workers: int | None = None, grader_like: bool = False) -> RunSummary:
+    def run_specs(self, specs: list[str], workers: int | None = None, grader_like: bool = False,
+                  lint_node: str | None = None) -> RunSummary:
         """Build, start, run the specs, then undo whatever the test run mutated
         (a persisted counter at -1 would otherwise be committed as the seed).
-        `grader_like` starts the backend with only PORT set, as the platform does."""
+        `grader_like` starts the backend with only PORT set, as the platform does.
+        `lint_node` also runs that node's ARIA lint spec in the same server
+        session (result in self.last_lint_summary; with no official specs the
+        lint summary becomes the returned verdict)."""
+        self.last_lint_summary = None
         git_run = lambda args: self.runtime.git.run(args, check=False)  # noqa: E731
         snapshot_worktree(git_run)
         server = self.app_server(grader_like)
@@ -2370,7 +2423,13 @@ class Flow:
                 err = server.start()
             if err is not None:
                 return RunSummary(error=err)
-            summary = self.runner.run(specs, f"http://127.0.0.1:{self.smoke_port}", workers=workers)
+            url = f"http://127.0.0.1:{self.smoke_port}"
+            if specs:
+                summary = self.runner.run(specs, url, workers=workers)
+            if lint_node and self.aria_lint_enabled():
+                self.last_lint_summary = self.run_lint_specs(lint_node, url)
+            if summary is None:
+                summary = self.last_lint_summary or RunSummary(error="no specs and no lint contracts to run")
             return summary
         finally:
             server.stop()
@@ -2378,6 +2437,33 @@ class Flow:
             if summary is not None:
                 summary.stores_written = mutated_by_tests(git_run)
             restore_worktree(git_run)
+
+    def aria_lint_enabled(self) -> bool:
+        return (os.environ.get("OCTOS_ARC_ARIA_LINT", "1") != "0"
+                and bool(getattr(self, "aria_contracts", None))
+                and getattr(self, "lint_runner", None) is not None
+                and getattr(self, "lint_dir", None) is not None)
+
+    def app_routes(self) -> list[str]:
+        """Entry page plus every per-route html the app declares (the codegen
+        contract: frontend/src/index.html + one html per further route)."""
+        routes = ["/"]
+        src = self.output_dir / "frontend" / "src"
+        if src.is_dir():
+            routes.extend("/" + p.stem for p in sorted(src.glob("*.html")) if p.name != "index.html")
+        return routes
+
+    def run_lint_specs(self, node_id: str, url: str) -> RunSummary | None:
+        """(Re)write this node's lint spec from the live app's routes and run it.
+
+        Regenerated every round: routes appear as the app grows, and the spec is
+        derived state, never an artifact worth keeping in git history."""
+        contracts = self.aria_contracts.get(node_id)
+        if not contracts or self.lint_runner is None or self.lint_dir is None:
+            return None
+        spec_name = re.sub(r"[^A-Za-z0-9._-]+", "-", f"LINT-{node_id}") + ".spec.ts"
+        (self.lint_dir / spec_name).write_text(lint_spec_source(contracts, self.app_routes()), encoding="utf-8")
+        return self.lint_runner.run([spec_name], url)
 
     def record_tests(self, node_id: str, specs: list[str], summary: RunSummary) -> None:
         try:
@@ -2399,16 +2485,24 @@ class Flow:
         `rebuild_prompt(failures)` (optional) yields a full re-implementation
         prompt; it is used only before any behavior has passed verification.
         A failing extension is repaired without replacing working features."""
-        if self.runner is None or not specs:
+        lint_contracts = self.aria_contracts.get(node_id) if self.aria_lint_enabled() else None
+        if self.runner is None or not (specs or lint_contracts):
             return None
         best_passed, best_sha, regressions, stalls = -1, self.head(), 0, 0
         rewrite_used = False
+        lint_repairs = 0
         previous_failures = None
         self.codegen_blocked = False  # same failure twice in codegen mode -> tool mode for this node
         for attempt in range(self.repair_rounds + 1):
-            summary = self.run_specs(specs)
+            summary = self.run_specs(specs, lint_node=node_id if lint_contracts else None)
             if summary.error and summary.killed:
                 log(f"[acceptance] {node_id}: test runner killed ({summary.error[:120]}); no verdict from this round")
+                return None
+            if summary.error and not specs:
+                # Lint-only round whose app or lint infrastructure broke: the
+                # implement turn itself owns build verification, an error here
+                # is not evidence the requirement failed.
+                log(f"[aria] {node_id}: lint round error ({summary.error[:160]}); no verdict from this round")
                 return None
             if summary.error:
                 log(f"[acceptance] {node_id} infrastructure error: {summary.error[:300]}")
@@ -2421,6 +2515,12 @@ class Flow:
                 passed = summary.passed
                 failures = failure_summaries(summary) + failure_source_context(summary, self.tests_dir)
                 self.record_tests(node_id, specs, summary)
+                # getattr: flows built without __init__ (tests) must not die here.
+                lint_summary = getattr(self, "last_lint_summary", None)
+                if lint_summary is not None and not lint_summary.error and not lint_summary.all_passed:
+                    failures += ("\nAccessibility lint -- the requirement names these controls, the app "
+                                 "does not expose them with that exact accessible name:\n"
+                                 + failure_summaries(lint_summary))
             log(f"[acceptance] {node_id} round {attempt}: {passed}/{summary.total}")
             was_codegen = self.codegen_mode()
             normalized = failure_signature(summary) if summary.results else failures
@@ -2469,8 +2569,16 @@ class Flow:
                 if line.strip().startswith(("Failed at:", "Observation:")):
                     log(f"[acceptance]   {' '.join(line.strip().split())[:360]}")
             if summary.total and passed == summary.total:
-                self.commit(f"{node_id} (accepted): {passed}/{summary.total} acceptance tests pass")
-                return True
+                lint_summary = getattr(self, "last_lint_summary", None)
+                lint_clean = (lint_summary is None or lint_summary.error is not None
+                              or getattr(lint_summary, "all_passed", True))
+                if lint_clean or lint_repairs >= 1:
+                    if not lint_clean:
+                        log(f"[aria] {node_id}: lint still failing after one repair; accepting on official specs")
+                    self.commit(f"{node_id} (accepted): {passed}/{summary.total} acceptance tests pass")
+                    return True
+                lint_repairs += 1
+                log(f"[aria] {node_id}: specs pass but accessibility lint fails; one lint repair round")
             if passed > best_passed:
                 if best_passed >= 0:
                     self.commit(f"{node_id} (repair {attempt}): {passed}/{summary.total} pass")
@@ -3410,6 +3518,12 @@ class Flow:
             if not ordered:
                 raise ValueError("no ATOMIC requirement nodes found")
             self.classify_tree(tree)
+            if os.environ.get("OCTOS_ARC_ARIA_LINT", "1") != "0":
+                self.aria_contracts = extract_contracts(tree)
+                if self.aria_contracts:
+                    n_contracts = sum(len(v) for v in self.aria_contracts.values())
+                    log(f"[aria] {n_contracts} accessible-name contracts over {len(self.aria_contracts)} node(s)"
+                        f" (lint spec generated per acceptance round)")
             node_ids = [str(n.get("id")) for n in ordered]
             if not self.budget_explicit:
                 # 32-node trees need hours, not the 1-hour smoke default.

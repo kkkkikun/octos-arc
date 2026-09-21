@@ -1,8 +1,21 @@
 import os
 import unittest
 
-from main import OctosDriver, describe_node, folder_descendants, inline_sources, inline_spec_text, unchanged_node_ids
+from main import OctosDriver, compose_ui_contract, describe_node, folder_descendants, inline_sources, inline_spec_text, unchanged_node_ids
 import main as m
+
+
+class UiContractTests(unittest.TestCase):
+    def test_should_include_aria_contract_block_unconditionally(self):
+        text = compose_ui_contract(needs_data=False, needs_session=False)
+        self.assertIn(m.UI_CONTRACT_ARIA, text)
+        for phrase in ("exact accessible name", "aria-pressed", "<article>", "role=\"status\""):
+            self.assertIn(phrase, text)
+
+    def test_should_keep_gated_data_and_session_blocks(self):
+        self.assertIn(m.UI_CONTRACT_DATA, compose_ui_contract(needs_data=True, needs_session=False))
+        self.assertIn(m.UI_CONTRACT_SESSION, compose_ui_contract(needs_data=False, needs_session=True))
+        self.assertNotIn(m.UI_CONTRACT_DATA, compose_ui_contract(needs_data=False, needs_session=False))
 
 
 def node(node_id, description, deps=()):

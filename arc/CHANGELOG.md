@@ -783,3 +783,27 @@ Cloud: 闸门回退与守卫都尚未评测（提交 C `bea95120a928` 跑的是�
   34/34→**18/34**、keep-c1a-r2 12/32→1/32、keep-c1b-r2 11/32→1/32。失败收敛为
   三类缺口：input 无可访问名、卡片非 `<article>`、顶层命名词汇错位
   （"Notes list"≠"Notes workspace" 等）。详见 `aurora/06`。
+
+## 2026-09-21 · D3：需求可访问名契约（提示词 + ARIA lint）
+
+依据 aurora/06 重校准（keep 1/32、bookstack 18/34，失败全部收敛于 input 无名 /
+非 article / 命名词汇错位三类缺口）：
+
+- **提示词侧**：`UI_CONTRACT_ARIA` 块无条件注入（`OCTOS_ARC_ARIA_PROMPT=0` 可关，
+  A/B 归因用）：反引号名称=硬性可访问名契约、input 必带 label/aria-label、
+  重复项用 `<article>` 且动作按钮在 article 内不加 item 后缀（"scoped to that
+  note"=DOM 包含而非改名）、dialog/aria-pressed/aria-pressed/role=status 精确文本、
+  seed 数据首轮加载必须存在。镜像 `prompts/ui-contract-aria.md`（Rust 引擎消费
+  需内核 bump，暂 inert）。
+- **验收侧**：新增 `aria_lint.py`——从 requirements 提取「role+反引号名」契约
+  （keep 23 条/16 节点、bookstack 28 条/21 节点），每验收轮生成 LINT-*.spec.ts
+  （includeHidden，按 app_routes 逐路由探测），与官方 specs 同一 server 会话运行。
+  保守规则防误报：仅 description+GIVEN/WHEN（THEN 步骤跳过）、双动词句（激活×
+  出现）跳过、dialog/menu/confirm-view contains 句跳过、渲染态角色（dialog/menu/
+  status）不 lint。
+- **平台价值**：`setup_playwright` 原在无 /workspace/tests 时直接 return——正式
+  隐藏测试跑**没有任何 harness 侧验证**。现在有 lint 契约的节点也能走验收循环
+  （keep 16/17 节点有契约），lint 失败喂修复轮但官方 specs 在时 verdict 仍由
+  specs 决定（specs 过+lint 挂→最多一轮 lint 修复后接受）。
+- 负向验证：对 keep-baseline-0（旧需求产物）跑 REQ-1.1 lint → 0/3，恰报出三个
+  已知缺口；arc 全测试 421 OK。

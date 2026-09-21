@@ -19,7 +19,7 @@ rm -f ../octos-arc-bundle.zip
 # in the submission -- dead weight in the cloud, and indistinguishable from pre-loading
 # task data for anyone auditing the bundle. Local runs are unaffected: run-task-local.py
 # resolves BUNDLE_DIR to arc/ and reads arc/public-tests straight from the repo.
-zip -qr ../octos-arc-bundle.zip main.py rust_engine.py arc-policy.toml prompts octos_stdio.py requirement_order.py acceptance.py verify_app.py action_errors.cjs page_errors.ts guard.py llm_proxy.py codegen.py hooks requirements.txt arcbench_agent_runtime -x '*/__pycache__/*' '*.pyc'
+zip -qr ../octos-arc-bundle.zip main.py rust_engine.py arc-policy.toml prompts octos_stdio.py requirement_order.py acceptance.py verify_app.py action_errors.cjs page_errors.ts guard.py llm_proxy.py codegen.py aria_lint.py hooks requirements.txt arcbench_agent_runtime -x '*/__pycache__/*' '*.pyc'
 if [ -n "$ROUTES" ]; then
     python3 -c 'import sys; from zipfile import ZipFile; z=ZipFile("../octos-arc-bundle.zip", "a"); z.write(sys.argv[1], "model-routes.json"); z.close()' "$ROUTES"
 fi
