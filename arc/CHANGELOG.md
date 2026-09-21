@@ -764,3 +764,22 @@ Cloud: 未评测 (needs a TB gap). Unit tests 105 OK.
 - **partial 运行的读数会变。** 同一次 stackoverflow 在第 44 个节点时是 55% 工具模式 / 8.8 倍，跑完是 65% / 19.6 倍。引用要用跑完的数字。
 
 Cloud: 闸门回退与守卫都尚未评测（提交 C `bea95120a928` 跑的是回退后的闸门，不含守卫）。Unit tests 304 OK（1 个 error 为改动前即存在的 `test_proxy_routes_real_http` 本机网络测试）。
+
+## 2026-09-21 · 初赛适配：官方严格测试同步与基线重校准
+
+依据官方《参赛须知》+ `hackathon-local-simulation`（本地模拟竞赛环境）：
+
+- `arc/public-tests/arc-bench-web--{keep,bookstack}/` 全量替换为官方严格版公开测试
+  （ARIA 角色+精确可访问名断言，CRLF→LF，git 可回溯）；`arc/tasks/` 同步新版
+  requirements.yaml/md + 39 张参考图（keep 20 / bookstack 19）。T2/T3 四题暂无官方
+  新版，仍为旧宽松测试，结论打折看。
+- `grade-local.py` 对齐平台 Runner：workers 4→1、单测/expect 超时 60s→10s、
+  npm install 补 `--include=optional`、backend 启动补 `HOST=0.0.0.0`、就绪等待
+  30s→120s。
+- 新增 `arc/meter_snapshot.py`：Meter（meter.arc-bench.com，CNY）用量快照/差值，
+  复用官方 MeterUsageClient；供下次练习跑标定 $（内核 pricing.rs 供应商价目）
+  ↔ ¥（平台费率）换算。
+- 重校准（同成品重评，非重跑）：keep-baseline-0 32/32→**1/32**、bookstack-baseline-0
+  34/34→**18/34**、keep-c1a-r2 12/32→1/32、keep-c1b-r2 11/32→1/32。失败收敛为
+  三类缺口：input 无可访问名、卡片非 `<article>`、顶层命名词汇错位
+  （"Notes list"≠"Notes workspace" 等）。详见 `aurora/06`。

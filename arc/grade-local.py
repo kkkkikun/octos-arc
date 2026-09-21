@@ -16,7 +16,8 @@ if not (grader / "node_modules" / "@playwright").exists():
 def sh(cmd, cwd, **kw):
     r = subprocess.run(cmd, cwd=cwd, env=env, shell=True, capture_output=True, text=True, **kw)
     return r.returncode, (r.stdout + r.stderr)[-1500:]
-for step, cwd in (("npm install --no-audit --no-fund && npm run build", out/"frontend"), ("npm install --no-audit --no-fund", out/"backend")):
+# Mirror the platform runner exactly: --include=optional on both installs.
+for step, cwd in (("npm install --include=optional --no-audit --no-fund && npm run build", out/"frontend"), ("npm install --include=optional --no-audit --no-fund", out/"backend")):
     rc, log = sh(step, cwd)
     print(f"[grade] {cwd.name}: {step!r} -> {rc}"); 
     if rc: print(log); sys.exit(2)
@@ -24,9 +25,9 @@ for step, cwd in (("npm install --no-audit --no-fund && npm run build", out/"fro
 # dir and restore it afterwards so grading never changes what gets shipped.
 def git(*args): subprocess.run(["git", "-C", str(out), *args], capture_output=True)
 git("add", "-A")
-benv = dict(env, PORT=str(port))
+benv = dict(env, HOST="0.0.0.0", PORT=str(port))
 srv = subprocess.Popen("npm run start", cwd=out/"backend", env=benv, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, preexec_fn=os.setsid)
-for _ in range(60):
+for _ in range(240):
     with socket.socket() as s:
         if s.connect_ex(("127.0.0.1", port)) == 0: break
     time.sleep(0.5)
@@ -35,9 +36,10 @@ else:
 work = grader / "run" / f"{req}-{out.name}"
 if work.exists(): shutil.rmtree(work)
 shutil.copytree(specs, work / "tests")
+# Playwright parity with the platform runner: workers=1, 10s test/expect timeouts.
 (work / "playwright.config.ts").write_text(
     "import { defineConfig } from '@playwright/test';\n"
-    "export default defineConfig({ testDir: './tests', timeout: 60000, retries: 0, workers: 4, reporter: [['json', { outputFile: 'report.json' }], ['line']], use: { headless: true, baseURL: process.env.E2E_BASE_URL } });\n")
+    "export default defineConfig({ testDir: './tests', timeout: 10000, retries: 0, workers: 1, reporter: [['json', { outputFile: 'report.json' }], ['line']], expect: { timeout: 10000 }, use: { headless: true, baseURL: process.env.E2E_BASE_URL } });\n")
 tenv = dict(env, E2E_BASE_URL=f"http://127.0.0.1:{port}")
 t0 = time.time()
 r = subprocess.run(["npx", "playwright", "test", "-c", str(work/"playwright.config.ts")], cwd=grader, env=tenv, capture_output=True, text=True)
