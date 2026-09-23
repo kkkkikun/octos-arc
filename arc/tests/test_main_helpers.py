@@ -1709,7 +1709,10 @@ class InlineSourceBudgetTests(unittest.TestCase):
         from unittest.mock import patch
         root = Path(tempfile.mkdtemp())
         flow = m.Flow(argparse.Namespace(web_port=1), root, root)
-        self.assertEqual(flow.inline_source_chars(), flow.codegen_context_chars())
+        # Ledger #7 (2026-09-23): 15000 keeps 32/32 strict with -35% real tokens
+        # vs the old codegen-budget default; the two budgets stay decoupled.
+        self.assertEqual(flow.inline_source_chars(), 15000)
+        self.assertEqual(flow.codegen_context_chars(), 90000)
         with patch.dict("os.environ", {"OCTOS_ARC_INLINE_SOURCE_CHARS": "250000"}):
             self.assertEqual(flow.inline_source_chars(), 250000)
             self.assertEqual(flow.codegen_context_chars(), 90000)   # output budget unmoved
@@ -1718,10 +1721,10 @@ class InlineSourceBudgetTests(unittest.TestCase):
         import argparse
         from pathlib import Path
         flow = m.Flow(argparse.Namespace(web_port=1), self._app(), Path('.'))
-        self.assertIn("--- frontend/src/index.html ---\n", flow.sources_text())
-        self.assertEqual(int(os.environ.get("OCTOS_ARC_INLINE_SOURCE_CHARS",
-                                            str(flow.codegen_context_chars()))),
-                         flow.codegen_context_chars())
+        # Under the 15000 default a 49K fixture file is clipped, not quoted
+        # whole -- the header carries the clipping marker instead.
+        self.assertIn("--- frontend/src/index.html --- (too large to quote whole", flow.sources_text())
+        self.assertEqual(flow.inline_source_chars(), 15000)
 
     def test_should_still_honour_an_explicit_override(self):
         import argparse

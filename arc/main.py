@@ -45,7 +45,7 @@ Environment (all optional):
     OCTOS_ARC_DROP_SHELL      "0" leaves bash/shell available in minimal-verification turns (default: removed)
     OCTOS_ARC_IMPLEMENT_REQUESTS / OCTOS_ARC_REPAIR_REQUESTS  hard per-turn request caps enforced at the proxy (20 for small tasks / 10; 0 = off)
     OCTOS_ARC_REWRITE_ON_ZERO "0" disables the single full-rewrite turn when round 0 passes nothing
-    OCTOS_ARC_INLINE_SOURCE_CHARS  budget for quoting the app's sources into repair/rewrite prompts (40000; 0 = off)
+    OCTOS_ARC_INLINE_SOURCE_CHARS  budget for quoting the app's sources into repair/rewrite prompts (15000; 0 = off; ledger #7)
     OCTOS_ARC_MAX_TOKENS      minimum max_tokens the proxy enforces on chat requests (32768; kernel arc.11 sends 4096)
     OCTOS_ARC_CODEGEN         "0" disables one-request codegen turns for one-node tasks (default on)
     OCTOS_SESSION_SCOPE       turn (default) | node | run — when a fresh octos session starts
@@ -1673,7 +1673,12 @@ class Flow:
         never handed the file, so they are not the prompt failing to save a
         read.
         """
-        return int(os.environ.get("OCTOS_ARC_INLINE_SOURCE_CHARS", str(self.codegen_context_chars())))
+        # Ledger #7 (2026-09-23, keep-d3-c1a-15000): 15000 keeps 32/32 on the
+        # strict specs with -35% real tokens vs the codegen-budget default
+        # (9.06M vs 13.90M, cache rate 87% -- no tool-mode fallback damage).
+        # Wall-clock nearly doubles (tool reads replace inline context), which
+        # the 48h platform budget does not care about.
+        return int(os.environ.get("OCTOS_ARC_INLINE_SOURCE_CHARS", "15000"))
 
     def sources_text(self) -> str:
         # A repair has to understand the code before editing it, so it cannot be
