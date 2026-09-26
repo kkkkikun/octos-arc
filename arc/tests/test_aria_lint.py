@@ -271,3 +271,15 @@ class RealCompetitionExtractionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScriptSmokeTests(unittest.TestCase):
+    def test_should_emit_script_parse_smoke_on_every_spec(self):
+        # arch-3 shipped a relative "app.js" that resolved to a 404 page on
+        # the route-rewritten editor; includeHidden markup probes passed the
+        # static shell vacuously while the real tests scored 0/28.
+        src = lint_spec_source([Contract(role="button", name="X", node_id="R")],
+                               routes=["/"])
+        self.assertIn("scripts parse on every route", src)
+        self.assertIn("pageerror", src)
+        self.assertIn("SyntaxError", src)

@@ -61,6 +61,12 @@ Rules:
   for a field that already has one (duplicate `Email` inputs make strict
   locators ambiguous). Every interactive element you render must actually
   perform its named action when activated.
+- Reference shared assets with root-absolute paths ("/app.js",
+  "/style.css"): the server rewrites nested routes (/workbook/<id>) to the
+  same HTML document, so a relative "app.js" there resolves to
+  /workbook/app.js and the browser receives a 404 page where JavaScript was
+  expected -- every dynamic feature dies with a SyntaxError while the static
+  shell still passes markup-only checks.
 {ports}
 If a previous acceptance failure is shown to you below, fix exactly what it
 reports — do not rewrite working code around it.

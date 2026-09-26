@@ -450,7 +450,23 @@ def lint_spec_source(contracts: list[Contract], routes: list[str]) -> str:
     """
     route_list = ", ".join(json_quote(route) for route in routes) or '"/"'
     form_rx = {"digit": r"^\d+$", "letter": r"^[A-Z]+$"}
-    tests: list[str] = []
+    tests: list[str] = [
+        # The 2026-09-27 arch-3 run shipped <script src="app.js">: on the
+        # route-rewritten editor page that resolves to /workbook/app.js, the
+        # server answers with a 404 page, and every dynamic feature dies with
+        # SyntaxError while includeHidden markup probes still count the
+        # static grid shell and pass vacuously. A script-parse smoke on every
+        # route closes that blind spot.
+        "test('ARIA-lint: scripts parse on every route', async ({ page }) => {\n"
+        "  const errors = [];\n"
+        "  page.on('pageerror', e => errors.push(String(e)));\n"
+        "  for (const route of ROUTES) {\n"
+        "    await page.goto(route).catch(() => {});\n"
+        "    await page.waitForTimeout(400);\n"
+        "  }\n"
+        "  expect(errors.filter(e => e.includes('SyntaxError')).length,\n"
+        "    'a script got HTML where JS was expected -- check asset paths resolve on every route').toBe(0);\n"
+        "});"]
     for contract in contracts:
         if contract.role == "dialog" and contract.name:
             # dialogs may sit unmounted until opened: walk the trigger chain
