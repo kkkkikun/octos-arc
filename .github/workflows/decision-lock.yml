@@ -1,0 +1,48 @@
+name: Decision lock
+
+# Guards the blob-SHA pin on the decision records and vendored documentation
+# this competition baseline inherits (#70, #215).
+#
+# One job, deliberately: every PR and every push to main, offline. It reads
+# one `git ls-tree` plus decision-lock.json and nothing else, so it cannot
+# flake on a GitHub API hiccup and cannot be skipped by a rate limit.
+#
+# There is no scheduled job. Checking whether upstream has moved past the pin
+# is a manual question with a manual answer:
+#
+#     python3 scripts/check-decision-lock.py --upstream
+#
+# That was briefly wired to a weekly run that opened an issue; it was removed
+# because the baseline is pinned on purpose and upstream moving on is expected,
+# so the report was standing noise rather than a signal. Anyone who wants the
+# answer can ask for it in one command.
+#
+# Unlike arc-linux-release.yml this workflow publishes nothing and writes
+# nothing. It is read-only.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify the lock against this tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Gate self-test
+        run: |
+          set -euo pipefail
+          python3 scripts/tests/test-check-decision-lock.py
+
+      - name: Verify decision-lock.json
+        run: |
+          set -euo pipefail
+          python3 scripts/check-decision-lock.py

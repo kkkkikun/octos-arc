@@ -131,6 +131,11 @@ pub struct PipelineNode {
     /// Override max output tokens per LLM call. Default 4096 is too low for
     /// nodes that write long outputs (e.g. synthesize writing full reports).
     pub max_output_tokens: Option<u32>,
+    /// Per-node reasoning control for LLM-driven handlers (`none`, `low`,
+    /// `medium`, `high`, `max`), from the DOT attribute `reasoning_effort`.
+    /// `None` leaves the provider default -- which, for models that think by
+    /// default, means every worker call pays for reasoning.
+    pub reasoning_effort: Option<String>,
     /// Override the agent-loop iteration budget for this node's worker.
     /// The pipeline default (30) is too low for a synthesis node that reads
     /// many findings files one at a time before producing its analysis —
@@ -198,6 +203,7 @@ impl Default for PipelineNode {
             model: None,
             context_window: None,
             max_output_tokens: None,
+            reasoning_effort: None,
             max_iterations: None,
             tools: Vec::new(),
             goal_gate: false,
@@ -270,6 +276,17 @@ impl HandlerKind {
         match s {
             "codergen" => Some(Self::Codergen),
             "shell" => Some(Self::Shell),
+            // The command-validator handler was previously reachable ONLY from
+            // the typed-IR palette, so an operator-installed DOT pipeline had
+            // no way to spell "run this fixed command and branch on its exit
+            // status" — `shell` is banned outright by validate rule 23
+            // (`RuleId::NoShell`) because it is arbitrary code execution.
+            // `ShellCheck` is the sanctioned alternative that rule already
+            // exempts: the command is fixed by the graph author, and the node
+            // gets no LLM tool surface. Giving it a DOT spelling adds no new
+            // capability — it only lets a DOT author reach the same handler
+            // the IR path has always been able to build.
+            "shell_check" => Some(Self::ShellCheck),
             "gate" => Some(Self::Gate),
             "noop" => Some(Self::Noop),
             "parallel" => Some(Self::Parallel),

@@ -567,10 +567,106 @@ const PIPELINE_TIMEOUT_DEFAULT_SECS: u64 = 1800;
 /// Extracted so the resolution policy can be unit-tested without
 /// constructing a full `RunPipelineTool` + `TOOL_CTX`.
 fn resolve_pipeline_timeout(llm_value: Option<u64>, dot_default: Option<u64>) -> u64 {
+    // An operator-fixed timeout replaces both the model's value and the
+    // graph default: the model reads "Max: 3600" in the schema and passes
+    // it, which silently cut a multi-hour operator pipeline at one hour.
+    let llm_value = operator_pipeline_timeout().or(llm_value);
+    resolve_pipeline_timeout_with_ceiling(llm_value, dot_default, pipeline_timeout_ceiling())
+}
+
+/// `OCTOS_PIPELINE_TIMEOUT_SECS`: the operator's fixed run timeout (still
+/// clamped to the ceiling). Zero or unparsable is ignored.
+fn operator_pipeline_timeout() -> Option<u64> {
+    std::env::var("OCTOS_PIPELINE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|v| *v > 0)
+}
+
+fn resolve_pipeline_timeout_with_ceiling(
+    llm_value: Option<u64>,
+    dot_default: Option<u64>,
+    ceiling: u64,
+) -> u64 {
     llm_value
         .or(dot_default)
         .unwrap_or(PIPELINE_TIMEOUT_DEFAULT_SECS)
-        .clamp(PIPELINE_TIMEOUT_MIN_SECS, PIPELINE_TIMEOUT_MAX_SECS)
+        .clamp(PIPELINE_TIMEOUT_MIN_SECS, ceiling)
+}
+
+/// The clamp ceiling. [`PIPELINE_TIMEOUT_MAX_SECS`] guards against a runaway
+/// value from the model; a host running long operator-authored pipelines (a
+/// build loop over a hundred requirements takes hours) raises it for the whole
+/// process with `OCTOS_PIPELINE_TIMEOUT_MAX_SECS`. Never lowered below the
+/// built-in ceiling, and an unparsable value is ignored.
+fn pipeline_timeout_ceiling() -> u64 {
+    std::env::var("OCTOS_PIPELINE_TIMEOUT_MAX_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map_or(PIPELINE_TIMEOUT_MAX_SECS, |v| {
+            v.max(PIPELINE_TIMEOUT_MAX_SECS)
+        })
+}
+
+/// Operator allow-list of pipeline names (`OCTOS_PIPELINE_ALLOW`, comma
+/// separated). When set, `run_pipeline` advertises and runs only these, and
+/// refuses model-composed IR programs: a host that installed one pipeline
+/// for a job does not want the model starting a different one (observed: a
+/// session woken by its own background run launching `deep_research`).
+fn pipeline_allowlist() -> Option<Vec<String>> {
+    let raw = std::env::var("OCTOS_PIPELINE_ALLOW").ok()?;
+    let names: Vec<String> = raw
+        .split(',')
+        .map(|n| n.trim().to_string())
+        .filter(|n| !n.is_empty())
+        .collect();
+    (!names.is_empty()).then_some(names)
+}
+
+/// Names of the allow-listed pipelines currently running in this process.
+static RUNNING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Held for the whole run; releases the name when the run ends, however it ends.
+struct RunningGuard(String);
+
+impl RunningGuard {
+    /// One run per allow-listed pipeline at a time. A host that installed one
+    /// pipeline for a job wants that job run once; a second, concurrent run
+    /// works in its own directory and competes for the same ports and model
+    /// (observed: a local model woken by node-failure notices re-called
+    /// `run_pipeline` 8 times in 80 minutes, every copy running at once).
+    fn claim(name: &str) -> Option<Self> {
+        let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        running
+            .insert(name.to_string())
+            .then(|| Self(name.to_string()))
+    }
+}
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        RUNNING
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
+    }
+}
+
+fn allowlist_rejection(allow: &[String], name: &str, using_ir: bool) -> Option<String> {
+    if using_ir {
+        return Some(format!(
+            "typed-IR programs are disabled on this host; run one of: {}",
+            allow.join(", ")
+        ));
+    }
+    (!allow.iter().any(|a| a == name.trim())).then(|| {
+        format!(
+            "pipeline '{}' is not allowed on this host; run one of: {}",
+            name.trim(),
+            allow.join(", ")
+        )
+    })
 }
 
 /// Returned when an agent passes a free-form inline DOT graph to
@@ -623,6 +719,15 @@ fn looks_like_inline_dot(s: &str) -> bool {
 
 #[async_trait]
 impl Tool for RunPipelineTool {
+    /// The registry's per-tool backstop (1800 s) killed runs the pipeline's
+    /// own timeout still allowed -- `deep_research` ships a 2400 s default,
+    /// and an operator-raised ceiling goes further. Back the pipeline's own
+    /// clamp ceiling instead, with slack so its timeout fires first and the
+    /// run ends through the normal timed-out result path.
+    fn execution_timeout_secs(&self) -> Option<u64> {
+        Some(pipeline_timeout_ceiling() + 300)
+    }
+
     fn name(&self) -> &str {
         "run_pipeline"
     }
@@ -733,6 +838,12 @@ impl Tool for RunPipelineTool {
         if !pipeline_names.iter().any(|n| n == FALLBACK_PIPELINE_NAME) {
             pipeline_names.push(FALLBACK_PIPELINE_NAME.to_string());
         }
+        if let Some(allow) = pipeline_allowlist() {
+            pipeline_names.retain(|n| allow.contains(n));
+            if pipeline_names.is_empty() {
+                pipeline_names = allow;
+            }
+        }
 
         let mut schema = serde_json::json!({
             "type": "object",
@@ -787,6 +898,13 @@ impl Tool for RunPipelineTool {
     async fn pre_flight_validate(&self, args: &serde_json::Value) -> Result<(), String> {
         let input: Input = serde_json::from_value(args.clone())
             .map_err(|e| format!("invalid run_pipeline input: {e}"))?;
+        if let Some(allow) = pipeline_allowlist() {
+            let using_ir =
+                self.ir_enabled && input.ir.as_deref().is_some_and(|s| !s.trim().is_empty());
+            if let Some(message) = allowlist_rejection(&allow, &input.pipeline, using_ir) {
+                return Err(message);
+            }
+        }
         // S1-5: when an IR program is supplied (and enabled), the pre-flight is
         // a compose() — the same parse/compile/cycle/profile gates the run uses,
         // surfaced synchronously so a malformed IR fails the foreground turn
@@ -864,6 +982,33 @@ impl Tool for RunPipelineTool {
             serde_json::from_value(args.clone()).wrap_err("invalid run_pipeline input")?;
 
         let using_ir = self.ir_enabled && input.ir.as_deref().is_some_and(|s| !s.trim().is_empty());
+
+        if let Some(message) = pipeline_allowlist()
+            .and_then(|allow| allowlist_rejection(&allow, &input.pipeline, using_ir))
+        {
+            return Ok(ToolResult {
+                success: false,
+                output: message,
+                ..Default::default()
+            });
+        }
+        let _running = match pipeline_allowlist() {
+            Some(_) => match RunningGuard::claim(input.pipeline.trim()) {
+                Some(guard) => Some(guard),
+                None => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: format!(
+                            "pipeline '{}' is already running; it reports back on its own \
+                             when it finishes. Do not start it again.",
+                            input.pipeline.trim()
+                        ),
+                        ..Default::default()
+                    });
+                }
+            },
+            None => None,
+        };
 
         // Free-form inline DOT is no longer an agent-authorable surface. Reject
         // it up front with an actionable message (mirrors the IR compose-error
@@ -2041,6 +2186,50 @@ mod tests {
         assert_eq!(resolve_pipeline_timeout(Some(1500), Some(2400)), 1500);
     }
 
+    #[test]
+    fn resolve_pipeline_timeout_honours_a_raised_ceiling() {
+        // An operator-raised ceiling lets a long DOT default through, and
+        // still clamps anything above it.
+        assert_eq!(
+            resolve_pipeline_timeout_with_ceiling(None, Some(20_000), 36_000),
+            20_000
+        );
+        assert_eq!(
+            resolve_pipeline_timeout_with_ceiling(Some(90_000), None, 36_000),
+            36_000
+        );
+        assert_eq!(
+            resolve_pipeline_timeout_with_ceiling(None, Some(7200), PIPELINE_TIMEOUT_MAX_SECS),
+            3600
+        );
+    }
+
+    #[test]
+    fn running_guard_admits_one_run_per_name() {
+        let first = RunningGuard::claim("guard_test_pipeline").expect("first run admitted");
+        assert!(RunningGuard::claim("guard_test_pipeline").is_none());
+        assert!(RunningGuard::claim("guard_test_other").is_some());
+        drop(first);
+        assert!(RunningGuard::claim("guard_test_pipeline").is_some());
+    }
+
+    #[test]
+    fn allowlist_rejects_other_names_and_ir_only() {
+        let allow = vec!["arc_build".to_string()];
+        assert_eq!(allowlist_rejection(&allow, "arc_build", false), None);
+        assert_eq!(allowlist_rejection(&allow, " arc_build ", false), None);
+        assert!(
+            allowlist_rejection(&allow, "deep_research", false)
+                .unwrap()
+                .contains("not allowed")
+        );
+        assert!(
+            allowlist_rejection(&allow, "arc_build", true)
+                .unwrap()
+                .contains("IR")
+        );
+    }
+
     /// NEW-15 (7): clamping applies to the DOT default too — a skill
     /// author cannot ship a pipeline whose baked-in fallback exceeds
     /// the new 3600s ceiling.
@@ -2814,6 +3003,16 @@ mod tests {
             dir.path().to_path_buf(),
         )
         .with_ir_enabled(ir_enabled)
+    }
+
+    #[tokio::test]
+    async fn registry_backstop_outlasts_the_pipeline_timeout() {
+        // The registry kills a tool at its execution timeout; for run_pipeline
+        // that must never undercut the pipeline's own (clamped) timeout.
+        let tool = make_ir_tool(false).await;
+        let backstop = octos_agent::tools::Tool::execution_timeout_secs(&tool).unwrap();
+        assert!(backstop > resolve_pipeline_timeout(None, Some(u64::MAX)));
+        assert!(backstop > PIPELINE_TIMEOUT_MAX_SECS);
     }
 
     #[tokio::test]
