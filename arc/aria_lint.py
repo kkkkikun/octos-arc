@@ -26,7 +26,7 @@ round; a missed contract only loses a hint):
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 # role word -> canonical ARIA role (None = recognized but never linted)
 ROLE_WORDS: dict[str, str | None] = {
@@ -51,6 +51,12 @@ ROLE_WORDS: dict[str, str | None] = {
     "checkboxes": "checkbox",
     "tab": "tab",
     "tabs": "tab",
+    # dialogs are lintable since R3: static definitional sentences name them
+    # and named triggers ("the `Rename` menu item opens ...") let the probe
+    # walk to them. Pronoun-triggered ones ("activating it opens ...") stay
+    # out via the dynamic guard.
+    "dialog": "dialog",
+    "dialogs": "dialog",
     "option": "option",
     "options": "option",
     "menu item": "menuitem",
@@ -59,12 +65,16 @@ ROLE_WORDS: dict[str, str | None] = {
     "switch": "switch",
     "switches": "switch",
     "combobox": "combobox",
+    "combo box": "combobox",
+    "combo boxes": "combobox",
     "dropdown": "combobox",
+    "radio": "radio",
+    "radio option": "radio",
+    "radio options": "radio",
     "list": "list",
     "lists": "list",
-    # recognized, always dropped: rendered on interaction
-    "dialog": None,
-    "dialogs": None,
+    # recognized, always dropped: rendered on interaction without a nameable
+    # trigger we can walk (toasts, bare menus, unnamed modals)
     "modal": None,
     "menu": None,
     "menus": None,
@@ -123,6 +133,36 @@ _P7_DECLARE = re.compile(r"\b([a-zA-Z][a-zA-Z]*(?:\s+[a-zA-Z]+)?)s\b"
 _P7_BIND = re.compile(r"\b(?:a|an|the)\s+(?:[a-z]+\s+){0,2}([a-zA-Z]+)\s+"
                       r"(?:uniquely\s+)?named\s+(?:`([^`]+)`"
                       r"|([A-Z][A-Za-z0-9_]*(?:\s+[A-Z][A-Za-z0-9_]*){0,2}))")
+# P8: declared name FORMS -- "Row numbers use the ARIA rowheader role with the
+# decimal row number as the accessible name; column headers ... the column
+# letter". The name slot is a vocabulary ("the decimal row number"), not a
+# literal, so the contract carries a form; the spec asserts the role exists
+# named like that (a digit, a letter). The 2026-09-26 arch-1 artifact
+# labelled its row headers "Row 1" -- exact-name '1' locators died.
+_P8 = re.compile(r"\buse\s+the\s+ARIA\s+([a-zA-Z]+)\s+role\s+with\s+(?:the\s+|their\s+)?"
+                 r"((?:decimal\s+)?[a-z]+(?:\s+[a-z]+)?)\s+as\s+(?:the\s+)?accessible\s+names?", re.I)
+_FORM_MAP = (("row number", "digit"), ("digit", "digit"), ("number", "digit"),
+             ("letter", "letter"), ("coordinate", "coordinate"))
+# P9: dialog revival. (a) trigger-in-sentence: "The `Rename` menu item opens
+# a dialog named `Rename worksheet`" -- dynamic sentence, but the named
+# trigger makes the dialog walkable, so it harvests with its trigger.
+# (b) chain sentences: "choose `Sort range` from the `Data` menu" /
+# "clicking the `Import CSV` button" / "through the `Delete` command" yield
+# an ordered trigger chain for the node's static dialog sentences
+# ("A dialog named `Sort range` provides ..."). Pronoun triggers
+# ("activating it opens ...", keep's editor) harvest nothing.
+_P9_TRIGGER = re.compile(r"`([^`]+)`\s+(?:menu\s+item|button|command|link|option|tab)\s+"
+                         r"opens?\s+(?:a|an|the)\s+dialog\s+" + _VERB + r"\s+`([^`]+)`", re.I)
+_P9_STATIC = re.compile(r"\b(?:a|an|the)\s+dialog\s+" + _VERB + r"\s+`([^`]+)`", re.I)
+_P9_CHAIN = re.compile(r"\b(?:choose|clicks?|clicking|selects?|selecting|presses?|pressing|through)\s+"
+                       r"(?:the\s+)?`([^`]+)`(?:\s+(?:command|button|menu\s+item))?"
+                       r"(?:\s+(?:from|in)\s+(?:the\s+)?`([^`]+)`\s+menu)?", re.I)
+# K3: selection state. "with Sheet1 active and A1 selected" pins the fresh-
+# workbook selection; the FOLDER text states the active tab is "indicated by
+# aria-selected=\"true\"". Both are structural assertions the arch-1 app
+# failed (it set aria-selected="false" on every cell at render).
+_SELECTED_CELL = re.compile(r"\b([A-Z]{1,3}\d{1,4})\s+selected\b")
+_TAB_SELECTED = re.compile(r"active\s+tab[^.;]{0,60}aria-selected", re.I)
 # article existence ("is exposed as a unique article", "an article containing", "article named by")
 _ARTICLE = re.compile(r"(?:\b(?:is|are)\s+(?:exposed\s+as\s+)?an?\s+(?:unique\s+)?article\b"
                       r"|\ban\s+article\s+containing\b|\barticle\s+named\s+by\b)", re.I)
@@ -166,8 +206,12 @@ def sentence_is_dynamic(sentence: str) -> bool:
 @dataclass(frozen=True)
 class Contract:
     role: str
-    name: str | None  # None = existence-only (article)
+    name: str | None  # None = existence-only (article) or a name form
     node_id: str
+    # R3 extensions; defaults keep every pre-existing construction working.
+    name_form: str | None = None   # 'digit' / 'letter': names follow a form
+    selected: bool = False         # assert aria-selected="true" on this one
+    triggers: tuple[str, ...] = ()  # ordered controls that open a dialog
 
 
 def _normalize_quotes(text: str) -> str:
@@ -274,9 +318,33 @@ def extract_contracts(tree: dict) -> dict[str, list[Contract]]:
 
     collect_declarations(tree)
 
+    # tree-wide: does this task state the active tab via aria-selected?
+    # ("with the active tab indicated by aria-selected=\"true\"", REQ-1
+    # FOLDER) -- selection twins are emitted for every tab contract.
+    def _all_text(node: dict, acc: list[str]) -> None:
+        if node.get("description"):
+            acc.append(_normalize_quotes(str(node["description"])))
+        for child in node.get("children") or []:
+            if isinstance(child, dict):
+                _all_text(child, acc)
+
+    texts: list[str] = []
+    _all_text(tree, texts)
+    tab_selected = bool(_TAB_SELECTED.search(" ".join(texts)))
+
     def harvest(node: dict, node_id: str) -> set[Contract]:
         found: set[Contract] = set()
-        for sentence in _sentences(node):
+        sentences = _sentences(node)
+        # P9 pre-pass: the node's ordered trigger chain, from its interaction
+        # sentences ("choose `Sort range` from the `Data` menu" -> Data, then
+        # Sort range; "from/in the `M` menu" opens M first).
+        chain: list[str] = []
+        for sentence in sentences:
+            for item, menu in _P9_CHAIN.findall(sentence):
+                for name in ((menu, item) if menu else (item,)):
+                    if name and name not in chain and not _PLACEHOLDER.search(name):
+                        chain.append(name)
+        for sentence in sentences:
             # P1-P5 and the article marker describe static wiring;
             # action-born UI is not theirs to assert. P6/P7 below bind
             # literal names to declared roles and run regardless: the
@@ -286,8 +354,8 @@ def extract_contracts(tree: dict) -> dict[str, list[Contract]]:
             if not (sentence_is_dynamic(sentence) or _CONTAINER.search(sentence)):
                 if _ARTICLE.search(sentence):
                     found.add(Contract(role="article", name=None, node_id=node_id))
-                for role_word, chain in _P1.findall(sentence):
-                    for name in re.findall(r"`([^`]+)`", chain):
+                for role_word, chain_names in _P1.findall(sentence):
+                    for name in re.findall(r"`([^`]+)`", chain_names):
                         _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
                 for role_word, _or_word, name in _P2.findall(sentence):
                     _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
@@ -310,6 +378,42 @@ def extract_contracts(tree: dict) -> dict[str, list[Contract]]:
                 role = declared.get(noun.lower())
                 if role:
                     _add(found, node_id, role, quoted or bare)
+            # P8: declared name forms, next to the P6/P7 ungated binds
+            for role_text, form_noun in _P8.findall(sentence):
+                canonical = role_text.lower().strip()
+                role = ROLE_WORDS.get(canonical, canonical)
+                form = next((f for key, f in _FORM_MAP if key in form_noun.lower()), None)
+                if role and form and form != "coordinate":
+                    found.add(Contract(role=role, name=None, node_id=node_id, name_form=form))
+            # P9 dialogs: named-trigger sentences harvest even though they
+            # are dynamic; static ones harvest through P1 above. A dynamic
+            # sentence with only an unnamed/pronoun trigger stays skipped.
+            m9 = _P9_TRIGGER.search(sentence)
+            if m9 and not _PLACEHOLDER.search(m9.group(2)):
+                found.add(Contract(role="dialog", name=m9.group(2), node_id=node_id,
+                                   triggers=(m9.group(1),)))
+            elif _P9_STATIC.search(sentence) and sentence_is_dynamic(sentence) and chain:
+                # e.g. "the system displays a dialog named `Delete worksheet`"
+                # -- dynamic, but the node's chain ("through the `Delete`
+                # command") makes it walkable
+                name = _P9_STATIC.search(sentence).group(1)
+                if not _PLACEHOLDER.search(name):
+                    found.add(Contract(role="dialog", name=name, node_id=node_id,
+                                       triggers=tuple(chain)))
+            # K3 selection state
+            for coord in _SELECTED_CELL.findall(sentence):
+                _add(found, node_id, "gridcell", coord)
+                found.add(Contract(role="gridcell", name=coord, node_id=node_id, selected=True))
+        if tab_selected:
+            for c in [c for c in found if c.role == "tab"]:
+                found.add(Contract(role="tab", name=c.name, node_id=c.node_id, selected=True))
+        # arm static dialogs (P1-harvested, no triggers of their own) with
+        # the node's trigger chain so the probe can walk to them
+        if chain:
+            found = {c if (c.role != "dialog" or c.triggers)
+                     else Contract(role="dialog", name=c.name, node_id=c.node_id,
+                                   triggers=tuple(chain))
+                     for c in found}
         return found
 
     def walk(node: dict, inherited: set[Contract]) -> None:
@@ -318,7 +422,7 @@ def extract_contracts(tree: dict) -> dict[str, list[Contract]]:
         node_id = str(node.get("id") or "")
         if node_id and (node_type == "ATOMIC" or (not children and node_type != "FOLDER")):
             found = harvest(node, node_id) | {
-                Contract(role=c.role, name=c.name, node_id=node_id) for c in inherited
+                c if c.node_id == node_id else replace(c, node_id=node_id) for c in inherited
             }
             if found:
                 by_node[node_id] = found
@@ -345,8 +449,45 @@ def lint_spec_source(contracts: list[Contract], routes: list[str]) -> str:
     transient visibility.
     """
     route_list = ", ".join(json_quote(route) for route in routes) or '"/"'
+    form_rx = {"digit": r"^\d+$", "letter": r"^[A-Z]+$"}
     tests: list[str] = []
     for contract in contracts:
+        if contract.role == "dialog" and contract.name:
+            # dialogs may sit unmounted until opened: walk the trigger chain
+            title = f"ARIA-lint: dialog {contract.name!r} reachable ({contract.node_id})"
+            name_rx = f"/^{_js_regex_escape(contract.name)}$/i"
+            trig_list = ", ".join(f"/^{_js_regex_escape(t)}$/i" for t in contract.triggers)
+            tests.append(
+                f"test({json_quote(title)}, async ({{ page }}) => {{\n"
+                f"  const ok = await dialogReachable(page, {name_rx}, [{trig_list}]);\n"
+                f"  expect(ok, {json_quote(title + ' -- never opened')}).toBeTruthy();\n"
+                f"}});")
+            continue
+        if contract.name_form and contract.name is None:
+            title = (f"ARIA-lint: {contract.role} named by "
+                     f"{'decimal number' if contract.name_form == 'digit' else 'letter'}"
+                     f" ({contract.node_id})")
+            rx = form_rx[contract.name_form]
+            probe = (f"p.getByRole('{contract.role}', "
+                     f"{{ name: /{rx}/, includeHidden: true }}).count()")
+            tests.append(
+                f"test({json_quote(title)}, async ({{ page }}) => {{\n"
+                f"  const n = await countOnAnyRoute(page, (p) => {probe});\n"
+                f"  expect(n, {json_quote(title + ' -- not found on any route')}).toBeGreaterThan(0);\n"
+                f"}});")
+            continue
+        if contract.selected and contract.name:
+            title = f"ARIA-lint: {contract.role} {contract.name!r} selected ({contract.node_id})"
+            loc = (f"p.getByRole('{contract.role}', "
+                   f"{{ name: /^{_js_regex_escape(contract.name)}$/i, includeHidden: true }})")
+            probe = (f"(await {loc}.count()) && "
+                     f"(await {loc}.first().getAttribute('aria-selected')) === 'true' ? 1 : 0")
+            tests.append(
+                f"test({json_quote(title)}, async ({{ page }}) => {{\n"
+                f"  const n = await countOnAnyRoute(page, async (p) => {probe});\n"
+                f"  expect(n, {json_quote(title + ' -- not aria-selected=true anywhere')}).toBeGreaterThan(0);\n"
+                f"}});")
+            continue
         title = f"ARIA-lint: {contract.role} {contract.name!r} ({contract.node_id})" if contract.name \
             else f"ARIA-lint: at least one article ({contract.node_id})"
         if contract.role == "article" and contract.name is None:
@@ -396,6 +537,71 @@ def lint_spec_source(contracts: list[Contract], routes: list[str]) -> str:
         "    }\n"
         "  } catch {}\n"
         "  return 0;\n"
+        "}\n"
+        "// Dialogs sit behind trigger chains (\"choose `Sort range` from the\n"
+        "// `Data` menu\" -> Data, then Sort range; the trigger may itself live\n"
+        "// inside a menu opened by a \"... menu\" control). Count hidden wiring\n"
+        "// first (includeHidden), then walk: bare routes, then the creation\n"
+        "// flow, clicking named controls in order and opening menu-like\n"
+        "// containers when a step is not visible. Every step guarded: an\n"
+        "// unreachable dialog reports false, it never throws.\n"
+        "async function dialogReachable(page, nameRx, triggers) {\n"
+        "  const present = async (p, hidden) =>\n"
+        "    (await p.getByRole('dialog', { name: nameRx, includeHidden: hidden }).count()) > 0;\n"
+        "  const clickNamed = async (rx) => {\n"
+        "    for (const role of ['menuitem', 'button', 'link', 'tab', 'option']) {\n"
+        "      const el = page.getByRole(role, { name: rx }).first();\n"
+        "      if (await el.isVisible().catch(() => false)) {\n"
+        "        await el.click({ timeout: 1500 }).catch(() => {});\n"
+        "        return true;\n"
+        "      }\n"
+        "    }\n"
+        "    return false;\n"
+        "  };\n"
+        "  const walk = async () => {\n"
+        "    try {\n"
+        "      if (await present(page, false)) return true;\n"
+        "      for (const t of triggers) {\n"
+        "        if (!(await clickNamed(t))) {\n"
+        "          const menus = page.getByRole('button', { name: /menu|more options|\\u22ee/i });\n"
+        "          const m = Math.min(await menus.count(), 3);\n"
+        "          for (let i = 0; i < m; i++) {\n"
+        "            await menus.nth(i).click({ timeout: 1200 }).catch(() => {});\n"
+        "            await page.waitForTimeout(300);\n"
+        "            if (await clickNamed(t)) break;\n"
+        "          }\n"
+        "        }\n"
+        "        await page.waitForTimeout(400);\n"
+        "        if (await present(page, false)) return true;\n"
+        "      }\n"
+        "      await clickNamed(nameRx);\n"
+        "      await page.waitForTimeout(400);\n"
+        "    } catch {}\n"
+        "    return await present(page, false);\n"
+        "  };\n"
+        "  for (const route of ROUTES) {\n"
+        "    await page.goto(route).catch(() => {});\n"
+        "    if (await present(page, true)) return true;\n"
+        "    if (await walk()) return true;\n"
+        "  }\n"
+        "  try {\n"
+        "    await page.goto('/');\n"
+        "    const starters = page.getByRole('button', { name: /^(new|create)\\b/i });\n"
+        "    const n = Math.min(await starters.count(), 2);\n"
+        "    for (let i = 0; i < n; i++) {\n"
+        "      const btn = starters.nth(i);\n"
+        "      if (!(await btn.isVisible().catch(() => false))) continue;\n"
+        "      await btn.click({ timeout: 2000 }).catch(() => {});\n"
+        "      const create = page.getByRole('button', { name: /^create$/i });\n"
+        "      if (await create.count()) {\n"
+        "        await create.first().click({ timeout: 2000 }).catch(() => {});\n"
+        "      }\n"
+        "      await page.waitForTimeout(600);\n"
+        "      if (await present(page, true) || await walk()) return true;\n"
+        "      await page.goto('/');\n"
+        "    }\n"
+        "  } catch {}\n"
+        "  return false;\n"
         "}\n\n" + "\n\n".join(tests) + "\n")
 
 

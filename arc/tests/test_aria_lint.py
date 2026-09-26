@@ -112,6 +112,30 @@ class SpecSourceTests(unittest.TestCase):
         # creation-flow helper may carry its own name regexes
         self.assertIn("p.getByRole('article').count()", src)
 
+    def test_should_render_dialog_trigger_probe(self):
+        src = lint_spec_source(
+            [Contract(role="dialog", name="Sort range", node_id="R",
+                      triggers=("Data", "Sort range"))], routes=["/"])
+        self.assertIn("dialogReachable", src)
+        self.assertIn("/^Data$/i", src)
+        self.assertIn("/^Sort range$/i", src)
+        # dialogs may be mounted hidden until opened -- the probe counts the
+        # wiring first and only walks the trigger chain when it must
+        self.assertIn("includeHidden: hidden", src)
+
+    def test_should_render_header_name_form_probe(self):
+        src = lint_spec_source(
+            [Contract(role="rowheader", name=None, node_id="R", name_form="digit")],
+            routes=["/"])
+        self.assertIn("getByRole('rowheader', { name: /^\\d+$/", src)
+
+    def test_should_render_selection_probe(self):
+        src = lint_spec_source(
+            [Contract(role="gridcell", name="A1", node_id="R", selected=True)],
+            routes=["/"])
+        self.assertIn("aria-selected", src)
+        self.assertIn("'true'", src)
+
 
 class RealCompetitionExtractionTests(unittest.TestCase):
     """Real fixtures: the two formal-race tasks (2026-09-25 revision synced
@@ -181,6 +205,47 @@ class RealCompetitionExtractionTests(unittest.TestCase):
         # failed on every worksheet test.
         pairs = {(c.role, c.name) for c in self.sheet.get("REQ-1-2-1", [])}
         self.assertIn(("tab", "Sheet1"), pairs)
+
+    def test_should_revive_dialog_contracts(self):
+        # P9: the app must render real ARIA dialogs. Static definitional
+        # sentences ("A dialog named `Import CSV` provides ...") and named-
+        # trigger sentences ("The `Rename` menu item opens a dialog named
+        # `Rename worksheet`") both harvest; the 2026-09-26 arch-1 artifact
+        # shipped zero role=dialog markup and every dialog-driven behavioral
+        # test timed out.
+        self.assertIn(("dialog", "Import CSV"), pairs(self.sheet, "REQ-1-3-1"))
+        self.assertIn(("dialog", "Rename worksheet"), pairs(self.sheet, "REQ-2-1-3"))
+        self.assertIn(("dialog", "Delete worksheet"), pairs(self.sheet, "REQ-2-1-4"))
+        found = {(c.role, c.name) for cs in self.sheet.values() for c in cs}
+        self.assertIn(("dialog", "Sort range"), found)
+        self.assertIn(("dialog", "Data validation"), found)
+        self.assertIn(("dialog", "Create pivot table"), found)
+
+    def test_should_keep_pronoun_triggered_dialogs_skipped(self):
+        # keep's editor dialog opens from "Activating it" -- no named trigger,
+        # and the sentence is dynamic: a bare-route lint could never reach it.
+        # The dialog revival must not regress that skip (keep 16/23 pin).
+        got = pairs(self.contracts_of("arc-bench-web--keep"), "REQ-2.2")
+        self.assertNotIn(("dialog", "Note editor"), got)
+
+    def test_should_extract_header_name_forms(self):
+        # P8: "Row numbers use the ARIA rowheader role with the decimal row
+        # number as the accessible name; column headers ... column letter".
+        # The arch-1 app labelled its row th "Row 1" -- exact '1' locators die.
+        found = {(c.role, c.name_form) for cs in self.sheet.values() for c in cs}
+        self.assertIn(("rowheader", "digit"), found)
+        self.assertIn(("columnheader", "letter"), found)
+
+    def test_should_extract_selection_state_contract(self):
+        # "with Sheet1 active and A1 selected" (REQ-1-2-1) + the REQ-1 FOLDER
+        # "active tab indicated by aria-selected=\"true\"": the fresh workbook
+        # must expose the selection, not just the geometry.
+        sel = {(c.role, c.name) for cs in self.sheet.values() for c in cs if c.selected}
+        self.assertIn(("gridcell", "A1"), sel)
+        self.assertIn(("tab", "Sheet1"), sel)
+
+    def contracts_of(self, task: str) -> dict:
+        return extract_contracts(load_tree(task))
 
     def test_should_extract_github_named_controls(self):
         found = {(c.role, c.name) for cs in self.github.values() for c in cs}

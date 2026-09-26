@@ -39,6 +39,22 @@ Rules:
   controls and values; do not insert extra mandatory steps the scenario does
   not name (e.g. a required name field where the scenario goes straight from
   "New blank workbook" to "Create").
+- Data grids (spreadsheets, tables): the gridcell's own text content is the
+  displayed value. A permanently mounted `<input>` per cell fails every value
+  assertion, because an input's value is not its text content -- render the
+  committed value as the cell's text and swap in an editor only while the
+  cell is being edited (click/typing focuses, Enter commits, the text
+  returns). Row headers are rowheaders named exactly by their decimal number
+  (`1`, `2`), column headers columnheaders named exactly by their letter
+  (`A`, `B`) -- no "Row "/"Column " prefixes inside the accessible name. The
+  selected cell(s) carry `aria-selected="true"` (the fresh-workbook default
+  selection included), and a control nested inside a tab or grid cell must
+  not leak into that tab/cell's own accessible name -- set an explicit
+  aria-label on the container instead.
+- Dialogs are real ARIA dialogs: an overlay named by the requirement
+  ("Import CSV", "Sort range", ...) is `role="dialog"` with that exact
+  accessible name, and it mounts/opens from the control the requirement
+  names.
 {ports}
 If a previous acceptance failure is shown to you below, fix exactly what it
 reports — do not rewrite working code around it.
