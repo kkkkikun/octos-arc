@@ -424,6 +424,18 @@ def _tarball_ok(tarball: Path) -> bool:
         return False
 
 
+def _curl_args(tarball: Path, mirror: str) -> list[str]:
+    """The connect timeout is the dead-mirror budget: 2026-09-26 runs logged
+    ghfast.top refusing TCP for 21 s straight before the rotation rescued the
+    run (curl(7) after 21087 ms, real-sheet-arch-2) -- every cold container
+    paid that on the intermittent mirror. 8 s bounds the loss while leaving a
+    healthy mirror (observed connecting in ~1-2 s) ample headroom; download
+    stalls stay guarded by --speed-limit/--speed-time, not by this timeout."""
+    return ["curl", "-fsSL", "--http1.1", "-C", "-", "--connect-timeout", "8",
+            "--speed-limit", "10240", "--speed-time", "60", "--retry", "2",
+            "-o", str(tarball), mirror]
+
+
 def _download_octos(cache_dir: Path) -> str:
     """gh-proxy mirrors first: the runner's own path to GitHub stalls HTTP/2.
     12 rotating attempts plus a member check, so a truncated file is never run."""
@@ -439,9 +451,7 @@ def _download_octos(cache_dir: Path) -> str:
         mirror = mirrors[(attempt - 1) % len(mirrors)]
         log(f"[octos] download attempt {attempt} ({mirror}) ...")
         if shutil.which("curl"):
-            cmd = ["curl", "-fsSL", "--http1.1", "-C", "-", "--connect-timeout", "30",
-                   "--speed-limit", "10240", "--speed-time", "60", "--retry", "2",
-                   "-o", str(tarball), mirror]
+            cmd = _curl_args(tarball, mirror)
             try:
                 subprocess.run(cmd, check=False, timeout=600)
             except subprocess.TimeoutExpired:

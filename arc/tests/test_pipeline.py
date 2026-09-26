@@ -10,6 +10,8 @@ graph eligible, so a future prompt/attr tweak cannot quietly lose the loop.
 import re
 import unittest
 
+import pathlib
+
 import main
 
 
@@ -201,3 +203,14 @@ class CollectApp(unittest.TestCase):
             self.assertEqual(main.collect_app(data, out, "arc_build"), run)
             self.assertEqual((out / "frontend" / "src" / "index.html").read_text(), "best")
             self.assertFalse((out / "frontend" / "src" / "stale.html").exists())
+
+
+class CurlArgs(unittest.TestCase):
+    def test_dead_mirror_connect_budget_stays_bounded(self):
+        # ghfast.top refused TCP for 21 s on the 2026-09-26 runs before the
+        # rotation rescued the download; the connect timeout must stay small.
+        args = main._curl_args(pathlib.Path("/tmp/x.tar.gz"), "https://gh-proxy.com/u")
+        i = args.index("--connect-timeout")
+        self.assertLessEqual(int(args[i + 1]), 10)
+        self.assertIn("--http1.1", args)   # runner path stalls HTTP/2
+        self.assertEqual(args[-1], "https://gh-proxy.com/u")
