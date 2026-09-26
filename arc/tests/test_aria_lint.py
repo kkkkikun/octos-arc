@@ -108,7 +108,9 @@ class SpecSourceTests(unittest.TestCase):
     def test_should_render_article_existence_contract(self):
         src = lint_spec_source([Contract(role="article", name=None, node_id="R")], routes=["/"])
         self.assertIn("getByRole('article'", src)
-        self.assertNotIn("name: /", src)
+        # the article probe itself stays nameless (existence-only) -- the
+        # creation-flow helper may carry its own name regexes
+        self.assertIn("p.getByRole('article').count()", src)
 
 
 class RealCompetitionExtractionTests(unittest.TestCase):
@@ -129,6 +131,40 @@ class RealCompetitionExtractionTests(unittest.TestCase):
         self.assertIn(("button", "New blank workbook"), found)
         self.assertIn(("button", "Import CSV"), found)
         self.assertIn(("textbox", "Allowed values"), found)
+
+    def test_should_inherit_folder_contracts_to_atomic_descendants(self):
+        # REQ-1's FOLDER text defines the grid contract ("uses the ARIA grid
+        # role, has the accessible name `Worksheet grid`"); every REQ-1
+        # atomic check must assert it. The 2026-09-26 sheet run shipped a
+        # grid with no accessible name because this sentence never reached a
+        # check node -- 27/28 behavioral proxy tests died at their first
+        # locator.
+        for nid in ("REQ-1-1-1", "REQ-1-2-1", "REQ-1-2-2", "REQ-1-3-1", "REQ-1-3-2"):
+            pairs = {(c.role, c.name) for c in self.sheet.get(nid, [])}
+            self.assertIn(("grid", "Worksheet grid"), pairs, nid)
+
+    def test_should_skip_placeholder_templated_names(self):
+        found = {(c.role, c.name) for cs in self.sheet.values() for c in cs}
+        # "Worksheet options for <worksheet name>" names a per-instance
+        # control; a literal lint on it can never pass and burns the repair
+        # window on an unfixable assertion.
+        self.assertNotIn(("button", "Worksheet options for <worksheet name>"), found)
+
+    def test_should_not_regress_exercise_folder_harvest(self):
+        # keep/bookstack folders carry no harvestable contracts; their
+        # extraction totals must stay exactly where they were.
+        keep = extract_contracts(load_tree("arc-bench-web--keep"))
+        bookstack = extract_contracts(load_tree("arc-bench-web--bookstack"))
+        self.assertEqual((len(keep), sum(len(v) for v in keep.values())), (16, 23))
+        self.assertEqual((len(bookstack), sum(len(v) for v in bookstack.values())), (21, 33))
+
+    def test_should_render_creation_flow_probe(self):
+        # Bare-route probes cannot reach editor pages behind creation flows
+        # ("/workbook" without an id shows "Workbook not found" on the real
+        # generated app); the spec must fall back to walking the flow.
+        src = lint_spec_source([Contract(role="grid", name="Worksheet grid", node_id="R")], routes=["/"])
+        self.assertIn("countViaCreationFlow", src)
+        self.assertIn("return await countViaCreationFlow(page, probe);", src)
 
     def test_should_extract_github_named_controls(self):
         found = {(c.role, c.name) for cs in self.github.values() for c in cs}

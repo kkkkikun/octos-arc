@@ -93,6 +93,14 @@ _P3 = re.compile(r"with\s+role\s+`([a-zA-Z ]+)`\s+and\s+accessible\s+name\s+`([^
 # textbox"), so P4 stays off there -- one shape, two meanings, split by
 # delimiter instead of guesswork.
 _P4 = re.compile(rf"\b(?:a|an|the)\s+(?:unique\s+)?`([^`]+)`\s+({_ROLE_ALT})\b", re.I)
+# P5: the "uses the ARIA <role> role, has the accessible name `X`" construction
+# the formal-race FOLDER descriptions define page-level structure with ("the
+# active worksheet grid uses the ARIA grid role, has the accessible name
+# `Worksheet grid`"). The role word sits behind "role," so P1's role-verb
+# adjacency never fires; the name may trail by a clause, hence the bounded gap.
+_P5 = re.compile(r"\b(?:uses?|using|with)\s+the\s+ARIA\s+([a-zA-Z]+)\s+role\b"
+                 r"[^.;]{0,80}?\b(?:has\s+|with\s+|carries?\s+|bearing\s+)?"
+                 r"the\s+accessible\s+name\s+`([^`]+)`", re.I)
 # article existence ("is exposed as a unique article", "an article containing", "article named by")
 _ARTICLE = re.compile(r"(?:\b(?:is|are)\s+(?:exposed\s+as\s+)?an?\s+(?:unique\s+)?article\b"
                       r"|\ban\s+article\s+containing\b|\barticle\s+named\s+by\b)", re.I)
@@ -111,6 +119,11 @@ _APPEAR = re.compile(r"\b(?:expos\w*|open\w*|reveal\w*|appear\w*|pop\w*|display\
 # passive definition: "is the form opened by the unique link named X" -- the
 # github formal-race requirements open many feature sections this way
 _PASSIVE_OPEN = re.compile(r"\b(?:is|are|was|were)\s+(?:the\s+)?\w+\s+opened\s+by\b", re.I)
+
+# templated accessible names ('Worksheet options for <worksheet name>') name a
+# per-instance control; no literal ever matches, so linting them just burns
+# repair attempts on an assertion that cannot pass.
+_PLACEHOLDER = re.compile(r"<[^>]+>")
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?;])\s+")
 
@@ -172,6 +185,8 @@ def _sentences(node: dict) -> list[str]:
 def _add(found: set[Contract], node_id: str, role: str | None, name: str) -> None:
     if role is None:  # render-on-open role: recognized, never linted
         return
+    if _PLACEHOLDER.search(name):  # per-instance template, no literal to lint
+        return
     found.add(Contract(role=role, name=name, node_id=node_id))
 
 
@@ -206,38 +221,58 @@ def _formal_dialect(tree: dict) -> bool:
 
 
 def extract_contracts(tree: dict) -> dict[str, list[Contract]]:
-    """node_id -> sorted contracts for every ATOMIC node in the tree."""
+    """node_id -> sorted contracts for every ATOMIC node in the tree.
+
+    FOLDER descriptions define page-level structure shared by the whole
+    subtree ("the active worksheet grid uses the ARIA grid role, has the
+    accessible name `Worksheet grid`" sits in REQ-1's FOLDER text) -- the
+    2026-09-26 sheet run shipped a grid with no accessible name because that
+    sentence never reached an atomic node's check. Folder contracts are
+    harvested and inherited by every ATOMIC descendant."""
     by_node: dict[str, set[Contract]] = {}
     p4_enabled = _formal_dialect(tree)
 
-    def walk(node: dict) -> None:
+    def harvest(node: dict, node_id: str) -> set[Contract]:
+        found: set[Contract] = set()
+        for sentence in _sentences(node):
+            if sentence_is_dynamic(sentence) or _CONTAINER.search(sentence):
+                continue
+            if _ARTICLE.search(sentence):
+                found.add(Contract(role="article", name=None, node_id=node_id))
+            for role_word, chain in _P1.findall(sentence):
+                for name in re.findall(r"`([^`]+)`", chain):
+                    _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
+            for role_word, _or_word, name in _P2.findall(sentence):
+                _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
+            for role_text, name in _P3.findall(sentence):
+                canonical = role_text.lower().strip()
+                _add(found, node_id, ROLE_WORDS.get(canonical, canonical), name)
+            if p4_enabled:
+                for name, role_word in _P4.findall(sentence):
+                    _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
+            for role_text, name in _P5.findall(sentence):
+                canonical = role_text.lower().strip()
+                _add(found, node_id, ROLE_WORDS.get(canonical, canonical), name)
+        return found
+
+    def walk(node: dict, inherited: set[Contract]) -> None:
         children = [c for c in (node.get("children") or []) if isinstance(c, dict)]
         node_type = str(node.get("type") or "").upper()
         node_id = str(node.get("id") or "")
         if node_id and (node_type == "ATOMIC" or (not children and node_type != "FOLDER")):
-            found: set[Contract] = set()
-            for sentence in _sentences(node):
-                if sentence_is_dynamic(sentence) or _CONTAINER.search(sentence):
-                    continue
-                if _ARTICLE.search(sentence):
-                    found.add(Contract(role="article", name=None, node_id=node_id))
-                for role_word, chain in _P1.findall(sentence):
-                    for name in re.findall(r"`([^`]+)`", chain):
-                        _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
-                for role_word, _or_word, name in _P2.findall(sentence):
-                    _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
-                for role_text, name in _P3.findall(sentence):
-                    canonical = role_text.lower().strip()
-                    _add(found, node_id, ROLE_WORDS.get(canonical, canonical), name)
-                if p4_enabled:
-                    for name, role_word in _P4.findall(sentence):
-                        _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
+            found = harvest(node, node_id) | {
+                Contract(role=c.role, name=c.name, node_id=node_id) for c in inherited
+            }
             if found:
                 by_node[node_id] = found
+        elif node_type == "FOLDER":
+            # rebind inherited contracts to descendants; the folder's own
+            # harvest joins the pool its subtree inherits
+            inherited = inherited | harvest(node, node_id) if node_id else inherited
         for child in children:
-            walk(child)
+            walk(child, inherited)
 
-    walk(tree)
+    walk(tree, set())
     return {nid: sorted(contracts, key=lambda c: (c.role, c.name or "")) for nid, contracts in by_node.items()}
 
 
@@ -276,6 +311,33 @@ def lint_spec_source(contracts: list[Contract], routes: list[str]) -> str:
         "    const n = await probe(page);\n"
         "    if (n > 0) return n;\n"
         "  }\n"
+        "  return await countViaCreationFlow(page, probe);\n"
+        "}\n"
+        "// Feature pages sit behind creation flows (\"New blank workbook\" ->\n"
+        "// \"Create\" opens the editor); a bare-route probe never sees the grid\n"
+        "// until a workbook exists. Generic creation vocabulary only, and every\n"
+        "// step guarded: a probe that cannot walk the flow reports 0, it never\n"
+        "// fails the spec. verify_node runs this against a disposable app copy,\n"
+        "// so records the flow creates never ship.\n"
+        "async function countViaCreationFlow(page, probe) {\n"
+        "  try {\n"
+        "    await page.goto('/');\n"
+        "    const starters = page.getByRole('button', { name: /^(new|create)\\b/i });\n"
+        "    const n = Math.min(await starters.count(), 2);\n"
+        "    for (let i = 0; i < n; i++) {\n"
+        "      const btn = starters.nth(i);\n"
+        "      if (!(await btn.isVisible().catch(() => false))) continue;\n"
+        "      await btn.click({ timeout: 2000 }).catch(() => {});\n"
+        "      const create = page.getByRole('button', { name: /^create$/i });\n"
+        "      if (await create.count()) {\n"
+        "        await create.first().click({ timeout: 2000 }).catch(() => {});\n"
+        "      }\n"
+        "      await page.waitForTimeout(600);\n"
+        "      const found = await probe(page);\n"
+        "      if (found > 0) return found;\n"
+        "      await page.goto('/');\n"
+        "    }\n"
+        "  } catch {}\n"
         "  return 0;\n"
         "}\n\n" + "\n\n".join(tests) + "\n")
 
