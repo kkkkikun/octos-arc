@@ -214,3 +214,7 @@ class CurlArgs(unittest.TestCase):
         self.assertLessEqual(int(args[i + 1]), 10)
         self.assertIn("--http1.1", args)   # runner path stalls HTTP/2
         self.assertEqual(args[-1], "https://gh-proxy.com/u")
+        # no curl-internal retry: our mirror rotation is the retry, and
+        # --retry amplified a speed-guard abort into a 600 s stall
+        # (arch-3 night run, 2026-09-26)
+        self.assertNotIn("--retry", args)

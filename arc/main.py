@@ -428,21 +428,29 @@ def _curl_args(tarball: Path, mirror: str) -> list[str]:
     """The connect timeout is the dead-mirror budget: 2026-09-26 runs logged
     ghfast.top refusing TCP for 21 s before the rotation rescued the run.
     8 s bounds that loss (healthy mirrors connect in 1-2 s); download stalls
-    stay guarded by --speed-limit/--speed-time, not this timeout."""
+    stay guarded by --speed-limit/--speed-time, not this timeout.
+
+    No curl-internal --retry: our 12-mirror rotation IS the retry. The
+    2026-09-26 arch-3 night run logged curl's speed-guard aborting gh-proxy
+    at 15:00:03, then --retry silently restarting the crawl until the 600 s
+    subprocess timeout — 3.8 min of damage burned into 10.3."""
     return ["curl", "-fsSL", "--http1.1", "-C", "-", "--connect-timeout", "8",
-            "--speed-limit", "10240", "--speed-time", "60", "--retry", "2",
+            "--speed-limit", "10240", "--speed-time", "60",
             "-o", str(tarball), mirror]
 
 
 def _download_octos(cache_dir: Path) -> str:
-    """gh-proxy mirrors first: the runner's own path to GitHub stalls HTTP/2.
-    12 rotating attempts plus a member check, so a truncated file is never run."""
+    """Direct release URL first, proxies as fallback rotation. The original
+    proxy-first order predated forcing --http1.1; with it, the 2026-09-26
+    arch-3 night run pulled all 60 MB straight from github.com in under a
+    minute while both proxies were dead or crawling. 12 rotating attempts
+    plus a member check, so a truncated file is never run."""
     import tarfile, urllib.request
     cache_dir.mkdir(parents=True, exist_ok=True)
     tarball, url = cache_dir / "octos-bundle.tar.gz", _octos_url()
     if _cached_octos(cache_dir) is None:
         tarball.unlink(missing_ok=True)     # an older URL's archive is stale
-    mirrors = [f"{prefix}/{url}" for prefix in ("https://ghfast.top", "https://gh-proxy.com")] + [url]
+    mirrors = [url] + [f"{prefix}/{url}" for prefix in ("https://gh-proxy.com", "https://ghfast.top")]
     for attempt in range(1, 13):
         if _tarball_ok(tarball):
             break
