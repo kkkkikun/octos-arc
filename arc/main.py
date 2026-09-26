@@ -426,11 +426,9 @@ def _tarball_ok(tarball: Path) -> bool:
 
 def _curl_args(tarball: Path, mirror: str) -> list[str]:
     """The connect timeout is the dead-mirror budget: 2026-09-26 runs logged
-    ghfast.top refusing TCP for 21 s straight before the rotation rescued the
-    run (curl(7) after 21087 ms, real-sheet-arch-2) -- every cold container
-    paid that on the intermittent mirror. 8 s bounds the loss while leaving a
-    healthy mirror (observed connecting in ~1-2 s) ample headroom; download
-    stalls stay guarded by --speed-limit/--speed-time, not by this timeout."""
+    ghfast.top refusing TCP for 21 s before the rotation rescued the run.
+    8 s bounds that loss (healthy mirrors connect in 1-2 s); download stalls
+    stay guarded by --speed-limit/--speed-time, not this timeout."""
     return ["curl", "-fsSL", "--http1.1", "-C", "-", "--connect-timeout", "8",
             "--speed-limit", "10240", "--speed-time", "60", "--retry", "2",
             "-o", str(tarball), mirror]
