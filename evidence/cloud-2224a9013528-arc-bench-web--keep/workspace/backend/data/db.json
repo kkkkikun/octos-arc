@@ -61,18 +61,6 @@
       "updatedAt": 1789374339418
     },
     {
-      "id": "note-delete231",
-      "title": "Delete me 2.3.1",
-      "content": "Temporary note for deletion flow",
-      "pinned": false,
-      "archived": false,
-      "trashed": true,
-      "color": null,
-      "labels": [],
-      "createdAt": 1789368882580,
-      "updatedAt": 1789374336515
-    },
-    {
       "id": "note-delete232",
       "title": "Delete me 2.3.2",
       "content": "Temporary note for deletion flow",
@@ -83,18 +71,6 @@
       "labels": [],
       "createdAt": 1789368883580,
       "updatedAt": 1789374339408
-    },
-    {
-      "id": "note-delete233",
-      "title": "Delete me 2.3.3",
-      "content": "Temporary note for deletion flow",
-      "pinned": false,
-      "archived": false,
-      "trashed": true,
-      "color": null,
-      "labels": [],
-      "createdAt": 1789368884580,
-      "updatedAt": 1789374339414
     },
     {
       "id": "note-archive251",

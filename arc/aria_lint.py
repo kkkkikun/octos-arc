@@ -71,7 +71,7 @@ ROLE_WORDS: dict[str, str | None] = {
     "status message": None,
 }
 _ROLE_ALT = "|".join(sorted(ROLE_WORDS, key=len, reverse=True))
-_VERB = r"(?:uniquely\s+)?(?:named|called|labelled|labeled)"
+_VERB = r"(?:uniquely\s+)?(?:named|called|labelled|labeled|with\s+the\s+accessible\s+name)"
 
 # P1: role + verb + `Name` (and `, ` / ` and ` chained names)
 _P1 = re.compile(rf"\b({_ROLE_ALT})\s+{_VERB}\s+((?:`[^`]+`)(?:\s*(?:,|and)\s*`[^`]+`)*)", re.I)
@@ -82,6 +82,17 @@ _P2 = re.compile(rf"{_VERB}\s+({_ROLE_ALT})(?:\s+or\s+({_ROLE_ALT}))?\s+`([^`]+)
 # and accessible name `Login form`"); proximity matching would jump across the
 # neighbouring "heading named `Login`" and steal its name.
 _P3 = re.compile(r"with\s+role\s+`([a-zA-Z ]+)`\s+and\s+accessible\s+name\s+`([^`]+)`", re.I)
+# P4: article (+ optional "unique") + `Name` + role ("a `Confirm import`
+# button", "the unique `Sign in` link") -- the definitional name-role order
+# the formal-race requirements (hackathon--github/sheet) use throughout. The
+# leading article requirement keeps post-action mentions ("a toast's `Undo`
+# button") out: a possessive between article and name breaks the adjacency.
+# Dialect-gated: enabled only when the tree quotes names with typographic
+# double quotes (the formal-race dialect). Backtick dialects (keep/bookstack)
+# use the same shape for dialog-internal operation steps ("fill the `Title`
+# textbox"), so P4 stays off there -- one shape, two meanings, split by
+# delimiter instead of guesswork.
+_P4 = re.compile(rf"\b(?:a|an|the)\s+(?:unique\s+)?`([^`]+)`\s+({_ROLE_ALT})\b", re.I)
 # article existence ("is exposed as a unique article", "an article containing", "article named by")
 _ARTICLE = re.compile(r"(?:\b(?:is|are)\s+(?:exposed\s+as\s+)?an?\s+(?:unique\s+)?article\b"
                       r"|\ban\s+article\s+containing\b|\barticle\s+named\s+by\b)", re.I)
@@ -97,6 +108,9 @@ _CONTAINER = re.compile(r"\b(?:dialog|modal|dropdown|notification|toast|menu|vie
                         r"[^.;]{0,50}\b(?:contains|containing|has|having|shows?)\b", re.I)
 _APPEAR = re.compile(r"\b(?:expos\w*|open\w*|reveal\w*|appear\w*|pop\w*|display\w*|show\w*|render\w*"
                      r"|present\w*)", re.I)
+# passive definition: "is the form opened by the unique link named X" -- the
+# github formal-race requirements open many feature sections this way
+_PASSIVE_OPEN = re.compile(r"\b(?:is|are|was|were)\s+(?:the\s+)?\w+\s+opened\s+by\b", re.I)
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?;])\s+")
 
@@ -105,7 +119,12 @@ def sentence_is_dynamic(sentence: str) -> bool:
     """True when the sentence describes controls an action brings into being:
     it takes both an activation verb and an appearance verb. "The page exposes a
     region named X" (no activation) is static; "activating it exposes a button
-    named X" is dynamic."""
+    named X" is dynamic. Passive definitions ("The registration page is the
+    form opened by the unique link named X") name pre-existing entry points,
+    not action-born UI -- the participle 'opened' there feeds both verb lists
+    and would otherwise false-gate the sentence."""
+    if _PASSIVE_OPEN.search(sentence):
+        return False
     return bool(_ACTIVATE.search(sentence) and _APPEAR.search(sentence))
 
 
@@ -116,19 +135,34 @@ class Contract:
     node_id: str
 
 
+def _normalize_quotes(text: str) -> str:
+    """Quote-dialect normalization at the single text gateway. Curly double
+    quotes (“Save”, the github formal-race dialect) always normalize to
+    backticks. The 2026-09-25 revision of the sheet requirements switched its
+    description text to straight double quotes ("Save") -- those carry names
+    too, but only in pieces with no backticks of their own: a piece that
+    already uses backticks (exercise docs, sheet scenario steps) keeps them
+    authoritative, so straight quotes there stay prose."""
+    if "“" in text:
+        return text.replace("“", "`").replace("”", "`")
+    if "`" not in text:
+        return text.replace('"', "`")
+    return text
+
+
 def _sentences(node: dict) -> list[str]:
     """Descriptions and GIVEN/WHEN steps, sentence-split. THEN steps are
     post-action state and are skipped on purpose."""
     parts: list[str] = []
     if node.get("description"):
-        parts.append(str(node["description"]))
+        parts.append(_normalize_quotes(str(node["description"])))
     for scenario in node.get("scenarios") or []:
         for step in scenario.get("steps") or []:
             if str(step.get("keyword", "")).strip().upper() in ("THEN",):
                 continue
             content = str(step.get("content", "")).strip()
             if content:
-                parts.append(content)
+                parts.append(_normalize_quotes(content))
     out: list[str] = []
     for part in parts:
         out.extend(s for s in _SENTENCE_SPLIT.split(part) if s.strip())
@@ -141,9 +175,40 @@ def _add(found: set[Contract], node_id: str, role: str | None, name: str) -> Non
     found.add(Contract(role=role, name=name, node_id=node_id))
 
 
+def _formal_dialect(tree: dict) -> bool:
+    """Formal-race dialect detector, two arms: (a) any typographic double
+    quote anywhere (the github task); (b) the 2026-09-25 sheet revision quotes
+    description names with straight double quotes and keeps backticks only
+    for scenario seed literals -- when straight-quoted description pieces
+    outnumber backticked ones, the descriptions are straight-dialect. The
+    exercise tasks (keep/bookstack) carry names in backticked descriptions,
+    so both arms stay false for them."""
+    curly = False
+    straight_desc = 0
+    backtick_desc = 0
+
+    def collect(node: dict) -> None:
+        nonlocal curly, straight_desc, backtick_desc
+        desc = str(node.get("description") or "")
+        if desc:
+            if "“" in desc:
+                curly = True
+            elif "`" in desc:
+                backtick_desc += 1
+            elif '"' in desc:
+                straight_desc += 1
+        for child in node.get("children") or []:
+            if isinstance(child, dict):
+                collect(child)
+
+    collect(tree)
+    return curly or straight_desc > backtick_desc
+
+
 def extract_contracts(tree: dict) -> dict[str, list[Contract]]:
     """node_id -> sorted contracts for every ATOMIC node in the tree."""
     by_node: dict[str, set[Contract]] = {}
+    p4_enabled = _formal_dialect(tree)
 
     def walk(node: dict) -> None:
         children = [c for c in (node.get("children") or []) if isinstance(c, dict)]
@@ -164,6 +229,9 @@ def extract_contracts(tree: dict) -> dict[str, list[Contract]]:
                 for role_text, name in _P3.findall(sentence):
                     canonical = role_text.lower().strip()
                     _add(found, node_id, ROLE_WORDS.get(canonical, canonical), name)
+                if p4_enabled:
+                    for name, role_word in _P4.findall(sentence):
+                        _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
             if found:
                 by_node[node_id] = found
         for child in children:

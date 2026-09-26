@@ -111,5 +111,46 @@ class SpecSourceTests(unittest.TestCase):
         self.assertNotIn("name: /", src)
 
 
+class RealCompetitionExtractionTests(unittest.TestCase):
+    """Real fixtures: the two formal-race tasks (2026-09-25 revision synced
+    from public-exercise/real-new). The github requirements quote accessible
+    names with typographic double quotes; the sheet revision switched its
+    description text to straight double quotes -- extraction must normalize
+    both dialects and still find the contracts."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sheet = extract_contracts(load_tree("hackathon--sheet"))
+        cls.github = extract_contracts(load_tree("hackathon--github"))
+
+    def test_should_extract_sheet_name_role_contracts(self):
+        found = {(c.role, c.name) for cs in self.sheet.values() for c in cs}
+        # straight-quote dialect descriptions ("New blank workbook")
+        self.assertIn(("button", "New blank workbook"), found)
+        self.assertIn(("button", "Import CSV"), found)
+        self.assertIn(("textbox", "Allowed values"), found)
+
+    def test_should_extract_github_named_controls(self):
+        found = {(c.role, c.name) for cs in self.github.values() for c in cs}
+        self.assertIn(("button", "Create account"), found)      # P1
+        self.assertIn(("link", "Create an account"), found)     # P1
+        self.assertIn(("checkbox", "Agree to the terms"), found)  # P1
+        self.assertIn(("link", "Sign in"), found)               # P4
+
+    def test_should_cover_a_meaningful_share_of_atomic_nodes(self):
+        # 24 (sheet) / 47 (github) ATOMIC nodes; a near-empty map means the
+        # delimiter style drifted again and lint went silently dark.
+        self.assertGreaterEqual(len(self.sheet), 8)
+        self.assertGreaterEqual(len(self.github), 19)
+
+    def test_should_normalize_only_unambiguous_quote_pieces(self):
+        # curly wins; straight quotes carry names only in pieces with no
+        # backticks; pieces that already use backticks stay authoritative.
+        from aria_lint import _normalize_quotes
+        self.assertEqual(_normalize_quotes('a “X” b'), 'a `X` b')
+        self.assertEqual(_normalize_quotes('a "X" b'), 'a `X` b')
+        self.assertEqual(_normalize_quotes('a `X` and "Y" b'), 'a `X` and "Y" b')
+
+
 if __name__ == "__main__":
     unittest.main()

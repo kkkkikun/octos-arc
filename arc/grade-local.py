@@ -7,7 +7,16 @@ import json, os, shutil, signal, socket, subprocess, sys, time
 from pathlib import Path
 out = Path(sys.argv[1]).resolve(); req = sys.argv[2]; port = int(sys.argv[3]) if len(sys.argv) > 3 else 43300
 root = Path(__file__).resolve().parent
-specs = root / "public-tests" / req
+# req is either a task name under public-tests/ or a direct tests-dir path
+# (proxy tests: arc/proxy-tests/<task> -- local verification only, never
+# shipped in the bundle and never visible to the agent during runs). The
+# work-dir label must stay relative: joining an absolute path under
+# grader/run would silently escape it (pathlib replaces the base).
+req_path = Path(req)
+if req_path.is_absolute() and req_path.is_dir():
+    specs, req_label = req_path, req_path.name + "-proxy"
+else:
+    specs, req_label = root / "public-tests" / req, req
 grader = root / "local-grader"
 env = os.environ.copy(); env["PATH"] = os.environ.get("NODE_BIN", "/opt/homebrew/opt/node@24/bin") + ":" + env["PATH"]
 if not (grader / "node_modules" / "@playwright").exists():
@@ -33,7 +42,7 @@ for _ in range(240):
     time.sleep(0.5)
 else:
     print("[grade] backend never bound", port); os.killpg(srv.pid, signal.SIGTERM); sys.exit(3)
-work = grader / "run" / f"{req}-{out.name}"
+work = grader / "run" / f"{req_label}-{out.name}"
 if work.exists(): shutil.rmtree(work)
 shutil.copytree(specs, work / "tests")
 # Playwright parity with the platform runner: workers=1, 10s test/expect timeouts.
@@ -54,7 +63,7 @@ def walk(suites):
 res = list(walk(rep.get("suites", [])))
 passed = sum(1 for _, ok in res if ok)
 for title, ok in res: print(f"  {'PASS' if ok else 'FAIL'}  {title}")
-print(f"[grade] {req}: {passed}/{len(res)} passed in {time.time()-t0:.0f}s  score={100*passed/len(res) if res else 0:.0f}")
+print(f"[grade] {req_label}: {passed}/{len(res)} passed in {time.time()-t0:.0f}s  score={100*passed/len(res) if res else 0:.0f}")
 (out / ".arc").mkdir(exist_ok=True)
 (out / ".arc" / "local-grade.json").write_text(json.dumps({"requirement": req, "passed": passed, "total": len(res),
     "tests": [{"title": t, "ok": ok} for t, ok in res]}, ensure_ascii=False, indent=1))

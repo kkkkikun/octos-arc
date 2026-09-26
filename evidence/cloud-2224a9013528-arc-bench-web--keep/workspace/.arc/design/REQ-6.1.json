@@ -1,0 +1,21 @@
+{
+  "routes": [],
+  "pages": [
+    {
+      "path": "/",
+      "elements": [
+        { "role": "button", "name": "Notes" },
+        { "role": "button", "name": "Reminders" },
+        { "role": "button", "name": "Edit labels" },
+        { "role": "button", "name": "Archive" },
+        { "role": "button", "name": "Trash" }
+      ]
+    }
+  ],
+  "data_model": {},
+  "files": [
+    "frontend/src/index.html",
+    "frontend/src/app.js"
+  ],
+  "notes": "The expanded complementary sidebar (#sidebar, role=complementary) already exposes buttons named Notes, Archive, Trash and 'Edit Labels' (case-insensitively matches 'Edit labels'), plus a Reminders label button. REQ-6.1 requires the expanded sidebar to show unique buttons named Notes, Reminders, Edit labels, Archive, Trash; the existing Reminders label button satisfies that check. Changes: (1) rename the header toggle button accessible name from 'Main menu' to 'Toggle sidebar' and maintain aria-expanded on it, because helpers.openSidebar expands the sidebar by clicking /^Toggle sidebar$/i and REQ-6.2 checks its aria-expanded; (2) give #sidebar role='complementary' (used by helpers.openSidebar/clickSidebarLabel/openTrash/openArchive). A separate top-level 'Reminders' nav button is intentionally NOT added because clickSidebarLabel('Reminders') (REQ-2.7.6.3) resolves within complementary with a strict single-match query and a duplicate would break it. Depends on REQ-1.1 (home page already implemented)."
+}
