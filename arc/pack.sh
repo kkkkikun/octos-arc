@@ -65,7 +65,9 @@ done
 # runtime ignores in config.json moved onto the graph and the env (#230).
 # 1300 for progressive delivery: verified states reach the output dir during
 # the run, so a run killed from outside still ships working code.
-LIMIT_PY=1300
+# 1650 for aria_lint.py (D3 port): pure-function requirement-derived lint
+# synthesis that fills the no-public-tests vacuum -- glue, not a loop.
+LIMIT_PY=1650
 PYLINES=$(find "$PKG" -name '*.py' -exec cat {} + | wc -l | tr -d ' ')
 echo "打包内容：$(find "$PKG" -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/null || ls "$PKG" | tr '\n' ' ')"
 echo "包内 Python 行数：$PYLINES"
