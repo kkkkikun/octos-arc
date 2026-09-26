@@ -39,7 +39,7 @@ PKG="$STAGE/octos-arc-bundle"
 mkdir -p "$PKG"
 
 # Runtime: the glue, the stdio driver, the acceptance command, the policy.
-cp main.py octos_stdio.py verify_node.py arc-policy.toml requirements.txt "$PKG/"
+cp main.py octos_stdio.py verify_node.py arc-policy.toml requirements.txt aria_lint.py "$PKG/"
 cp -R prompts "$PKG/prompts"
 cp -R template "$PKG/template"
 

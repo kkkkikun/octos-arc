@@ -11,7 +11,11 @@ acceptance runner. That policy lives in arc-policy.toml and prompts/.
 """
 from __future__ import annotations
 
-import argparse, functools, json, os, re, shlex, shutil, subprocess, sys, tempfile, time, tomllib
+import argparse, functools, json, os, re, shlex, shutil, subprocess, sys, tempfile, time
+try:
+    import tomllib
+except ModuleNotFoundError:                                # Python < 3.11 (local WSL)
+    import tomli as tomllib
 from pathlib import Path
 
 import yaml
@@ -496,6 +500,34 @@ def main() -> int:
     runtime.traceability.init_store()                      # all 7 tables exist
     runtime.traceability.store_requirement_tree(tree)      # requirements + scenarios
     tests_dir = locate_tests(tree)
+    if tests_dir is None and os.environ.get("OCTOS_ARC_ARIA_LINT", "1") != "0":
+        # Spec vacuum (a formal platform run has no public tests): synthesize
+        # ARIA-contract lint specs from the requirements themselves, so the
+        # implement prompt still carries a concrete acceptance example and the
+        # check nodes still run real Playwright assertions. The specs are
+        # derived purely from requirement text (D3), never from hidden tests.
+        from aria_lint import extract_contracts, lint_spec_source
+        contracts = extract_contracts(tree)
+        lint_dir = out / ".arc" / "lint-tests"
+        lint_dir.mkdir(parents=True, exist_ok=True)
+        for stale in lint_dir.glob("*.spec.ts"):
+            stale.unlink()
+        routes = ["/"]
+        scaffold_src = out / "frontend" / "src"
+        if scaffold_src.is_dir():
+            routes.extend("/" + p.stem for p in sorted(scaffold_src.glob("*.html"))
+                          if p.name != "index.html")
+        written = 0
+        for nid in node_ids:
+            node_contracts = contracts.get(nid, [])
+            if not node_contracts:
+                continue
+            (lint_dir / f"LINT-{nid}.spec.ts").write_text(
+                lint_spec_source(node_contracts, routes), encoding="utf-8")
+            written += 1
+        if written:
+            tests_dir = lint_dir
+            log(f"[arc] no public tests; wrote {written} ARIA lint specs at {tests_dir}")
     specs = map_specs(tests_dir, node_ids)
     log(f"[arc] tests at {tests_dir}; mapping { {k: v for k, v in specs.items() if v} }")
     for nid, rels in specs.items():

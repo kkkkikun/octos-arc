@@ -25,6 +25,20 @@ Rules:
   user edits and deletions.
 - Prefer zero runtime dependencies; if you must install, the registry is
   already pointed at npmmirror.
+- Ship the evaluation seed as the shipped initial state: the scenario GIVEN
+  steps name records and values in backticks (workbook `Q3 Sales`, account
+  `alice-dev`, ranges `Region/Sales/Status` with rows `East/1200/Open`); those
+  exact records must be visible on first load, and the bundled store file must
+  contain them -- never ship a store mutated by your own test edits.
+- Hidden overlays must actually unrender: a `.hidden`/closed-modal utility
+  must not be beaten by a later `display:flex/grid` rule in the cascade
+  (declare it `!important` or place it after the display rules). A transparent
+  full-screen container that still intercepts pointer events blocks every
+  click on the page.
+- Implement each scenario step literally: WHEN steps name the exact visible
+  controls and values; do not insert extra mandatory steps the scenario does
+  not name (e.g. a required name field where the scenario goes straight from
+  "New blank workbook" to "Create").
 {ports}
 If a previous acceptance failure is shown to you below, fix exactly what it
 reports — do not rewrite working code around it.
