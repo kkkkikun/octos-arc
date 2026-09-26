@@ -67,7 +67,9 @@ done
 # the run, so a run killed from outside still ships working code.
 # 1750: +P6/P7 per-item naming extraction (R2) -- still pure requirement-
 # synthesis that fills the no-public-tests vacuum -- glue, not a loop.
-LIMIT_PY=1750
+# 1900: +R3 dialog revival / header name forms / selection state (P8/P9/K3)
+# -- same class of requirement synthesis, no loop added.
+LIMIT_PY=1900
 PYLINES=$(find "$PKG" -name '*.py' -exec cat {} + | wc -l | tr -d ' ')
 echo "打包内容：$(find "$PKG" -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/null || ls "$PKG" | tr '\n' ' ')"
 echo "包内 Python 行数：$PYLINES"
