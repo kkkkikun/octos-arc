@@ -101,6 +101,28 @@ _P4 = re.compile(rf"\b(?:a|an|the)\s+(?:unique\s+)?`([^`]+)`\s+({_ROLE_ALT})\b",
 _P5 = re.compile(r"\b(?:uses?|using|with)\s+the\s+ARIA\s+([a-zA-Z]+)\s+role\b"
                  r"[^.;]{0,80}?\b(?:has\s+|with\s+|carries?\s+|bearing\s+)?"
                  r"the\s+accessible\s+name\s+`([^`]+)`", re.I)
+# P6: per-item dynamic naming pinned by an example -- "Grid cells use the
+# ARIA gridcell role with their cell coordinates as accessible names
+# (for example, A1)". The name slot itself is dynamic ("their cell
+# coordinates"), so only the example literal is lintable -- and it is exactly
+# what the behavioral tests locate first (cell 'A1').
+_P6 = re.compile(r"\(\s*for\s+example,\s*`?([A-Za-z0-9][A-Za-z0-9 _-]*)`?\s*\)", re.I)
+_P6_ROLE = re.compile(r"\b(?:uses?|using)\s+the\s+ARIA\s+([a-zA-Z]+)\s+role\b", re.I)
+# P7 pass 1, role declarations: "Worksheet tabs on the same editor page use
+# the ARIA tab role" -- the plural noun phrase ("worksheet tab") declares
+# which vocabulary names things of that role.
+_P7_DECLARE = re.compile(r"\b([a-zA-Z][a-zA-Z]*(?:\s+[a-zA-Z]+)?)s\b"
+                         r"[^.;]{0,60}?\buse\s+the\s+ARIA\s+([a-zA-Z]+)\s+role\b", re.I)
+# P7 pass 2, name bindings: "a blank worksheet named `Sheet1`" -- article +
+# up to two adjectives + a declared noun word + "named X". The name is either
+# quoted (backticked after normalization) or a bare identifier of 1-3
+# capitalized tokens ("named Sheet1, with Sheet1 active" -- the sheet
+# requirements leave seed names unquoted; lowercase stop-words end the
+# capture). Binds the literal to the role the declaration sentence assigned
+# that noun family.
+_P7_BIND = re.compile(r"\b(?:a|an|the)\s+(?:[a-z]+\s+){0,2}([a-zA-Z]+)\s+"
+                      r"(?:uniquely\s+)?named\s+(?:`([^`]+)`"
+                      r"|([A-Z][A-Za-z0-9_]*(?:\s+[A-Z][A-Za-z0-9_]*){0,2}))")
 # article existence ("is exposed as a unique article", "an article containing", "article named by")
 _ARTICLE = re.compile(r"(?:\b(?:is|are)\s+(?:exposed\s+as\s+)?an?\s+(?:unique\s+)?article\b"
                       r"|\ban\s+article\s+containing\b|\barticle\s+named\s+by\b)", re.I)
@@ -232,27 +254,62 @@ def extract_contracts(tree: dict) -> dict[str, list[Contract]]:
     by_node: dict[str, set[Contract]] = {}
     p4_enabled = _formal_dialect(tree)
 
+    # P7 pass 1: role declarations tree-wide ("Worksheet tabs ... use the
+    # ARIA tab role") -> noun word -> canonical role, so binding sentences
+    # anywhere in the tree ("a blank worksheet named `Sheet1`") can resolve.
+    declared: dict[str, str] = {}
+
+    def collect_declarations(node: dict) -> None:
+        for sentence in _sentences(node):
+            for phrase, role_text in _P7_DECLARE.findall(sentence):
+                canonical = role_text.lower().strip()
+                role = ROLE_WORDS.get(canonical, canonical)
+                if role is None:
+                    continue
+                for word in phrase.lower().split() + [canonical]:
+                    declared[word] = role
+        for child in node.get("children") or []:
+            if isinstance(child, dict):
+                collect_declarations(child)
+
+    collect_declarations(tree)
+
     def harvest(node: dict, node_id: str) -> set[Contract]:
         found: set[Contract] = set()
         for sentence in _sentences(node):
-            if sentence_is_dynamic(sentence) or _CONTAINER.search(sentence):
-                continue
-            if _ARTICLE.search(sentence):
-                found.add(Contract(role="article", name=None, node_id=node_id))
-            for role_word, chain in _P1.findall(sentence):
-                for name in re.findall(r"`([^`]+)`", chain):
+            # P1-P5 and the article marker describe static wiring;
+            # action-born UI is not theirs to assert. P6/P7 below bind
+            # literal names to declared roles and run regardless: the
+            # creation-flow probe reaches post-action pages, and requirement
+            # text names persistent results inside action sentences ("after
+            # creation succeeds ... a blank worksheet named `Sheet1`").
+            if not (sentence_is_dynamic(sentence) or _CONTAINER.search(sentence)):
+                if _ARTICLE.search(sentence):
+                    found.add(Contract(role="article", name=None, node_id=node_id))
+                for role_word, chain in _P1.findall(sentence):
+                    for name in re.findall(r"`([^`]+)`", chain):
+                        _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
+                for role_word, _or_word, name in _P2.findall(sentence):
                     _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
-            for role_word, _or_word, name in _P2.findall(sentence):
-                _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
-            for role_text, name in _P3.findall(sentence):
-                canonical = role_text.lower().strip()
-                _add(found, node_id, ROLE_WORDS.get(canonical, canonical), name)
-            if p4_enabled:
-                for name, role_word in _P4.findall(sentence):
-                    _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
-            for role_text, name in _P5.findall(sentence):
-                canonical = role_text.lower().strip()
-                _add(found, node_id, ROLE_WORDS.get(canonical, canonical), name)
+                for role_text, name in _P3.findall(sentence):
+                    canonical = role_text.lower().strip()
+                    _add(found, node_id, ROLE_WORDS.get(canonical, canonical), name)
+                if p4_enabled:
+                    for name, role_word in _P4.findall(sentence):
+                        _add(found, node_id, ROLE_WORDS.get(role_word.lower()), name)
+                for role_text, name in _P5.findall(sentence):
+                    canonical = role_text.lower().strip()
+                    _add(found, node_id, ROLE_WORDS.get(canonical, canonical), name)
+            example = _P6.search(sentence)
+            if example:
+                role_match = _P6_ROLE.search(sentence)
+                if role_match:
+                    canonical = role_match.group(1).lower().strip()
+                    _add(found, node_id, ROLE_WORDS.get(canonical, canonical), example.group(1))
+            for noun, quoted, bare in _P7_BIND.findall(sentence):
+                role = declared.get(noun.lower())
+                if role:
+                    _add(found, node_id, role, quoted or bare)
         return found
 
     def walk(node: dict, inherited: set[Contract]) -> None:

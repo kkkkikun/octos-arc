@@ -166,6 +166,22 @@ class RealCompetitionExtractionTests(unittest.TestCase):
         self.assertIn("countViaCreationFlow", src)
         self.assertIn("return await countViaCreationFlow(page, probe);", src)
 
+    def test_should_extract_example_pinned_dynamic_names(self):
+        # P6: "(for example, A1)" pins the literal for per-item dynamic
+        # naming -- the single most-located cell in the behavioral nets.
+        for nid in ("REQ-1-1-1", "REQ-1-2-1", "REQ-1-3-2"):
+            pairs = {(c.role, c.name) for c in self.sheet.get(nid, [])}
+            self.assertIn(("gridcell", "A1"), pairs, nid)
+
+    def test_should_bind_declared_noun_names(self):
+        # P7: the folder declares "Worksheet tabs ... use the ARIA tab role";
+        # REQ-1-2-1 binds "a blank worksheet named Sheet1" (unquoted seed
+        # identifier). The 2026-09-26 arch-1 app shipped tabs whose accessible
+        # name was polluted by a nested menu button -- exact-name locators
+        # failed on every worksheet test.
+        pairs = {(c.role, c.name) for c in self.sheet.get("REQ-1-2-1", [])}
+        self.assertIn(("tab", "Sheet1"), pairs)
+
     def test_should_extract_github_named_controls(self):
         found = {(c.role, c.name) for cs in self.github.values() for c in cs}
         self.assertIn(("button", "Create account"), found)      # P1
