@@ -55,6 +55,12 @@ Rules:
   ("Import CSV", "Sort range", ...) is `role="dialog"` with that exact
   accessible name, and it mounts/opens from the control the requirement
   names.
+- Exactly one element per named control: never render a link AND a button
+  with the same accessible name for one action (graders resolve by role plus
+  name; an inert twin breaks them), and never ship a second, hidden input
+  for a field that already has one (duplicate `Email` inputs make strict
+  locators ambiguous). Every interactive element you render must actually
+  perform its named action when activated.
 {ports}
 If a previous acceptance failure is shown to you below, fix exactly what it
 reports — do not rewrite working code around it.
