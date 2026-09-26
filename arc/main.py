@@ -154,15 +154,24 @@ _SPEC_ID = re.compile(r"^([A-Za-z]+-[\d.]+)")
 
 
 def map_specs(tests_dir: Path | None, node_ids: list[str]) -> dict[str, list[str]]:
-    """`REQ-1.2-login.spec.ts` -> node `REQ-1.2`; equal counts pair in order."""
+    """`REQ-1.2-login.spec.ts` -> node `REQ-1.2`; equal counts pair in order.
+
+    Ids come in two dialects: dotted (`REQ-2.5.4`, the exercise tasks) and
+    hyphenated (`REQ-2-1-1`, the formal-race tasks). The regex above captures
+    only the first dotted segment, so a filename is matched by its LONGEST
+    node-id prefix first; the regex remains the fallback for ids with slugs
+    (`REQ-1.2-login.spec.ts`)."""
     mapping: dict[str, list[str]] = {nid: [] for nid in node_ids}
     if tests_dir is None:
         return mapping
     by_id: dict[str, list[str]] = {}
+    longest = sorted(node_ids, key=len, reverse=True)
     for path in sorted(tests_dir.rglob("*.spec.ts")):
-        m = _SPEC_ID.match(path.name)
-        by_id.setdefault(m.group(1) if m else path.name, []).append(
-            str(path.relative_to(tests_dir)))
+        nid = next((n for n in longest if path.name.startswith(n)), None)
+        if nid is None:
+            m = _SPEC_ID.match(path.name)
+            nid = m.group(1) if m else path.name
+        by_id.setdefault(nid, []).append(str(path.relative_to(tests_dir)))
     key = lambda s: tuple(int(p) for p in re.findall(r"\d+", s))  # noqa: E731
     unmatched = []
     for sid in sorted(by_id, key=key):
@@ -522,7 +531,10 @@ def main() -> int:
             node_contracts = contracts.get(nid, [])
             if not node_contracts:
                 continue
-            (lint_dir / f"LINT-{nid}.spec.ts").write_text(
+            # Bare REQ id prefix: map_specs pairs `REQ-x.spec.ts` -> node REQ-x;
+            # a `LINT-` prefix would not match its id regex and silently drop
+            # every spec from the mapping (caught on the 2026-09-26 sheet run).
+            (lint_dir / f"{nid}.spec.ts").write_text(
                 lint_spec_source(node_contracts, routes), encoding="utf-8")
             written += 1
         if written:

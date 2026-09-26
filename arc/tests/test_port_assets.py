@@ -30,7 +30,9 @@ class LintSynthesisTests(unittest.TestCase):
     def test_main_synthesizes_lint_specs_in_the_spec_vacuum(self):
         main_py = (ARC / "main.py").read_text(encoding="utf-8")
         self.assertIn("from aria_lint import extract_contracts, lint_spec_source", main_py)
-        self.assertIn('LINT-{nid}.spec.ts', main_py)
+        # bare REQ id prefix so map_specs pairs it to the node
+        self.assertIn('f"{nid}.spec.ts"', main_py)
+        self.assertNotIn("LINT-{nid}", main_py)
         self.assertIn("OCTOS_ARC_ARIA_LINT", main_py)
 
     def test_pack_ships_aria_lint(self):
