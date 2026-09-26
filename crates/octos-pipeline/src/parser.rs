@@ -617,6 +617,7 @@ fn build_node(id: &str, attrs: &HashMap<String, String>) -> PipelineNode {
         model: attrs.get("model").cloned(),
         context_window: attrs.get("context_window").and_then(|s| s.parse().ok()),
         max_output_tokens: attrs.get("max_output_tokens").and_then(|s| s.parse().ok()),
+        reasoning_effort: attrs.get("reasoning_effort").cloned(),
         max_iterations: attrs.get("max_iterations").and_then(|s| s.parse().ok()),
         tools,
         goal_gate: attrs
@@ -768,6 +769,43 @@ fn build_edge(source: &str, target: &str, attrs: &HashMap<String, String>) -> Pi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn should_parse_shell_check_handler_and_keep_it_off_the_no_shell_rule() {
+        // An operator-authored DOT pipeline needs a command validator ("run
+        // the acceptance spec, branch on its exit status"). `shell` is banned
+        // outright by validate rule 23; `ShellCheck` is the handler that rule
+        // exempts, and it must be reachable from DOT — not only from the IR
+        // palette. The command rides on `prompt` (what `ShellCheckHandler`
+        // reads) and `max_retries` bounds the node's own retries.
+        let dot = r#"
+            digraph acceptance {
+                build [handler="codergen", prompt="write the app"]
+                verify [handler="shell_check", prompt="npx playwright test REQ-1.spec.ts", timeout_secs="600", max_retries="5"]
+                build -> verify
+            }
+        "#;
+
+        let graph = parse_dot(dot).unwrap();
+        let verify = &graph.nodes["verify"];
+        assert_eq!(verify.handler, crate::graph::HandlerKind::ShellCheck);
+        assert_eq!(
+            verify.prompt.as_deref(),
+            Some("npx playwright test REQ-1.spec.ts"),
+            "the command must survive as `prompt` — ShellCheckHandler reads it from there",
+        );
+        assert_eq!(verify.max_retries, 5);
+
+        // Rule 23 (NoShell) targets `HandlerKind::Shell` only, so a DOT-authored
+        // shell_check must not be flagged.
+        let diags = crate::validate::diagnostics(&graph);
+        assert!(
+            !diags
+                .iter()
+                .any(|d| d.rule_id == crate::validate::RuleId::NoShell),
+            "shell_check must not trip the NoShell rule: {diags:?}",
+        );
+    }
 
     #[test]
     fn test_parse_simple_graph() {
@@ -1261,6 +1299,20 @@ mod tests {
     /// into `PipelineGraph::default_timeout_secs` so `RunPipelineTool`
     /// can use it as the per-pipeline fallback wall-clock cap when the
     /// LLM does not supply `timeout_secs`.
+    #[test]
+    fn should_parse_node_reasoning_effort() {
+        let graph = parse_dot(
+            r#"digraph g {
+                a [handler="codergen", prompt="x", reasoning_effort="none"]
+                b [handler="codergen", prompt="y"]
+                a -> b
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(graph.nodes["a"].reasoning_effort.as_deref(), Some("none"));
+        assert_eq!(graph.nodes["b"].reasoning_effort, None);
+    }
+
     #[test]
     fn should_parse_graph_default_timeout_secs_plain_integer() {
         let dot = r#"
