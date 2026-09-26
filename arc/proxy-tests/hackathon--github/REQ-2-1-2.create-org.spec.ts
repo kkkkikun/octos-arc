@@ -16,7 +16,7 @@ test('REQ-2-1-2: create an organization and land on its overview', async ({ page
 
   await h.gotoYourOrganizations(page);
   await page.getByRole('link', { name: 'New organization' }).click();
-  const org = uname('acme');
+  const org = h.uname('acme');
   await page.getByLabel('Organization name', { exact: true }).fill(org);
   await page.getByLabel('Display name', { exact: true }).fill('Acme Display');
   await page.getByRole('button', { name: 'Create organization' }).click();
@@ -46,7 +46,7 @@ test('REQ-2-1-2: malformed name and empty display name are rejected', async ({ p
   await page.getByRole('button', { name: 'Create organization' }).click();
   await h.expectText(page, 'Organization name format is invalid');
 
-  await page.getByLabel('Organization name', { exact: true }).fill(uname('ok'));
+  await page.getByLabel('Organization name', { exact: true }).fill(h.uname('ok'));
   await page.getByLabel('Display name', { exact: true }).fill('   ');
   await page.getByRole('button', { name: 'Create organization' }).click();
   await h.expectText(page, 'Display name is required');

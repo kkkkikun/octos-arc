@@ -28,7 +28,7 @@ test('REQ-1-1-1: register form exposes the named controls; unchecked terms', asy
 });
 
 test('REQ-1-1-1: several invalid fields show their messages together', async ({ page }) => {
-  const bad = uname('bad'); // valid username, retained on failure
+  const bad = h.uname('bad'); // valid username, retained on failure
   await h.gotoRegister(page);
   await page.getByLabel('Username', { exact: true }).fill('-starts-hyphen');
   await page.getByLabel('Email', { exact: true }).fill('not-an-email');
@@ -42,7 +42,7 @@ test('REQ-1-1-1: several invalid fields show their messages together', async ({ 
 });
 
 test('REQ-1-1-1 + REQ-1-1-2: register then sign in with the email; username visible after reload', async ({ page }) => {
-  const username = uname('pw');
+  const username = h.uname('pw');
   const email = `${username}@example.test`;
   await h.register(page, username, email);
   // success -> the sign-in form is immediately available
@@ -58,7 +58,7 @@ test('REQ-1-1-1 + REQ-1-1-2: register then sign in with the email; username visi
 });
 
 test('REQ-1-1-2: unknown account and wrong password show the same generic message', async ({ page }) => {
-  const username = uname('si');
+  const username = h.uname('si');
   const email = `${username}@example.test`;
   await h.register(page, username, email);
 

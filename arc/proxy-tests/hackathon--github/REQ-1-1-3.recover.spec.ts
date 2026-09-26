@@ -26,7 +26,7 @@ async function submitReset(page: import('@playwright/test').Page, email: string,
 }
 
 test('REQ-1-1-3: happy path -- reset via fixed code, old password dies', async ({ page }) => {
-  const username = uname('rp');
+  const username = h.uname('rp');
   const email = `${username}@example.test`;
   await h.register(page, username, email);
 
@@ -41,7 +41,7 @@ test('REQ-1-1-3: happy path -- reset via fixed code, old password dies', async (
 });
 
 test('REQ-1-1-3: wrong code is rejected with the exact message', async ({ page }) => {
-  const username = uname('rp');
+  const username = h.uname('rp');
   const email = `${username}@example.test`;
   await h.register(page, username, email);
 
