@@ -28,7 +28,7 @@ POLICY = dict(name="arc_build", repairs=5, repair_window=1800, node_timeout=1200
               max_iterations=40, run_timeout=3600, tools="read_file,write_file",
               reasoning="none", max_output_tokens=65536, node_budget=600,
               min_node_seconds=120, final_reserve_seconds=600, final_repairs=2,
-              context_window=0, llm_timeout=900,
+              context_window=0, llm_timeout=900, test_timeout=40000,
               node_max_output_tokens=32768, regression_every=4)
 
 
@@ -221,6 +221,19 @@ class CollectApp(unittest.TestCase):
                 (base / "backend").mkdir(parents=True)
             self.assertEqual(main.collect_app(data, out, "arc_build"), run)
             self.assertEqual((out / "frontend" / "src" / "index.html").read_text(), "verified")
+
+
+class KernelEnv(unittest.TestCase):
+    def test_per_test_clock_rides_by_env(self):
+        # The policy knob used to be documented but never wired: verify_node
+        # fell back to its 10s default and timed out every helper-heavy
+        # official spec in-run (REQ-1-2-2 failed three generations while the
+        # same spec passed 40s grading). The env handoff is the fix's load path.
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            env = main.kernel_env(POLICY, Path(tmp))
+            self.assertEqual(env["OCTOS_ARC_TEST_TIMEOUT_MS"], "40000")
 
 
 class CurlArgs(unittest.TestCase):

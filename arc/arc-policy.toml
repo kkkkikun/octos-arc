@@ -122,7 +122,7 @@ transient_backoff_seconds = 30
 probe_patience_seconds = 600  # wait for the endpoint to answer the start-up probe
 
 [acceptance]
-test_timeout_ms = 10000          # OCTOS_ARC_TEST_TIMEOUT_MS — per-test timeout, same as the grader
+test_timeout_ms = 40000          # OCTOS_ARC_TEST_TIMEOUT_MS — the official specs' helper probes roles sequentially (7×300ms per lookup): 10s killed REQ-1-2-2 in-run three generations while the same spec passed 40s grading; grading itself uses 40s
 slow_ms = 3000                   # OCTOS_ARC_SLOW_MS — slower tests are reported to the repair turn
 workers = 2                      # OCTOS_ARC_TEST_WORKERS — per-node runs
 final_workers = 4                # OCTOS_ARC_FINAL_WORKERS — full parallel suite

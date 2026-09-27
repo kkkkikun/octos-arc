@@ -40,6 +40,12 @@ _POLICY = {
     "repair_window": ("repair_window_seconds", "OCTOS_ARC_REPAIR_WINDOW", 1800),
     "node_timeout": ("node_timeout_seconds", "OCTOS_NODE_TIMEOUT", 1200),
     "verify_timeout": ("verify_timeout_seconds", "OCTOS_ARC_VERIFY_TIMEOUT", 1800),
+    # The bundled official specs drive flows through the helper's sequential
+    # role probing (7 x 300ms per lookup), which needs the 40s clock grading
+    # itself uses; the platform's 10s default only fits its native playwright.
+    # A 10s in-run check timed out every helper-heavy spec (REQ-1-2-2 failed
+    # three generations in-run while the same spec passed 40s grading).
+    "test_timeout": ("test_timeout_ms", "OCTOS_ARC_TEST_TIMEOUT_MS", 40000),
     "max_iterations": ("max_iterations", "OCTOS_MAX_ITERATIONS", 40),
     "run_timeout": ("run_timeout_seconds", "OCTOS_TIME_BUDGET", 3600),
     # 900 since the real-spec acceptance (upstream #246) runs full Playwright
@@ -409,6 +415,9 @@ def kernel_env(pol: dict, config_dir: Path) -> dict:
     # The profile runtime builds its provider without the gateway section, so
     # the request timeout travels by env as well.
     env["OCTOS_LLM_TIMEOUT_SECS"] = str(pol["llm_timeout"])
+    # The acceptance specs' per-test clock rides by env too: verify_node's
+    # 10s default fits native playwright, not the helper-driven official specs.
+    env["OCTOS_ARC_TEST_TIMEOUT_MS"] = str(pol["test_timeout"])
     # Ride out a minute or two of refused / reset connections (1+2+...+60s)
     # instead of failing the node after 7s; timeouts are never retried.
     env["OCTOS_LLM_MAX_RETRIES"] = "8"
