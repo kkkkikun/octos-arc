@@ -19,7 +19,9 @@ _spec.loader.exec_module(verify_node)
 def _serve(routes: dict[str, int]) -> tuple[HTTPServer, int]:
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802 -- http.server API
-            self.send_error(routes.get(self.path, 404))
+            self.send_response(routes.get(self.path, 404))
+            self.end_headers()
+            self.wfile.write(b"x")
         def log_message(self, *args):  # silence
             pass
     srv = HTTPServer(("127.0.0.1", 0), Handler)
