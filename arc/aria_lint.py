@@ -455,8 +455,11 @@ def lint_spec_source(contracts: list[Contract], routes: list[str]) -> str:
         # route-rewritten editor page that resolves to /workbook/app.js, the
         # server answers with a 404 page, and every dynamic feature dies with
         # SyntaxError while includeHidden markup probes still count the
-        # static grid shell and pass vacuously. A script-parse smoke on every
-        # route closes that blind spot.
+        # static grid shell and pass vacuously. A script-parse smoke closes
+        # that blind spot -- and it must walk the creation flow too, because
+        # bare scaffold routes ("/workbook") have no trailing segment and a
+        # relative asset still resolves correctly there; only the nested
+        # "/workbook/<id>" the flow lands on exposes the 404.
         "test('ARIA-lint: scripts parse on every route', async ({ page }) => {\n"
         "  const errors = [];\n"
         "  page.on('pageerror', e => errors.push(String(e)));\n"
@@ -464,6 +467,22 @@ def lint_spec_source(contracts: list[Contract], routes: list[str]) -> str:
         "    await page.goto(route).catch(() => {});\n"
         "    await page.waitForTimeout(400);\n"
         "  }\n"
+        "  try {\n"
+        "    await page.goto('/');\n"
+        "    const starters = page.getByRole('button', { name: /^(new|create)\\b/i });\n"
+        "    const n = Math.min(await starters.count(), 2);\n"
+        "    for (let i = 0; i < n; i++) {\n"
+        "      const btn = starters.nth(i);\n"
+        "      if (!(await btn.isVisible().catch(() => false))) continue;\n"
+        "      await btn.click({ timeout: 2000 }).catch(() => {});\n"
+        "      const create = page.getByRole('button', { name: /^create$/i });\n"
+        "      if (await create.count()) {\n"
+        "        await create.first().click({ timeout: 2000 }).catch(() => {});\n"
+        "      }\n"
+        "      await page.waitForTimeout(600);\n"
+        "      await page.goto('/');\n"
+        "    }\n"
+        "  } catch {}\n"
         "  expect(errors.filter(e => e.includes('SyntaxError')).length,\n"
         "    'a script got HTML where JS was expected -- check asset paths resolve on every route').toBe(0);\n"
         "});"]
