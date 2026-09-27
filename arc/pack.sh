@@ -89,7 +89,9 @@ done
 # -- same class of requirement synthesis, no loop added. 1950 after pulling
 # the octos-download curl args into a tested helper (_curl_args). 2000 for
 # the upstream #246/#249 ports (bundled-spec lookup, dispatch re-ask).
-LIMIT_PY=2000
+# 2050: +asset-hole probe (second foundation-wound class, github leg shipped
+# a page whitelist that 404'd /app.js) and the .arc-good collect fallback.
+LIMIT_PY=2050
 PYLINES=$(find "$PKG" -name '*.py' -exec cat {} + | wc -l | tr -d ' ')
 echo "打包内容：$(find "$PKG" -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/null || ls "$PKG" | tr '\n' ' ')"
 echo "包内 Python 行数：$PYLINES"

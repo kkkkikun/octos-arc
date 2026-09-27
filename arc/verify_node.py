@@ -121,6 +121,23 @@ def playwright_root(env: dict) -> tuple[Path | None, dict]:
 
 NO_BROWSER = "Executable doesn't exist"
 
+ASSET_RE = re.compile(r'(?:src|href)="(/[^"]+\.(?:js|css))"')
+
+
+def asset_holes(pages: Path, port: int) -> list[str]:
+    """Root-absolute .js/.css a page references but the server 404s -- a
+    static-page whitelist that omitted /app.js shipped on the github leg and
+    killed every page's JS while markup-only flows still passed their specs."""
+    import urllib.request
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    refs = {m.group(1) for p in pages.glob("*.html")
+            for m in ASSET_RE.finditer(p.read_text(errors="replace"))}
+    try:
+        return sorted(a for a in refs if opener.open(
+            f"http://127.0.0.1:{port}{a}", timeout=10).status != 200)
+    except Exception:  # noqa: BLE001 -- a refused/timeout GET is a hole too
+        return sorted(refs)
+
 
 def install_browser(pw: str, root: Path, env: dict) -> bool:
     """A Playwright whose browser build is missing (a wiped cache, a version
@@ -189,6 +206,12 @@ def run_app(app: Path, out: Path, env: dict, tests: Path, port: int, specs: list
         if free(port):
             stop(srv)
             print(f"[verify] backend never bound port {port}\n{server_log.read_text(errors='replace')[-1500:]}")
+            return 1
+        holes = asset_holes(app / "frontend" / "dist", port)
+        if holes:
+            stop(srv)
+            print(f"[verify] referenced assets the server 404s (all JS/CSS on those pages is dead): "
+                  f"{', '.join(holes)}\nServe every file the built HTML references, not a page whitelist.")
             return 1
         if not specs:
             # No public example for this requirement: the app must still build,
