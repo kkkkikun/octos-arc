@@ -204,6 +204,24 @@ class CollectApp(unittest.TestCase):
             self.assertEqual((out / "frontend" / "src" / "index.html").read_text(), "best")
             self.assertFalse((out / "frontend" / "src" / "stale.html").exists())
 
+    def test_wall_killed_run_delivers_the_last_verified_state_not_the_broken_tail(self):
+        # A run cut off mid-edit never reaches the final full-suite check, so
+        # .arc-best does not exist; the raw final workspace then ships and a
+        # half-written node overwrites hours of verified work (arch-6: 7/100
+        # with the debris store poisoning every seeded precondition). The last
+        # state a per-node acceptance check passed (.arc-good) must win over it.
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            data, out = Path(tmp) / "data", Path(tmp) / "out"
+            run = data / "profiles" / "p" / "data" / "pipeline-runs" / "arc_build-1"
+            for base, text in ((run, "broken-tail"), (run / ".arc-good" / "app", "verified")):
+                (base / "frontend" / "src").mkdir(parents=True)
+                (base / "frontend" / "src" / "index.html").write_text(text)
+                (base / "backend").mkdir(parents=True)
+            self.assertEqual(main.collect_app(data, out, "arc_build"), run)
+            self.assertEqual((out / "frontend" / "src" / "index.html").read_text(), "verified")
+
 
 class CurlArgs(unittest.TestCase):
     def test_dead_mirror_connect_budget_stays_bounded(self):

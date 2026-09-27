@@ -707,17 +707,24 @@ def collect_app(data_dir: Path, out: Path, name: str) -> Path | None:
         return None
     # The full-suite check keeps the best state it measured; the final state
     # can be worse (a repair that broke more than it fixed, or a run cut off
-    # mid-edit).
+    # mid-edit). A wall-killed run never reaches that check, so fall back to
+    # the last state a per-node acceptance passed (.arc-good) before ever
+    # shipping the raw final workspace -- arch-6 shipped that tail and a
+    # half-written node erased hours of verified work.
     best = runs[-1] / ".arc-best"
-    source = best / "app" if (best / "app" / "frontend").is_dir() else runs[-1]
+    good = runs[-1] / ".arc-good"
+    source = (best / "app" if (best / "app" / "frontend").is_dir()
+              else good / "app" if (good / "app" / "frontend").is_dir()
+              else runs[-1])
     copied = [part for part in ("frontend", "backend") if (source / part).is_dir()]
     for part in copied:
         shutil.rmtree(out / part, ignore_errors=True)
         shutil.copytree(source / part, out / part,
                         ignore=shutil.ignore_patterns("node_modules", ".git"))
-    log(f"[arc] collected {copied or 'nothing'} from {runs[-1].name}"
-        + (f" (best full-suite state: {json.loads((best / 'score.json').read_text())['passed']} passed)"
-           if source != runs[-1] else ""))
+    note = (f" (best full-suite state: {json.loads((best / 'score.json').read_text())['passed']} passed)"
+            if source == best / "app"
+            else " (last per-node verified state)" if source == good / "app" else "")
+    log(f"[arc] collected {copied or 'nothing'} from {runs[-1].name}{note}")
     return runs[-1]
 
 
