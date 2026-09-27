@@ -65,5 +65,35 @@ class AssetHoles(unittest.TestCase):
                 srv.shutdown()
 
 
+class SpecIds(unittest.TestCase):
+    def test_list_output_becomes_runnable_filters(self):
+        listing = ("Listing tests:\n"
+                   "  REQ-1-2-2.spec.ts:7:5 › REQ-1-2-2: Rename a Workbook - Scenario 1\n"
+                   "  REQ-1-2-2.spec.ts:21:5 › REQ-1-2-2: Rename a Workbook - Scenario 2\n"
+                   "  2 tests found\n")
+        self.assertEqual(verify_node.spec_ids(listing), [
+            "REQ-1-2-2.spec.ts:7:5 › REQ-1-2-2: Rename a Workbook - Scenario 1",
+            "REQ-1-2-2.spec.ts:21:5 › REQ-1-2-2: Rename a Workbook - Scenario 2"])
+
+    def test_unlistable_output_is_empty(self):
+        self.assertEqual(verify_node.spec_ids("No tests found\n"), [])
+        self.assertEqual(verify_node.spec_ids(""), [])
+
+
+class StateSnapshot(unittest.TestCase):
+    def test_data_files_snapshotted_manifests_and_deps_excluded(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp)
+            for rel in ("backend/store.json", "backend/data.csv", "backend/package.json",
+                        "backend/package-lock.json", "backend/node_modules/x/package.json",
+                        "frontend/src/app.js"):
+                p = app / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text("{}" if rel.endswith(".json") else "x")
+            snap = verify_node.state_snapshot(app)
+            self.assertEqual({p.name for p in snap}, {"store.json", "data.csv"})
+
+
 if __name__ == "__main__":
     unittest.main()

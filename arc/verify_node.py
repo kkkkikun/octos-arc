@@ -121,6 +121,26 @@ def playwright_root(env: dict) -> tuple[Path | None, dict]:
 
 NO_BROWSER = "Executable doesn't exist"
 
+SPEC_ID_LINE = re.compile(r"\.spec\.ts:\d+:\d+")
+
+
+def spec_ids(listing: str) -> list[str]:
+    """Playwright `--list` prints one runnable filter per test; keep those
+    lines. A suite that cannot be enumerated returns [] and the caller falls
+    back to one whole-suite run, as before."""
+    return [ln.strip() for ln in listing.splitlines() if SPEC_ID_LINE.search(ln)]
+
+
+def state_snapshot(app: Path) -> dict[Path, bytes]:
+    """The app's mutable data (a store the scenarios edit), so each test can
+    start from the seed. Spec pairs are stateful -- the rename spec's first
+    scenario renames the seeded workbook away and its second then cannot find
+    it -- and one shared session makes every later GIVEN a lie the repair
+    round can never fix (three generations burned on exactly that)."""
+    return {p: p.read_bytes() for p in (app / "backend").rglob("*")
+            if p.is_file() and "node_modules" not in p.parts and p.suffix in (".json", ".csv", ".db")
+            and p.name not in ("package.json", "package-lock.json")}
+
 ASSET_RE = re.compile(r'(?:src|href)="(/[^"]+\.(?:js|css))"')
 
 
@@ -179,6 +199,55 @@ def check(tests: Path, port: int, specs: list[str]) -> int:
         return run_app(app, out, env, tests, port, specs)
     finally:
         shutil.rmtree(app, ignore_errors=True)
+
+
+def run_specs(app: Path, work: Path, root: Path, pw: str, env: dict,
+              run_env: dict, port: int) -> tuple[int, str]:
+    """Run the specs one test at a time, restoring the seeded data and
+    rebooting the app between them, so a stateful pair scores what the app
+    does rather than what an earlier scenario left behind. Falls back to one
+    whole-suite run when the tests cannot be enumerated."""
+    cfg = str(work / "playwright.config.ts")
+    cap = int(os.environ.get("OCTOS_ARC_PLAYWRIGHT_TIMEOUT", "600"))
+    one = lambda *args: sh([pw, "test", "-c", cfg, *args], work, run_env, cap)  # noqa: E731
+
+    def boot():
+        srv = subprocess.Popen("npm run start", cwd=app / "backend", env=dict(env, PORT=str(port)),
+                               shell=True, stdout=(work / ".arc-server.log").open("w"),
+                               stderr=subprocess.STDOUT, text=True, preexec_fn=os.setsid)
+        for _ in range(60):
+            if not free(port) or srv.poll() is not None:
+                break
+            time.sleep(0.5)
+        return srv
+
+    seed = state_snapshot(app)
+    rc, listing = one("--list")
+    ids = spec_ids(listing)
+    if not ids:                                   # enumerate failed: run whole
+        srv = boot()
+        try:
+            rc, log = one()
+        finally:
+            stop(srv)
+        if rc and NO_BROWSER in log and install_browser(pw, root, run_env):
+            rc, log = one()
+        return rc, log
+    rc, logs, passed = 0, [], 0
+    for tid in ids:
+        for path, data in seed.items():
+            path.write_bytes(data)
+        srv = boot()
+        try:
+            trc, tlog = one(tid)
+        finally:
+            stop(srv)
+        rc = rc or trc
+        logs.append(tlog)
+        counts = re.findall(r"(\d+) passed", tlog)
+        passed += int(counts[-1]) if counts else 0
+    log = "\n".join(logs) + f"\n[verify] {passed} passed of {len(ids)} scenario(s), each from the seeded state"
+    return rc, log
 
 
 def run_app(app: Path, out: Path, env: dict, tests: Path, port: int, specs: list[str]) -> int:
@@ -256,11 +325,8 @@ def run_app(app: Path, out: Path, env: dict, tests: Path, port: int, specs: list
         pw = str(root / "node_modules" / ".bin" / "playwright")
         run_env = dict(env, E2E_BASE_URL=f"http://127.0.0.1:{port}", CI="1",
                        NODE_PATH=str(root / "node_modules"), **pw_env)
-        run = lambda: sh([pw, "test", "-c", str(work / "playwright.config.ts")], work, run_env,  # noqa: E731
-                         int(os.environ.get("OCTOS_ARC_PLAYWRIGHT_TIMEOUT", "600")))
-        rc, log = run()
-        if rc and NO_BROWSER in log and install_browser(pw, root, run_env):
-            rc, log = run()
+        stop(srv)                      # each isolated test boots its own
+        rc, log = run_specs(app, work, root, pw, env, run_env, port)
     finally:
         stop(srv)
     if rc and NO_BROWSER in log:
