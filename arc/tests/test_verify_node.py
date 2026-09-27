@@ -71,9 +71,13 @@ class SpecIds(unittest.TestCase):
                    "  REQ-1-2-2.spec.ts:7:5 › REQ-1-2-2: Rename a Workbook - Scenario 1\n"
                    "  REQ-1-2-2.spec.ts:21:5 › REQ-1-2-2: Rename a Workbook - Scenario 2\n"
                    "  2 tests found\n")
-        self.assertEqual(verify_node.spec_ids(listing), [
-            "REQ-1-2-2.spec.ts:7:5 › REQ-1-2-2: Rename a Workbook - Scenario 1",
-            "REQ-1-2-2.spec.ts:21:5 › REQ-1-2-2: Rename a Workbook - Scenario 2"])
+        self.assertEqual(verify_node.spec_ids(listing),
+                         ["REQ-1-2-2.spec.ts:7", "REQ-1-2-2.spec.ts:21"])
+
+    def test_same_line_tests_collapse_to_one_run(self):
+        # a describe block puts several tests on one line; file:line runs them all
+        listing = "  REQ-1.spec.ts:5:7 › a › one\n  REQ-1.spec.ts:5:12 › a › two\n"
+        self.assertEqual(verify_node.spec_ids(listing), ["REQ-1.spec.ts:5"])
 
     def test_unlistable_output_is_empty(self):
         self.assertEqual(verify_node.spec_ids("No tests found\n"), [])

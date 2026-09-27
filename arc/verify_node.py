@@ -121,14 +121,20 @@ def playwright_root(env: dict) -> tuple[Path | None, dict]:
 
 NO_BROWSER = "Executable doesn't exist"
 
-SPEC_ID_LINE = re.compile(r"\.spec\.ts:\d+:\d+")
+SPEC_ID_LINE = re.compile(r"(\S+\.spec\.ts:\d+):\d+")
 
 
 def spec_ids(listing: str) -> list[str]:
-    """Playwright `--list` prints one runnable filter per test; keep those
-    lines. A suite that cannot be enumerated returns [] and the caller falls
-    back to one whole-suite run, as before."""
-    return [ln.strip() for ln in listing.splitlines() if SPEC_ID_LINE.search(ln)]
+    """Playwright `--list` prints one runnable filter per test. A positional
+    filter matches file:line only -- the printed "› Title" suffix makes it
+    match nothing -- so keep just that part. A suite that cannot be
+    enumerated returns [] and the caller falls back to a whole-suite run."""
+    ids: list[str] = []
+    for ln in listing.splitlines():
+        m = SPEC_ID_LINE.search(ln)
+        if m and m.group(1) not in ids:
+            ids.append(m.group(1))
+    return ids
 
 
 def state_snapshot(app: Path) -> dict[Path, bytes]:
