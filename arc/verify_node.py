@@ -132,11 +132,13 @@ def asset_holes(pages: Path, port: int) -> list[str]:
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     refs = {m.group(1) for p in pages.glob("*.html")
             for m in ASSET_RE.finditer(p.read_text(errors="replace"))}
-    try:
-        return sorted(a for a in refs if opener.open(
-            f"http://127.0.0.1:{port}{a}", timeout=10).status != 200)
-    except Exception:  # noqa: BLE001 -- a refused/timeout GET is a hole too
-        return sorted(refs)
+
+    def hole(asset: str) -> bool:  # a 404 raises HTTPError, never compares
+        try:
+            return opener.open(f"http://127.0.0.1:{port}{asset}", timeout=10).status != 200
+        except Exception:  # noqa: BLE001 -- refused/timeout/4xx/5xx alike
+            return True
+    return sorted(a for a in refs if hole(a))
 
 
 def install_browser(pw: str, root: Path, env: dict) -> bool:
