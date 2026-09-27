@@ -13,9 +13,11 @@
 # construction rather than by zip patterns.
 #
 # Deliberately NOT shipped:
-#   * public-tests/ and tasks/ -- platform test + task DATA. The runner mounts
-#     the public specs at /workspace/tests, which main.py reads from there.
-#     Shipping them would put task data in the submission.
+#   * tasks/ -- platform task DATA; the runner hands main.py the requirement.
+#     public-tests/ DOES ship (2026-09-27, upstream #246): the runner no
+#     longer mounts the public specs (all six of upstream's official runs
+#     logged `tests at None`), and the shipped specs are the platform's own
+#     public practice material. main.py still prefers a runner mount.
 #   * local-only instruments: path_split.py, postmortem.py, scoreboard.py,
 #     metrics.py, integration/, action_errors.cjs, page_errors.ts,
 #     grade-local.py, run-task-local.py, tests/. They analyse runs on a
@@ -42,6 +44,7 @@ mkdir -p "$PKG"
 cp main.py octos_stdio.py verify_node.py arc-policy.toml requirements.txt aria_lint.py "$PKG/"
 cp -R prompts "$PKG/prompts"
 cp -R template "$PKG/template"
+cp -R public-tests "$PKG/public-tests"
 
 find "$PKG" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 find "$PKG" \( -name '*.pyc' -o -name .DS_Store \) -delete
@@ -53,7 +56,7 @@ for required in main.py requirements.txt template; do
 done
 for banned in llm_proxy.py acceptance.py rust_engine.py verify_app.py path_split.py \
               postmortem.py scoreboard.py metrics.py integration action_errors.cjs \
-              page_errors.ts public-tests tasks tests arcbench_agent_runtime; do
+              page_errors.ts tasks tests arcbench_agent_runtime; do
     [ ! -e "$PKG/$banned" ] || { echo "pack: $banned must not be in the bundle" >&2; exit 1; }
 done
 # 800 with the runtime fetch inlined; the container has no octos of its own and
@@ -69,8 +72,9 @@ done
 # synthesis that fills the no-public-tests vacuum -- glue, not a loop.
 # 1900: +R3 dialog revival / header name forms / selection state (P8/P9/K3)
 # -- same class of requirement synthesis, no loop added. 1950 after pulling
-# the octos-download curl args into a tested helper (_curl_args).
-LIMIT_PY=1950
+# the octos-download curl args into a tested helper (_curl_args). 2000 for
+# the upstream #246/#249 ports (bundled-spec lookup, dispatch re-ask).
+LIMIT_PY=2000
 PYLINES=$(find "$PKG" -name '*.py' -exec cat {} + | wc -l | tr -d ' ')
 echo "打包内容：$(find "$PKG" -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/null || ls "$PKG" | tr '\n' ' ')"
 echo "包内 Python 行数：$PYLINES"
