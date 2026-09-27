@@ -46,6 +46,21 @@ cp -R prompts "$PKG/prompts"
 cp -R template "$PKG/template"
 cp -R public-tests "$PKG/public-tests"
 
+# BOOTSTRAP_DIR (optional): overlay a previous run's delivered frontend/ and
+# backend/ onto the template (keep its README.md + template.yaml) so the next
+# run starts from that verified state instead of the bare scaffold. The local
+# runs' progressive delivery produces exactly this shape; the repo template/
+# stays pristine for bundles that must start cold (e.g. github).
+if [ -n "${BOOTSTRAP_DIR:-}" ]; then
+    for part in frontend backend; do
+        [ -d "$BOOTSTRAP_DIR/$part" ] || { echo "pack: BOOTSTRAP_DIR lacks $part" >&2; exit 1; }
+        rm -rf "$PKG/template/$part"
+        cp -R "$BOOTSTRAP_DIR/$part" "$PKG/template/$part"
+        rm -rf "$PKG/template/$part/node_modules" "$PKG/template/$part/dist"
+    done
+    echo "自举模板：$BOOTSTRAP_DIR 覆盖 frontend+backend"
+fi
+
 find "$PKG" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 find "$PKG" \( -name '*.pyc' -o -name .DS_Store \) -delete
 
@@ -80,7 +95,9 @@ echo "打包内容：$(find "$PKG" -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/
 echo "包内 Python 行数：$PYLINES"
 [ "$PYLINES" -le "$LIMIT_PY" ] || { echo "pack: bundle Python is $PYLINES lines (limit $LIMIT_PY)" >&2; exit 1; }
 
-rm -f "$ROOT/../octos-arc-bundle.zip"
-(cd "$PKG" && zip -qr "$ROOT/../octos-arc-bundle.zip" .)
-echo "打包完成：$ROOT/../octos-arc-bundle.zip"
-shasum -a 256 "$ROOT/../octos-arc-bundle.zip"
+ZIP="$ROOT/../octos-arc-bundle.zip"
+[ -n "${BOOTSTRAP_DIR:-}" ] && ZIP="$ROOT/../octos-arc-bundle-bootstrap.zip"
+rm -f "$ZIP"
+(cd "$PKG" && zip -qr "$ZIP" .)
+echo "打包完成：$ZIP"
+shasum -a 256 "$ZIP"
