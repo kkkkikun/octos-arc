@@ -131,20 +131,21 @@ def main(argv: list[str]) -> int:
                     yield from walk(s.get("suites", []))
             res.extend(walk(rep.get("suites", [])))
 
+        last = None
         if ids:
             for tid in ids:
                 for path, data in seed.items():
                     path.write_bytes(data)
                 s = boot()
                 try:
-                    run_pw(tid)
+                    last = run_pw(tid)
                 finally:
                     stop_server(s)
                 collect()
         else:
             s = boot()
             try:
-                run_pw()
+                last = run_pw()
             finally:
                 stop_server(s)
             collect()
@@ -157,8 +158,8 @@ def main(argv: list[str]) -> int:
     (out / ".arc").mkdir(exist_ok=True)
     (out / ".arc" / "local-grade.json").write_text(json.dumps({"requirement": req, "passed": passed, "total": len(res),
         "tests": [{"title": t, "ok": ok} for t, ok in res]}, ensure_ascii=False, indent=1))
-    if passed < len(res):
-        print(r.stdout[-3000:])
+    if passed < len(res) and last is not None:
+        print((last.stdout + last.stderr)[-3000:])
     return 0
 
 
