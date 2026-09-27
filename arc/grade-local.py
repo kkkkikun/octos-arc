@@ -93,17 +93,64 @@ def main(argv: list[str]) -> int:
             % os.environ.get("ARC_GRADE_TIMEOUT_MS", "10000"))
         tenv = dict(env, E2E_BASE_URL=f"http://127.0.0.1:{port}")
         t0 = time.time()
-        r = subprocess.run(["npx", "playwright", "test", "-c", str(work/"playwright.config.ts")], cwd=grader, env=tenv, capture_output=True, text=True)
+        # Per-test isolation (same knife as verify_node): stateful spec pairs
+        # bleed into each other in one shared session -- rename S1 walks the
+        # seeded workbook away and S2's GIVEN is then forever false. Restore
+        # the seed and reboot between tests so each scores the app itself.
+        from verify_node import spec_ids, state_snapshot
+        cfg = work / "playwright.config.ts"
+        seed = state_snapshot(out)
+
+        def run_pw(*args):
+            return subprocess.run(["npx", "playwright", "test", "-c", str(cfg), *args],
+                                  cwd=grader, env=tenv, capture_output=True, text=True)
+
+        def boot():
+            s = subprocess.Popen("npm run start", cwd=out / "backend", env=benv, shell=True,
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 text=True, preexec_fn=os.setsid)
+            for _ in range(60):
+                if not port_is_free(port) or s.poll() is not None:
+                    break
+                time.sleep(0.5)
+            return s
+
+        stop_server(srv)                     # each isolated test boots its own
+        listing = run_pw("--list")
+        ids = spec_ids(listing.stdout + listing.stderr)
+        res = []
+
+        def collect():
+            rep = json.loads((work / "report.json").read_text()) if (work / "report.json").exists() else {}
+
+            def walk(suites):
+                for s in suites:
+                    for sp in s.get("specs", []):
+                        yield sp["title"], all(t.get("status") == "expected" or t.get("ok")
+                                               for t in sp.get("tests", []))
+                    yield from walk(s.get("suites", []))
+            res.extend(walk(rep.get("suites", [])))
+
+        if ids:
+            for tid in ids:
+                for path, data in seed.items():
+                    path.write_bytes(data)
+                s = boot()
+                try:
+                    run_pw(tid)
+                finally:
+                    stop_server(s)
+                collect()
+        else:
+            s = boot()
+            try:
+                run_pw()
+            finally:
+                stop_server(s)
+            collect()
     finally:
         stop_server(srv)
         git("checkout", "--", "."); git("clean", "-fdq", "-e", "node_modules", "-e", "dist", "--", "frontend", "backend")
-    rep = json.loads((work/"report.json").read_text()) if (work/"report.json").exists() else {}
-    def walk(suites):
-        for s in suites:
-            for sp in s.get("specs", []):
-                yield sp["title"], all(t.get("status") == "expected" or t.get("ok") for t in sp.get("tests", []))
-            yield from walk(s.get("suites", []))
-    res = list(walk(rep.get("suites", [])))
     passed = sum(1 for _, ok in res if ok)
     for title, ok in res: print(f"  {'PASS' if ok else 'FAIL'}  {title}")
     print(f"[grade] {req}: {passed}/{len(res)} passed in {time.time()-t0:.0f}s  score={100*passed/len(res) if res else 0:.0f}")
