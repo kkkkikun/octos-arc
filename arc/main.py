@@ -42,7 +42,10 @@ _POLICY = {
     "verify_timeout": ("verify_timeout_seconds", "OCTOS_ARC_VERIFY_TIMEOUT", 1800),
     "max_iterations": ("max_iterations", "OCTOS_MAX_ITERATIONS", 40),
     "run_timeout": ("run_timeout_seconds", "OCTOS_TIME_BUDGET", 3600),
-    "node_budget": ("node_budget_seconds", "OCTOS_NODE_TIME_BUDGET", 600),
+    # 900 since the real-spec acceptance (upstream #246) runs full Playwright
+    # flows per check -- the slice run measured ~1200s per node with repairs,
+    # and the old 600s floor sized for lint-speed probes wall-killed it at 3/5
+    "node_budget": ("node_budget_seconds", "OCTOS_NODE_TIME_BUDGET", 900),
     "min_node_seconds": ("min_node_seconds", "OCTOS_ARC_MIN_NODE_SECONDS", 120),
     "final_reserve_seconds": ("final_reserve_seconds", "OCTOS_ARC_FINAL_RESERVE", 600),
     "final_repairs": ("final_repair_rounds", "OCTOS_ARC_FINAL_REPAIRS", 2),
