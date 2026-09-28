@@ -93,8 +93,9 @@ done
 # a page whitelist that 404'd /app.js) and the .arc-good collect fallback.
 # 2100: +per-test isolation in the acceptance command (stateful spec pairs
 # scored each other's debris; restore-seed + reboot between scenarios).
-# 2150: isolation's file:line filter fix + dedupe.
-LIMIT_PY=2150
+# 2150: isolation's file:line filter fix + dedupe. 2200: session-recycle
+# for orphan turns (thinking-model dispatch timeouts).
+LIMIT_PY=2200
 PYLINES=$(find "$PKG" -name '*.py' -exec cat {} + | wc -l | tr -d ' ')
 echo "打包内容：$(find "$PKG" -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/null || ls "$PKG" | tr '\n' ' ')"
 echo "包内 Python 行数：$PYLINES"
