@@ -35,9 +35,12 @@ Rules:
   already pointed at npmmirror.
 - Ship the evaluation seed as the shipped initial state: the scenario GIVEN
   steps name records and values in backticks (workbook `Q3 Sales`, account
-  `alice-dev`, ranges `Region/Sales/Status` with rows `East/1200/Open`); those
-  exact records must be visible on first load, and the bundled store file must
-  contain them -- never ship a store mutated by your own test edits.
+  `alice-dev`, org `acme-corp`, ranges `Region/Sales/Status` with rows
+  `East/1200/Open`); those exact records must exist as PERSISTED data (a store
+  file the app loads, never in-memory-only literals) and be visible on first
+  load. Before finishing, re-read every GIVEN step's backticked value and
+  confirm the shipped initial data contains it -- a greenfield app without
+  its seeded users/records fails every scenario at step one.
 - Hidden overlays must actually unrender: a `.hidden`/closed-modal utility
   must not be beaten by a later `display:flex/grid` rule in the cascade
   (declare it `!important` or place it after the display rules). A transparent
