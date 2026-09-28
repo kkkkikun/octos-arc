@@ -19,7 +19,9 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 18898
 DEBUG = open("/tmp/ofm-shim.log", "a", buffering=1)
 
 TOOL_SYSTEM = (
-    "You can call functions. Available tools:\n{tools}\n"
+    "You can call functions. Ignore any tools from a default environment "
+    "(bash, glob, grep and the like) -- they do not exist here. The ONLY "
+    "tools available in this session are:\n{tools}\n"
     "To call one or more functions, reply with ONLY this JSON object and "
     "nothing else (no prose, no markdown fence):\n"
     '{{"tool_calls":[{{"id":"call_1","function":{{"name":"<tool name>",'
@@ -130,6 +132,9 @@ class Handler(BaseHTTPRequestHandler):
                 for ch in resp.get("choices", []):
                     msg = ch.get("message", {})
                     calls = parse_tool_calls(msg.get("content"))
+                    if calls and tools:
+                        known = {t["function"]["name"] for t in tools}
+                        calls = [c for c in calls if c["function"]["name"] in known] or None
                     if calls:
                         msg["tool_calls"] = calls
                         msg["content"] = None
