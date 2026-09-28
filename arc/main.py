@@ -40,6 +40,10 @@ _POLICY = {
     "repair_window": ("repair_window_seconds", "OCTOS_ARC_REPAIR_WINDOW", 1800),
     "node_timeout": ("node_timeout_seconds", "OCTOS_NODE_TIMEOUT", 1200),
     "verify_timeout": ("verify_timeout_seconds", "OCTOS_ARC_VERIFY_TIMEOUT", 1800),
+    # A thinking model's dispatch turn can outthink the 900s that suited fast
+    # responders -- three timed-out dispatch rounds killed a whole run. The
+    # kernel bounds the turn itself and the driver recycles the session.
+    "dispatch_turn_timeout": ("dispatch_turn_timeout_seconds", "OCTOS_ARC_DISPATCH_TURN_TIMEOUT", 2400),
     # The bundled official specs drive flows through the helper's sequential
     # role probing (7 x 300ms per lookup), which needs the 40s clock grading
     # itself uses; the platform's 10s default only fits its native playwright.
@@ -661,7 +665,7 @@ def main() -> int:
         for attempt in range(3):
             ok, reply = session.run_turn(ask if attempt == 0 else
                                          ask + " (the pipeline has NOT started yet -- call the tool now)",
-                                         timeout=min(pol["run_timeout"], 900))
+                                         timeout=min(pol["run_timeout"], pol["dispatch_turn_timeout"]))
             log(f"[arc] dispatch turn {attempt + 1} ok={ok}: {reply[:160]}")
             if ok and started_run():
                 break
