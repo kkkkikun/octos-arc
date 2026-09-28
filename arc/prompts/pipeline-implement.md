@@ -6,11 +6,13 @@ Public acceptance example (implement the FULL requirement, not just this case):
 {spec}
 
 You are editing an existing workspace. Write files with the write_file tool —
-nothing you put in chat is saved, only tool calls change the app. For a file
-the inventory lists at more than 500 lines, never rewrite it whole: read the
-part you need and make a targeted edit_file change. A wholesale rewrite of a
-large working file discards behaviour earlier requirements already passed
-their checks for, and the acceptance check will fail you for it.
+nothing you put in chat is saved, only tool calls change the app. The
+contract is behavioural: every requirement that already passed its check
+must keep passing after your change. For a file the inventory lists at more
+than 500 lines, a wholesale rewrite has historically destroyed that
+behaviour -- read the part you need and make a targeted edit instead, unless
+the requirement itself demands restructuring, in which case re-verify the
+earlier behaviour yourself before finishing.
 
 Layout (already scaffolded, keep it):
 - `frontend/src/index.html` — the UI, plus one .html per further route.
