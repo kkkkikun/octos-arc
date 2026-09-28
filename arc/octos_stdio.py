@@ -157,8 +157,10 @@ class OctosStdioSession:
         # A driver-side timeout does not stop the kernel-side turn: a slow
         # (thinking) model leaves an orphan "already running" turn behind, and
         # the immediate next turn/start used to crash the whole run into an
-        # uncaught protocol error. Wait the orphan out instead.
-        for attempt in range(6):
+        # uncaught protocol error. Waiting it out lost the race too (the
+        # orphan outlived 6 minutes); recycle the session instead -- close it
+        # and open a fresh one in the same process, keeping the profile setup.
+        for attempt in range(3):
             try:
                 self._send("turn/start", {
                     "session_id": self.session_id,
@@ -167,9 +169,16 @@ class OctosStdioSession:
                 }, want_response=True, timeout=min(60.0, timeout))
                 break
             except OctosProtocolError as exc:
-                if "already running" not in str(exc) or attempt == 5:
+                if "already running" not in str(exc) or attempt == 2:
                     raise
-                time.sleep(60)
+                try:
+                    self._send("session/close", {"session_id": self.session_id},
+                               want_response=True, timeout=30)
+                except (OctosProtocolError, queue.Empty):
+                    pass                      # best effort: kernel may not know it
+                self.session_id = f"arc-bundle:{uuid.uuid4().hex[:8]}"
+                self.open()
+                time.sleep(10)
 
         chunks: list[str] = []
         while True:
