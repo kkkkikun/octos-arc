@@ -59,6 +59,10 @@ Rules:
   it at the current anchor cell, Ctrl+X moves it, Ctrl+Z/Ctrl+Y undo and
   redo. Handle keydown on the document -- never assume focus sits inside an
   input -- and act on the grid's current selection.
+- Adding a worksheet makes it the ACTIVE sheet the moment it is created: its
+  tab carries `aria-selected="true"`, the grid switches to its (empty) cells
+  with A1 selected -- appending an inert tab while the old sheet stays
+  active fails the scenario's very next assertion.
 - Dialogs are real ARIA dialogs: an overlay named by the requirement
   ("Import CSV", "Sort range", ...) is `role="dialog"` with that exact
   accessible name, and it mounts/opens from the control the requirement
