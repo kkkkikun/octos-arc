@@ -154,11 +154,22 @@ class OctosStdioSession:
         if timeout <= 0:
             return False, "octos turn timed out"
         turn_id = str(uuid.uuid4())
-        self._send("turn/start", {
-            "session_id": self.session_id,
-            "turn_id": turn_id,
-            "input": [{"kind": "text", "text": text}],
-        }, want_response=True, timeout=min(60.0, timeout))
+        # A driver-side timeout does not stop the kernel-side turn: a slow
+        # (thinking) model leaves an orphan "already running" turn behind, and
+        # the immediate next turn/start used to crash the whole run into an
+        # uncaught protocol error. Wait the orphan out instead.
+        for attempt in range(6):
+            try:
+                self._send("turn/start", {
+                    "session_id": self.session_id,
+                    "turn_id": turn_id,
+                    "input": [{"kind": "text", "text": text}],
+                }, want_response=True, timeout=min(60.0, timeout))
+                break
+            except OctosProtocolError as exc:
+                if "already running" not in str(exc) or attempt == 5:
+                    raise
+                time.sleep(60)
 
         chunks: list[str] = []
         while True:
