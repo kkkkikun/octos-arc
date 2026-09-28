@@ -230,6 +230,13 @@ def run_specs(app: Path, work: Path, root: Path, pw: str, env: dict,
     seed = state_snapshot(app)
     rc, listing = one("--list")
     ids = spec_ids(listing)
+    if len(ids) > 20:
+        # A per-test reboot multiplies fast tests into slow boots: the final
+        # full-suite check (100 tests) blew the check node's own timeout on
+        # the platform's slower box and wedged the run in a kill-retry loop.
+        # Isolation buys repair precision on a node's few specs; a big suite
+        # runs whole and takes the state bleed it has always taken.
+        ids = []
     if not ids:                                   # enumerate failed: run whole
         srv = boot()
         try:
