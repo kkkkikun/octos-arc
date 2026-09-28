@@ -56,7 +56,19 @@ def parse_tool_calls(content):
     """The relay's models answer with prose-wrapped JSON; find the call list."""
     text = (content or "").strip()
     text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
-    for cand in [text] + re.findall(r"\{[\s\S]*\}", text):
+    cands = [text] + re.findall(r"\{[\s\S]*\}", text)
+    # A chatty model buries the call object inside prose: scan balanced braces
+    # around every "tool_calls" occurrence as extra candidates.
+    for i, ch in enumerate(text):
+        if ch == "{" and '"tool_calls"' in text[i:i + 40]:
+            depth, j = 0, i
+            while j < len(text):
+                depth += (text[j] == "{") - (text[j] == "}")
+                if depth == 0:
+                    cands.append(text[i:j + 1])
+                    break
+                j += 1
+    for cand in cands:
         try:
             obj = json.loads(cand)
         except (ValueError, TypeError):
@@ -123,6 +135,8 @@ class Handler(BaseHTTPRequestHandler):
                         msg["content"] = None
                         ch["finish_reason"] = "tool_calls"
                         DEBUG.write(f"-> tool_calls { [c['function']['name'] for c in calls] }\n")
+                    elif tools and msg.get("content"):
+                        DEBUG.write(f"-> no-call parse: {(msg['content'] or '')[:300]!r}\n")
                 body = json.dumps(resp).encode()
             except ValueError:
                 pass
