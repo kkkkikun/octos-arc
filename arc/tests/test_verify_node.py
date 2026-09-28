@@ -99,5 +99,23 @@ class StateSnapshot(unittest.TestCase):
             self.assertEqual({p.name for p in snap}, {"store.json", "data.csv"})
 
 
+class NameTwins(unittest.TestCase):
+    def test_link_and_button_sharing_a_name_is_flagged(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "index.html").write_text(
+                '<a href="/signin">Sign in</a><button onclick="x">Sign in</button>'
+                '<button>D1</button><button>D2</button>')   # same-tag repeats are fine
+            self.assertEqual(verify_node.name_twins(Path(tmp)), ["sign in"])
+
+    def test_aria_label_beats_body_text_and_clean_pages_pass(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "index.html").write_text(
+                '<a href="/s" aria-label="Go home">irrelevant text</a>'
+                '<button aria-label="Save">Save</button>')
+            self.assertEqual(verify_node.name_twins(Path(tmp)), [])
+
+
 if __name__ == "__main__":
     unittest.main()

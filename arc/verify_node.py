@@ -121,6 +121,24 @@ def playwright_root(env: dict) -> tuple[Path | None, dict]:
 
 NO_BROWSER = "Executable doesn't exist"
 
+TAG_RE = re.compile(r"<(a|button)\b([^>]*)>(.*?)</\1>", re.S | re.I)
+
+
+def name_twins(pages: Path) -> list[str]:
+    """Accessible names that one link AND one button both carry. Graders
+    resolve controls by role plus name, and the github leg shipped a 'Sign in'
+    link next to a handler-less button of the same name: every role-ordered
+    click hit the dead twin and timed out. Same-tag repeats (a row of Delete
+    buttons) are fine; the wound is the cross-tag collision."""
+    by_name: dict[str, set[str]] = {}
+    for page in pages.glob("*.html"):
+        for tag, attrs, body in TAG_RE.findall(page.read_text(errors="replace")):
+            label = re.search(r'aria-label="([^"]+)"', attrs)
+            name = (label.group(1) if label else re.sub(r"<[^>]+>", " ", body)).strip()
+            if name:
+                by_name.setdefault(name.casefold(), set()).add(tag.casefold())
+    return sorted(n for n, tags in by_name.items() if len(tags) > 1)[:8]
+
 SPEC_ID_LINE = re.compile(r"(\S+\.spec\.ts:\d+):\d+")
 
 
@@ -148,16 +166,23 @@ def state_snapshot(app: Path) -> dict[Path, bytes]:
             and p.name not in ("package.json", "package-lock.json")}
 
 ASSET_RE = re.compile(r'(?:src|href)="(/[^"]+\.(?:js|css))"')
+PAGE_RE = re.compile(r'href="(/[^"]+)"')
 
 
 def asset_holes(pages: Path, port: int) -> list[str]:
     """Root-absolute .js/.css a page references but the server 404s -- a
     static-page whitelist that omitted /app.js shipped on the github leg and
-    killed every page's JS while markup-only flows still passed their specs."""
+    killed every page's JS while markup-only flows still passed their specs.
+    Page links are covered too, but only where the built page exists: a
+    served href="/signin" with dist/signin.html present must not 404 (the
+    whitelist once matched the bare name and forgot the .html)."""
     import urllib.request
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     refs = {m.group(1) for p in pages.glob("*.html")
             for m in ASSET_RE.finditer(p.read_text(errors="replace"))}
+    refs |= {m.group(1) for p in pages.glob("*.html")
+             for m in PAGE_RE.finditer(p.read_text(errors="replace"))
+             if (pages / (m.group(1).lstrip("/") + ".html")).is_file()}
 
     def hole(asset: str) -> bool:  # a 404 raises HTTPError, never compares
         try:
@@ -291,11 +316,12 @@ def run_app(app: Path, out: Path, env: dict, tests: Path, port: int, specs: list
             stop(srv)
             print(f"[verify] backend never bound port {port}\n{server_log.read_text(errors='replace')[-1500:]}")
             return 1
-        holes = asset_holes(app / "frontend" / "dist", port)
+        holes = asset_holes(app / "frontend" / "dist", port) + [
+            f"'{n}' is both a link and a button" for n in name_twins(app / "frontend" / "dist")]
         if holes:
             stop(srv)
-            print(f"[verify] referenced assets the server 404s (all JS/CSS on those pages is dead): "
-                  f"{', '.join(holes)}\nServe every file the built HTML references, not a page whitelist.")
+            print(f"[verify] dead controls or missing assets: {'; '.join(holes)}\n"
+                  "Serve every file the built HTML references and give each named action exactly one element.")
             return 1
         if not specs:
             # No public example for this requirement: the app must still build,
