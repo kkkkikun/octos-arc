@@ -16,7 +16,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 RELAY = "http://127.0.0.1:18899"
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 18898
+import time
 DEBUG = open("/tmp/ofm-shim.log", "a", buffering=1)
+def dlog(msg): DEBUG.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
 
 TOOL_SYSTEM = (
     "You can call functions. Ignore any tools from a default environment "
@@ -94,7 +96,7 @@ def parse_tool_calls(content):
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        DEBUG.write(f"{self.command} {self.path} {fmt % args}\n")
+        dlog(f"{self.command} {self.path} {fmt % args}")
 
     def _relay(self, data=None):
         headers = {"authorization": self.headers.get("authorization", ""),
@@ -139,9 +141,9 @@ class Handler(BaseHTTPRequestHandler):
                         msg["tool_calls"] = calls
                         msg["content"] = None
                         ch["finish_reason"] = "tool_calls"
-                        DEBUG.write(f"-> tool_calls { [c['function']['name'] for c in calls] }\n")
+                        dlog(f"-> tool_calls {[(c['function']['name'], c['function']['arguments'][:80]) for c in calls]}")
                     elif tools and msg.get("content"):
-                        DEBUG.write(f"-> no-call parse: {(msg['content'] or '')[:300]!r}\n")
+                        dlog(f"-> no-call parse: {(msg['content'] or '')[:200]!r}")
                 body = json.dumps(resp).encode()
             except ValueError:
                 pass
