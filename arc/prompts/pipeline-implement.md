@@ -53,6 +53,12 @@ Rules:
   selection included), and a control nested inside a tab or grid cell must
   not leak into that tab/cell's own accessible name -- set an explicit
   aria-label on the container instead.
+- Grid commands must work from the KEYBOARD, at the document level, whether
+  or not a menu also offers them: Ctrl+C copies the selected range into the
+  app's own buffer (a page cannot read the system clipboard), Ctrl+V pastes
+  it at the current anchor cell, Ctrl+X moves it, Ctrl+Z/Ctrl+Y undo and
+  redo. Handle keydown on the document -- never assume focus sits inside an
+  input -- and act on the grid's current selection.
 - Dialogs are real ARIA dialogs: an overlay named by the requirement
   ("Import CSV", "Sort range", ...) is `role="dialog"` with that exact
   accessible name, and it mounts/opens from the control the requirement
