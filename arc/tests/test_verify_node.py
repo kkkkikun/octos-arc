@@ -182,3 +182,49 @@ class JsSyntaxErrors(unittest.TestCase):
             (work / "rel" / "bad.js").write_text("function f() {\n}}\n")
             self.assertEqual(verify_node.js_syntax_errors(work / "rel"),
                              ["bad.js:2: SyntaxError: Unexpected token '}'"])
+
+
+class AuditHardening(unittest.TestCase):
+    def test_protocol_relative_cdn_url_is_not_a_local_hole(self):
+        # src="//cdn.example.com/lib.js" is a legal protocol-relative ref;
+        # GETing it against 127.0.0.1 always 404s and condemned working apps.
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp)
+            (dist / "index.html").write_text(
+                '<script src="//cdn.example.com/lib.js"></script>'
+                '<script src="/app.js?v=2"></script>')
+            (dist / "app.js").write_text("x")
+            srv, port = _serve({"/app.js?v=2": 200})
+            try:
+                self.assertEqual(verify_node.asset_holes(dist, port), [])
+            finally:
+                srv.shutdown()
+
+    def test_created_store_files_are_dropped_between_scenarios(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp)
+            (app / "backend").mkdir()
+            seed = verify_node.state_snapshot(app)          # empty store
+            created = app / "backend" / "records.json"
+            created.write_text('{"debris": 1}')
+            verify_node.drop_unseeded_stores(app, seed)
+            self.assertFalse(created.exists())
+
+    def test_sqlite_wal_sidecar_is_snapshot_state(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp)
+            (app / "backend").mkdir()
+            (app / "backend" / "data.sqlite").write_text("db")
+            (app / "backend" / "data.db-wal").write_text("wal")
+            (app / "backend" / "server.js").write_text("code")   # never state
+            snap = verify_node.state_snapshot(app)
+            names = {p.name for p in snap}
+            self.assertIn("data.sqlite", names)
+            self.assertIn("data.db-wal", names)
+            self.assertNotIn("server.js", names)

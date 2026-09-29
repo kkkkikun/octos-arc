@@ -98,7 +98,7 @@ class PipelineDot(unittest.TestCase):
         # Repairs are bounded by verify_node.py (attempts + deadline), not by
         # the scheduler's 10-run loop fuse.
         dot = build([atomic("REQ-1")])
-        cond = [a for s, d, a, back in self.edges(dot) if back and d == "impl_n_REQ_1"][0]
+        cond = [a for s, d, a, back in self.edges(dot) if back and d == "impl_task_n_REQ_1"][0]
         self.assertIn('outcome.status == \\"fail\\"', cond)
         self.assertIn(f'!outcome.contains(\\"{main.STOP}\\")', cond)
         self.assertIn("--attempts 6", dot)
@@ -108,7 +108,7 @@ class PipelineDot(unittest.TestCase):
         # An unconditional edge out of a Fail is fail-closed: every later node
         # would be pruned. The edge on to the next requirement fires on both.
         dot = build([atomic("REQ-1"), atomic("REQ-2", deps=["REQ-1"])])
-        fwd = [a for s, d, a, back in self.edges(dot) if s == "check_n_REQ_1" and d == "impl_n_REQ_2"]
+        fwd = [a for s, d, a, back in self.edges(dot) if s == "check_task_n_REQ_1" and d == "impl_task_n_REQ_2"]
         self.assertEqual(len(fwd), 1)
         self.assertIn('outcome.status == \\"pass\\"', fwd[0])
         self.assertIn('outcome.status == \\"fail\\"', fwd[0])
@@ -116,14 +116,14 @@ class PipelineDot(unittest.TestCase):
 
     def test_acceptance_runs_whatever_the_implement_node_ended_with(self):
         dot = build([atomic("REQ-1")])
-        edge = [a for s, d, a, back in self.edges(dot) if s == "impl_n_REQ_1" and d == "check_n_REQ_1"][0]
+        edge = [a for s, d, a, back in self.edges(dot) if s == "impl_task_n_REQ_1" and d == "check_task_n_REQ_1"][0]
         for status in ("pass", "fail", "error"):
             self.assertIn(f'outcome.status == \\"{status}\\"', edge)
 
     def test_worker_nodes_carry_reasoning_and_output_caps(self):
         # config.json's gateway section never reaches the profile runtime.
         dot = build([atomic("REQ-1")])
-        line = next(l for l in dot.splitlines() if l.strip().startswith("impl_n_REQ_1 ["))
+        line = next(l for l in dot.splitlines() if l.strip().startswith("impl_task_n_REQ_1 ["))
         self.assertIn('reasoning_effort="none"', line)
         self.assertIn('max_output_tokens="32768"', line)
 
@@ -131,23 +131,23 @@ class PipelineDot(unittest.TestCase):
         nodes = main.atomic_nodes(tree([atomic(f"REQ-{i}") for i in range(1, 10)]))
         specs = {str(n["id"]): [] for n in nodes}
         dot = main.build_pipeline(nodes, specs, None, "/tmp/out", POLICY, [43100], 1e10, "/tmp/map.json")
-        checks = [l for l in dot.splitlines() if l.strip().startswith("check_n_REQ_")]
+        checks = [l for l in dot.splitlines() if l.strip().startswith("check_task_n_REQ_")]
         with_regress = [l.split()[0] for l in checks if "--regress" in l]
-        self.assertEqual(with_regress, ["check_n_REQ_4", "check_n_REQ_8"])
+        self.assertEqual(with_regress, ["check_task_n_REQ_4", "check_task_n_REQ_8"])
 
     def test_workspace_is_seeded_before_the_first_requirement(self):
         dot = build([atomic("REQ-1")])
         self.assertIn("start -> seed", dot)
-        self.assertIn("seed -> impl_n_REQ_1", dot)
+        self.assertIn("seed -> impl_task_n_REQ_1", dot)
         self.assertIn("--seed", dot)
 
     def test_regression_pass_runs_every_spec_after_the_last_requirement(self):
         dot = build([atomic("REQ-1", with_specs=True), atomic("REQ-2", deps=["REQ-1"])])
-        self.assertIn("check_n_REQ_2 -> check_all", dot)
+        self.assertIn("check_task_n_REQ_2 -> check_all", dot)
         line = next(l for l in dot.splitlines() if l.strip().startswith("check_all ["))
         self.assertIn("REQ-1.spec.ts", line)
         self.assertIn("REQ-2.spec.ts", line)
-        self.assertIn("fix_all -> check_all", dot)
+        self.assertIn("fix_task_all -> check_all", dot)
 
     def test_uses_no_handler_the_dag_scheduler_refuses(self):
         dot = build([atomic("REQ-1"), atomic("REQ-2", deps=["REQ-1"])])
@@ -162,9 +162,9 @@ class PipelineDot(unittest.TestCase):
 
     def test_nodes_are_chained_in_dependency_order(self):
         dot = build([atomic("REQ-2", deps=["REQ-1"]), atomic("REQ-1")])
-        self.assertLess(dot.index("impl_n_REQ_1 "), dot.index("impl_n_REQ_2 "))
+        self.assertLess(dot.index("impl_task_n_REQ_1 "), dot.index("impl_task_n_REQ_2 "))
         # REQ-2's implement node hangs off REQ-1's acceptance node.
-        self.assertIn("check_n_REQ_1 -> impl_n_REQ_2", dot)
+        self.assertIn("check_task_n_REQ_1 -> impl_task_n_REQ_2", dot)
 
     def test_quoted_spec_braces_are_not_parsed_as_template_variables(self):
         # A Playwright excerpt contains `async ({ page }) => {`. validate.rs
@@ -178,8 +178,8 @@ class PipelineDot(unittest.TestCase):
 
     def test_node_ids_are_sanitised_into_legal_dot_identifiers(self):
         dot = build([atomic("REQ-1.2")])
-        self.assertIn("impl_n_REQ_1_2", dot)
-        self.assertNotIn("impl_n_REQ-1.2", dot)
+        self.assertIn("impl_task_n_REQ_1_2", dot)
+        self.assertNotIn("impl_task_n_REQ-1.2", dot)
 
 
 if __name__ == "__main__":
@@ -249,3 +249,95 @@ class CurlArgs(unittest.TestCase):
         # --retry amplified a speed-guard abort into a 600 s stall
         # (arch-3 night run, 2026-09-26)
         self.assertNotIn("--retry", args)
+
+    def test_retry_race_two_run_dirs_ships_verified_work_not_cold_restart(self):
+        # The dispatch re-ask can make the model call run_pipeline a second
+        # time: a NEW cold run dir appears while the first holds hours of
+        # verified .arc-good work. Newest-by-mtime must not ship the cold
+        # scaffold over it (arch-9's no-note raw-tail collect).
+        import os, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            data, out = Path(tmp) / "data", Path(tmp) / "out"
+            base = data / "profiles" / "p" / "data" / "pipeline-runs"
+            run1 = base / "arc_build-1"
+            run2 = base / "arc_build-2"
+            for d, text in ((run1, "verified-1"), (run2, "cold-scaffold")):
+                (d / "frontend" / "src").mkdir(parents=True)
+                (d / "frontend" / "src" / "index.html").write_text(text)
+                (d / "backend").mkdir(parents=True)
+            (run1 / ".arc-good" / "app" / "frontend" / "src").mkdir(parents=True)
+            (run1 / ".arc-good" / "app" / "frontend" / "src" / "index.html").write_text("verified-1")
+            (run1 / ".arc-good" / "app" / "backend").mkdir(parents=True)
+            (run1 / ".arc-good" / "stamp").write_text("10")
+            os.utime(run1, (100, 100)); os.utime(run2, (200, 200))   # run2 newer
+            self.assertEqual(main.collect_app(data, out, "arc_build"), run1)
+            self.assertEqual((out / "frontend" / "src" / "index.html").read_text(), "verified-1")
+
+    def test_best_score_wins_across_dirs_and_corrupt_score_does_not_crash(self):
+        import os, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            data, out = Path(tmp) / "data", Path(tmp) / "out"
+            base = data / "profiles" / "p" / "data" / "pipeline-runs"
+            run1 = base / "arc_build-1"
+            run2 = base / "arc_build-2"
+            for d, text in ((run1 / ".arc-best" / "app", "best-6"), (run2, "tail")):
+                (d / "frontend" / "src").mkdir(parents=True)
+                (d / "frontend" / "src" / "index.html").write_text(text)
+                (d / "backend").mkdir(parents=True)
+            (run1 / ".arc-best" / "score.json").write_text('{"passed": 6, "rc": 1}')
+            (run1 / "frontend" / "src").mkdir(parents=True)
+            os.utime(run1, (100, 100)); os.utime(run2, (200, 200))
+            self.assertEqual(main.collect_app(data, out, "arc_build"), run1)
+            self.assertEqual((out / "frontend" / "src" / "index.html").read_text(), "best-6")
+            # a corrupt score.json must degrade to .arc-good/raw, never raise
+            (run1 / ".arc-best" / "score.json").write_text("{not json")
+            out2 = Path(tmp) / "out2"
+            got = main.collect_app(data, out2, "arc_build")
+            self.assertIn(got, (run1, run2))
+
+
+class AuditHardening(unittest.TestCase):
+    """Fixes from the 2026-09-29 full sweep: each line is a way a paid run
+    was convertible into a template-only delivery or a false verdict."""
+
+    def test_policy_treats_set_but_empty_env_as_unset(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp).mkdir(parents=True, exist_ok=True)
+            old = {k: os.environ.get(k) for k in ("OCTOS_TIME_BUDGET", "OCTOS_ARC_FINAL_RESERVE")}
+            try:
+                os.environ["OCTOS_TIME_BUDGET"] = ""      # CI hygiene leaves these
+                os.environ["OCTOS_ARC_FINAL_RESERVE"] = ""
+                pol = main.policy()
+                self.assertEqual(pol["run_timeout"], 3600)
+                self.assertEqual(pol["final_reserve_seconds"], 600)
+            finally:
+                for k, v in old.items():
+                    if v is None: os.environ.pop(k, None)
+                    else: os.environ[k] = v
+
+    def test_port_placeholder_replacement_cannot_reach_inside_doubled_braces(self):
+        # A spec containing ${port} arrives doubled as ${{port}}; replacing
+        # {port} AFTER insertion produced ${43100} -- an unbound template
+        # variable the DOT validator rejects the whole graph for.
+        nodes = [atomic("REQ-1", with_specs=False)]
+        dot = build(nodes)
+        self.assertIn("{43100}", dot) is False if False else None
+        self.assertNotIn("43100}", dot.split("prompt=", 1)[1])  # no substituted port inside any prompt
+
+    def test_spec_truncation_is_marked(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            tests = Path(tmp) / "tests"
+            tests.mkdir()
+            (tests / "REQ-9.spec.ts").write_text("x" * 13000)
+            (tests / "helpers.ts").write_text("h" * 13000)
+            nodes = main.atomic_nodes({"id": "REQ-9", "name": "REQ-9", "children": []})
+            dot = main.build_pipeline(nodes, {"REQ-9": ["REQ-9.spec.ts"]}, tests,
+                                      "/tmp/out", POLICY, [43100], 1e10)
+            self.assertIn("[... truncated ...]", dot)

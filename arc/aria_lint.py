@@ -438,7 +438,9 @@ def extract_contracts(tree: dict) -> dict[str, list[Contract]]:
 
 
 def _js_regex_escape(text: str) -> str:
-    return re.sub(r"([.*+?^${}()|[\]\\])", r"\\\1", text)
+    # "/" too: an unescaped slash ends the regex literal itself, and a name
+    # like "Add/Remove" then makes the whole generated spec a SyntaxError.
+    return re.sub(r"([.*+?^${}()|[\]\\/])", r"\\\1", text).replace("\n", "\\n")
 
 
 def lint_spec_source(contracts: list[Contract], routes: list[str]) -> str:

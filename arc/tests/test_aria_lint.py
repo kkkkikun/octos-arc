@@ -283,3 +283,12 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertIn("scripts parse on every route", src)
         self.assertIn("pageerror", src)
         self.assertIn("SyntaxError", src)
+
+    def test_should_escape_slash_and_newline_in_names(self):
+        # An unescaped "/" terminates the regex literal: "Add/Remove" used to
+        # emit `name: /^Add/Remove$/i` -- a SyntaxError killing the whole spec.
+        import aria_lint as _al
+        got = _al._js_regex_escape("Add/Remove")
+        self.assertNotIn("/^Add/Remove$", got)
+        self.assertIn("\\/", got)
+        self.assertEqual(_al._js_regex_escape("line\nbreak"), "line\\nbreak")

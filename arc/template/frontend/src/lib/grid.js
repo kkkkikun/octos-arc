@@ -112,8 +112,9 @@
     }
     function commitEdit() {
       if (!editing) return;
-      pushUndo(snapshot());
-      data[editing.r + "," + editing.c] = editing.input.value;
+      var key = editing.r + "," + editing.c;
+      if (data[key] !== editing.input.value) pushUndo(snapshot());  // a no-op edit is not an undo level
+      data[key] = editing.input.value;
       editing = null;
       render();
       onChange(data);
@@ -149,9 +150,13 @@
             data[(sel.r0 + i) + "," + (sel.c0 + j)] = clip[i][j];
         render(); onChange(data);
         ev.preventDefault();
+      } else if (k === "z" && ev.shiftKey && redoStack.length) {
+        // Shift+Z first: the lowercased key hides it from the plain-z branch,
+        // which would otherwise UNDO when asked to redo.
+        undoStack.push(snapshot()); restore(redoStack.pop()); ev.preventDefault();
       } else if (k === "z" && undoStack.length) {
         redoStack.push(snapshot()); restore(undoStack.pop()); ev.preventDefault();
-      } else if ((k === "y" || (k === "z" && ev.shiftKey)) && redoStack.length) {
+      } else if (k === "y" && redoStack.length) {
         undoStack.push(snapshot()); restore(redoStack.pop()); ev.preventDefault();
       }
     }

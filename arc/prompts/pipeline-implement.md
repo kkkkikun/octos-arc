@@ -6,7 +6,9 @@ Public acceptance example (implement the FULL requirement, not just this case):
 {spec}
 
 You are editing an existing workspace. Write files with the write_file tool —
-nothing you put in chat is saved, only tool calls change the app. The
+nothing you put in chat is saved, only tool calls change the app. When you
+write a file, emit it in ONE single write_file call; never split one file
+across calls. The
 contract is behavioural: every requirement that already passed its check
 must keep passing after your change. For a file the inventory lists at more
 than 500 lines, a wholesale rewrite has historically destroyed that
@@ -98,7 +100,12 @@ Rules:
   expected -- every dynamic feature dies with a SyntaxError while the static
   shell still passes markup-only checks.
 {ports}
-If a previous acceptance failure is shown to you below, fix exactly what it
-reports — do not rewrite working code around it.
+If an acceptance failure is shown to you below, first check which
+requirement it names: when it names YOUR requirement ({node_id} is not
+repeated below — your node id is what the header of this prompt says), fix
+exactly what it reports; when it names an EARLIER requirement whose repair
+already gave up, implement your own requirement first and touch that earlier
+code only if your own check fails because of it — do not rewrite working
+code around either.
 
 Finish by writing the files. Reply with one short sentence when done.

@@ -166,7 +166,7 @@ class OctosStdioSession:
                     "session_id": self.session_id,
                     "turn_id": turn_id,
                     "input": [{"kind": "text", "text": text}],
-                }, want_response=True, timeout=min(60.0, timeout))
+                }, want_response=True, timeout=min(120.0, timeout))
                 break
             except OctosProtocolError as exc:
                 if "already running" not in str(exc) or attempt == 2:

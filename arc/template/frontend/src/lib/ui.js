@@ -1,7 +1,7 @@
 /* Generic UI primitives -- public components, not task code.
  *
- * dialog: a real ARIA dialog (role=dialog, exact accessible name, focus
- * trapped while open, Escape closes) whose hidden overlay truly unrenders
+ * dialog: a real ARIA dialog (role=dialog, exact accessible name, Escape
+ * closes it from anywhere on the page) whose hidden overlay truly unrenders
  * (display:none !important -- a later display rule in the cascade must not
  * resurrect a closed dialog that still intercepts pointer events).
  *
@@ -11,8 +11,10 @@
  * field: a labeled control with an exact accessible name and no hidden
  * duplicates -- one element per named control.
  *
- * store: JSON-file persistence. A brand-new store starts from the seed the
- * host passes; later startups keep user edits and deletions. */
+ * store: JSON-file persistence. A brand-new store (the server's 404) starts
+ * from the seed the host passes; later startups keep user edits and
+ * deletions. Any other load failure propagates instead of reseeding -- a
+ * transient error must not wipe the disk state back to the seed. */
 (function () {
   "use strict";
 
@@ -47,11 +49,19 @@
       box.appendChild(row);
     }
     overlay.appendChild(box);
-    function close() { overlay.hidden = true; overlay.remove(); }
-    overlay.addEventListener("keydown", function (ev) { if (ev.key === "Escape") close(); });
+    function close() {
+      onDocKey && document.removeEventListener("keydown", onDocKey);
+      overlay.hidden = true; overlay.remove();
+    }
+    // Escape on the DOCUMENT: a content-only dialog has nothing focusable
+    // inside, and a backdrop click leaves focus on <body> -- an
+    // overlay-scoped listener never fires in either case.
+    var onDocKey = function (ev) { if (ev.key === "Escape") close(); };
+    document.addEventListener("keydown", onDocKey);
     document.body.appendChild(overlay);
+    box.tabIndex = -1;
     var focusable = box.querySelector("input,select,textarea,button");
-    if (focusable) focusable.focus();
+    (focusable || box).focus();
     return { el: box, close: close };
   }
 
@@ -111,26 +121,36 @@
     function ensure() {
       if (state) return Promise.resolve(state);
       return fetch(fetchPath).then(function (r) {
+        // 404 = brand-new store: seed it. Any other failure (a 500, a
+        // network blip, unparseable JSON) must NOT reseed -- that would
+        // overwrite the user's persisted edits with the factory defaults.
+        if (r.status === 404) {
+          state = seedFactory();
+          return save().then(function () { return state; });
+        }
         if (!r.ok) throw new Error("store fetch " + r.status);
-        return r.json();
-      }).catch(function () {
-        state = seedFactory();
-        return save().then(function () { return state; });
-      }).then(function (s) { state = s; return s; });
+        return r.json().then(function (s) { state = s; return s; });
+      });
     }
     function save() {
-      return fetch(fetchPath, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(state),
-      });
+      // Save implies load: calling save before the first load would PUT the
+      // literal null and brick every later boot.
+      return ensure().then(function () {
+        return fetch(fetchPath, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(state),
+        });
+      }).then(function () { return state; });
     }
     return {
       load: ensure,
       get: function () { return state; },
       save: function (mutator) {
-        if (mutator) mutator(state);
-        return save().then(function () { return state; });
+        return ensure().then(function () {
+          if (mutator) mutator(state);
+          return save();
+        });
       },
     };
   }

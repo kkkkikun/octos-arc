@@ -89,8 +89,8 @@ def policy() -> dict:
     pipe = data.get("pipeline", {})
     out = {}
     for key, (toml_key, env_key, default) in _POLICY.items():
-        value = os.environ.get(env_key, pipe.get(toml_key, default))
-        out[key] = type(default)(value)
+        value = os.environ.get(env_key) or pipe.get(toml_key, default)
+        out[key] = type(default)(value)      # set-but-empty env falls back, never raises
     return out
 
 
@@ -322,7 +322,7 @@ def build_pipeline(nodes, specs, tests_dir, out, pol, ports, deadline, spec_map=
     # graph says otherwise. The adapter owns the budget, so the graph carries
     # it (plus the final reserve); kernel_env raises the clamp ceiling to match.
     lines = [f'digraph {pol["name"]} {{',
-             f'    graph [default_timeout_secs="{pol["run_timeout"] + pol["final_reserve_seconds"]}"]',
+             f'    graph [default_timeout_secs="{pol["run_timeout"]}"]',
              '    start [handler="noop", label="Start"]',
              f'    seed [handler="shell_check", label="seed workspace", timeout_secs="120", '
              f'prompt="{verify("--seed", out)}"]',
@@ -333,17 +333,29 @@ def build_pipeline(nodes, specs, tests_dir, out, pol, ports, deadline, spec_map=
     tmpl, total = read("pipeline-implement"), len(nodes)
     for index, node in enumerate(nodes, 1):
         nid = str(node["id"])
-        impl, check = f"impl_{sanitize(nid)}", f"check_{sanitize(nid)}"
+        # `_task_` in the id exempts the node from the kernel's generic
+        # "save a ~1000-word report file" injection (handler.rs keys on it):
+        # that instruction contradicts the no-reports rule every node carries
+        # and burns a write plus a screen of prose per requirement.
+        impl, check = f"impl_task_{sanitize(nid)}", f"check_task_{sanitize(nid)}"
         spec_text = ""
         rels = specs.get(nid, [])[:2]
         for rel in [*rels, *spec_helpers(tests_dir, rels)]:
-            body = (tests_dir / rel).read_text(encoding="utf-8", errors="replace") if tests_dir else ""
-            spec_text += f"\n----- {rel} -----\n{untemplate(body[:12000])}\n"
-        body = (tmpl.replace("{node_id}", nid)
+            raw = (tests_dir / rel).read_text(encoding="utf-8", errors="replace") if tests_dir else ""
+            # A silent mid-code cut leaves the model reading half a flow it
+            # cannot know is incomplete; mark the truncation.
+            if len(raw) > 12000:
+                raw = raw[:12000] + "\n[... truncated ...]\n"
+            spec_text += f"\n----- {rel} -----\n{untemplate(raw)}\n"
+        # {port}/{ports} before the spec text goes in: inserted content has
+        # its braces doubled, and a later .replace("{port}") would reach inside
+        # `{{port}}` (offset 1) and produce `${43100}` -- an unbound template
+        # variable the DOT validator rejects the whole graph for.
+        body = (tmpl.replace("{port}", str(ports[0]))
+                    .replace("{ports}", ports_clause)
+                    .replace("{node_id}", nid)
                     .replace("{description}", untemplate(describe(node)))
-                    .replace("{spec}", spec_text or "(no public example for this requirement)")
-                    .replace("{port}", str(ports[0]))
-                    .replace("{ports}", ports_clause))
+                    .replace("{spec}", spec_text or "(no public example for this requirement)"))
         lines.append(impl_node(impl, nid, body))
         # Keep enough time for one attempt at every requirement still to come
         # plus the regression pass; a node past that line stops repairing.
@@ -362,16 +374,16 @@ def build_pipeline(nodes, specs, tests_dir, out, pol, ports, deadline, spec_map=
         lines += [
             f'    check_all [handler="shell_check", label="verify all", '
             f'timeout_secs="{pol["verify_timeout"]}", prompt="{verify(tests_dir or out, ports[0], "--tag", "ALL", "--best", 1, "--attempts", pol["final_repairs"] + 1, "--deadline", int(deadline - pol["final_reserve_seconds"] // 2), *everything)}"]',
-            impl_node("fix_all", "regressions", read("pipeline-regression")
+            impl_node("fix_task_all", "regressions", read("pipeline-regression")
                       .replace("{port}", str(ports[0])).replace("{ports}", ports_clause)),
             '    done [handler="noop", label="Done"]',
             f'    {prev} -> check_all [condition="{prev_cond}"]',
             # An all-conditional router whose conditions all miss falls back to
-            # its lowest-named target, so `done` (< `fix_all`) also catches the
+            # its lowest-named target, so `done` (< `fix_task_all`) also catches the
             # STOP case; without the pass edge a passing suite would "repair".
             f'    check_all -> done [condition="outcome.status == \\"pass\\""]',
-            f'    check_all -> fix_all [condition="{fail} && !outcome.contains(\\"{STOP}\\")"]',
-            '    fix_all -> check_all [condition="context.retry_budget != \\"exhausted\\""]']
+            f'    check_all -> fix_task_all [condition="{fail} && !outcome.contains(\\"{STOP}\\")"]',
+            '    fix_task_all -> check_all [condition="context.retry_budget != \\"exhausted\\""]']
     lines.append("}")
     return "\n".join(lines) + "\n"
 
@@ -410,7 +422,11 @@ def kernel_env(pol: dict, config_dir: Path) -> dict:
     env["OCTOS_PIPELINE_ALLOW"] = pol["name"]
     # ...and do not wake it for every finished node; the run reports once.
     env["OCTOS_PIPELINE_NODE_CONTINUATIONS"] = "0"
-    env["OCTOS_PIPELINE_TIMEOUT_MAX_SECS"] = str(pol["run_timeout"] + pol["final_reserve_seconds"])
+    # The kernel's pipeline must END before the driver's wait deadline, or the
+    # final reserve buys no finalization: a stuck tail node would be killed by
+    # the wall between collect's rmtree and copytree. The kernel gets
+    # run_timeout; the driver waits that plus the reserve and finalizes in it.
+    env["OCTOS_PIPELINE_TIMEOUT_MAX_SECS"] = str(pol["run_timeout"])
     # Fixed, not a default: the dispatch model copies "Max: 3600" from the
     # tool schema into timeout_secs, and a model-supplied value would win.
     env["OCTOS_PIPELINE_TIMEOUT_SECS"] = env["OCTOS_PIPELINE_TIMEOUT_MAX_SECS"]
@@ -422,6 +438,10 @@ def kernel_env(pol: dict, config_dir: Path) -> dict:
     # The acceptance specs' per-test clock rides by env too: verify_node's
     # 10s default fits native playwright, not the helper-driven official specs.
     env["OCTOS_ARC_TEST_TIMEOUT_MS"] = str(pol["test_timeout"])
+    # One Playwright INVOCATION cap (not the per-test clock): verify_node's
+    # 600s default kills a whole-suite run that the 2400s node timeout was
+    # sized for -- a false FAIL the final repair loop then burns rounds on.
+    env["OCTOS_ARC_PLAYWRIGHT_TIMEOUT"] = str(pol["verify_timeout"])
     # Ride out a minute or two of refused / reset connections (1+2+...+60s)
     # instead of failing the node after 7s; timeouts are never retried.
     env["OCTOS_LLM_MAX_RETRIES"] = "8"
@@ -662,12 +682,27 @@ def main() -> int:
         # run leaves its dir; without one, ask again.
         started_run = lambda: any(data_dir.glob(f"profiles/*/data/pipeline-runs/{pol['name']}-*"))  # noqa: E731
         ok, reply = False, ""
+        # Dispatch must never eat the wall: every recovery path below still
+        # reaches wait/deliver/collect, and an unbounded dispatch turn is the
+        # one phase that can spend the whole budget before any of them run.
+        dispatch_wall = state["started"] + pol["run_timeout"] - pol["final_reserve_seconds"]
         for attempt in range(3):
-            ok, reply = session.run_turn(ask if attempt == 0 else
-                                         ask + " (the pipeline has NOT started yet -- call the tool now)",
-                                         timeout=min(pol["run_timeout"], pol["dispatch_turn_timeout"]))
+            if time.time() > dispatch_wall:
+                log("[arc] dispatch wall spent; moving to the wait phase")
+                break
+            try:
+                ok, reply = session.run_turn(ask if attempt == 0 else
+                                             ask + " (the pipeline has NOT started yet -- call the tool now)",
+                                             timeout=min(pol["run_timeout"], pol["dispatch_turn_timeout"]))
+            except Exception as exc:  # noqa: BLE001 -- a protocol error must not skip collect
+                log(f"[arc] dispatch turn {attempt + 1} raised {type(exc).__name__}: {exc}")
+                if started_run():
+                    break               # the pipeline IS running; go wait for it
+                continue
             log(f"[arc] dispatch turn {attempt + 1} ok={ok}: {reply[:160]}")
-            if ok and started_run():
+            # A timed-out turn may still have started the pipeline before it
+            # wedged -- the directory, not the reply, is the truth.
+            if started_run():
                 break
         else:
             log("[arc] dispatch never started the pipeline; waiting anyway")
@@ -682,7 +717,10 @@ def main() -> int:
     status = {p.name: p.read_text().strip() == "0"
               for p in (run_dir / ".arc-status").glob("*")} if run_dir else {}
     if run_dir and (run_dir / ".arc-best" / "score.json").is_file():   # what ships is the best state
-        status["ALL"] = json.loads((run_dir / ".arc-best" / "score.json").read_text())["rc"] == 0
+        try:
+            status["ALL"] = json.loads((run_dir / ".arc-best" / "score.json").read_text())["rc"] == 0
+        except (OSError, ValueError, KeyError):   # truncated by a kill: trust the per-node verdicts
+            pass
     passed = status.get("ALL", bool(status) and all(status.values()))
     tokens = summary.get("total_tokens") or {}
     state["tokens_in"] += int(tokens.get("input_tokens") or 0)
@@ -718,21 +756,38 @@ def collect_app(data_dir: Path, out: Path, name: str) -> Path | None:
     if not runs:
         log("[arc] no pipeline run dir found; nothing to collect")
         return None
-    # The full-suite check keeps the best state it measured; a wall-killed run
-    # never reaches it, so fall back to the last state a per-node acceptance
-    # passed (.arc-good) before ever shipping the raw final workspace -- arch-6
-    # shipped that tail and a half-written node erased hours of verified work.
-    best, good = runs[-1] / ".arc-best", runs[-1] / ".arc-good"
-    source = next((d / "app" for d in (best, good) if (d / "app" / "frontend").is_dir()), runs[-1])
+    # A dispatch re-ask can start a SECOND cold run dir while the first still
+    # holds hours of verified work: the best state wins across ALL dirs, the
+    # newest dir alone never overrides it (arch-9 shipped a cold tail that way).
+    def score_of(r: Path) -> int:
+        try:
+            return int(json.loads((r / ".arc-best" / "score.json").read_text())["passed"])
+        except (OSError, ValueError, KeyError, TypeError):
+            return -1
+    source, note, origin = None, "", None
+    with_best = [(score_of(r), r) for r in runs if (r / ".arc-best" / "app" / "frontend").is_dir()]
+    scored = [t for t in with_best if t[0] >= 0]
+    if scored:
+        n, pick = max(scored)
+        source, note, origin = pick / ".arc-best" / "app", f" (best full-suite state: {n} passed)", pick
+    else:
+        def stamp_of(r: Path) -> float:
+            try:
+                return float((r / ".arc-good" / "stamp").read_text() or 0)
+            except (OSError, ValueError):
+                return 0.0
+        stamped = [(stamp_of(r), r) for r in runs
+                   if (r / ".arc-good" / "app" / "frontend").is_dir()]
+        if stamped:
+            _, pick = max(stamped)
+            source, note, origin = pick / ".arc-good" / "app", " (last per-node verified state)", pick
+    if source is None:                        # no verified state anywhere: the raw tail
+        source, origin = runs[-1], runs[-1]
     copied = [part for part in ("frontend", "backend") if (source / part).is_dir()]
     for part in copied:
-        shutil.rmtree(out / part, ignore_errors=True)
-        shutil.copytree(source / part, out / part,
-                        ignore=shutil.ignore_patterns("node_modules", ".git"))
-    note = (f" (best full-suite state: {json.loads((best / 'score.json').read_text())['passed']} passed)"
-            if source == best / "app" else "" if source == runs[-1] else " (last per-node verified state)")
-    log(f"[arc] collected {copied or 'nothing'} from {runs[-1].name}{note}")
-    return runs[-1]
+        swap_in(source / part, out / part)
+    log(f"[arc] collected {copied or 'nothing'} from {origin.name}{note}")
+    return origin
 
 
 NODE_RE = re.compile(r"Pipeline '[^']*' running: (\S+)")
@@ -757,7 +812,10 @@ def pipeline_summary(data_dir: Path, pol: dict) -> dict | None:
     """`.octos/runs/<run_id>/summary.json`, written when a run ends, is the
     authoritative completion signal: run_pipeline is spawn_only, so the dispatch
     turn only acks "started in background" and no tool result follows."""
-    for path in data_dir.glob(f"profiles/*/data/.octos/runs/{pol['name']}-*/summary.json"):
+    for path in sorted(data_dir.glob(f"profiles/*/data/.octos/runs/{pol['name']}-*/summary.json"),
+                       key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
+        # Newest first: a retry can start run #2 while run #1's dead summary
+        # still matches the graph id, and exiting on the dead one kills #2.
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -765,6 +823,17 @@ def pipeline_summary(data_dir: Path, pol: dict) -> dict | None:
         if data.get("graph_id") == pol["name"]:
             return data
     return None
+
+
+def swap_in(src: Path, dest: Path) -> None:
+    """Stage then swap: a wall-kill between rmtree and copytree ships a half
+    directory, so the copy lands beside the target and the swap window is the
+    rename alone."""
+    staging = dest.with_name(dest.name + ".staging")
+    shutil.rmtree(staging, ignore_errors=True)
+    shutil.copytree(src, staging, ignore=shutil.ignore_patterns("node_modules", ".git"))
+    shutil.rmtree(dest, ignore_errors=True)
+    os.replace(staging, dest)
 
 
 def deliver_progress(data_dir: Path, out: Path, name: str, synced: dict) -> None:
@@ -776,8 +845,7 @@ def deliver_progress(data_dir: Path, out: Path, name: str, synced: dict) -> None
         if stamp and stamp != synced.get("stamp"):
             for part in ("frontend", "backend"):
                 if (good / "app" / part).is_dir():
-                    shutil.rmtree(out / part, ignore_errors=True)
-                    shutil.copytree(good / "app" / part, out / part)
+                    swap_in(good / "app" / part, out / part)
             synced["stamp"] = stamp
 
 

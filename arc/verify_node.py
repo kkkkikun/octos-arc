@@ -60,7 +60,10 @@ def stop(proc) -> None:
     next node's check would score this node's server."""
     if proc is None or proc.poll() is not None:
         return
-    for attempt in (lambda: os.killpg(os.getpgid(proc.pid), signal.SIGTERM), proc.terminate, proc.kill):
+    for attempt in (lambda: os.killpg(os.getpgid(proc.pid), signal.SIGTERM), proc.terminate,
+                    lambda: os.killpg(os.getpgid(proc.pid), signal.SIGKILL), proc.kill):
+        # SIGKILL must take the whole group: a pid-only kill leaves npm's
+        # children holding the port, and every later boot scores a zombie.
         try:
             attempt(); proc.wait(timeout=10); return
         except (OSError, subprocess.TimeoutExpired):
@@ -75,6 +78,8 @@ def sh(cmd, cwd, env, timeout):
     except subprocess.TimeoutExpired as exc:
         out = (exc.stdout or b"") + (exc.stderr or b"")
         return 124, (out.decode(errors="replace") if isinstance(out, bytes) else out) + f"\n[timed out after {timeout}s]"
+    except FileNotFoundError as exc:      # a missing binary is a verdict, not a crash
+        return 127, f"command not found: {exc}"
 
 
 PLAYWRIGHT_VERSION = "1.63.0"   # never `latest`: an unpinned install broke cloud grading once
@@ -161,11 +166,28 @@ def state_snapshot(app: Path) -> dict[Path, bytes]:
     scenario renames the seeded workbook away and its second then cannot find
     it -- and one shared session makes every later GIVEN a lie the repair
     round can never fix (three generations burned on exactly that)."""
-    return {p: p.read_bytes() for p in (app / "backend").rglob("*")
-            if p.is_file() and "node_modules" not in p.parts and p.suffix in (".json", ".csv", ".db")
-            and p.name not in ("package.json", "package-lock.json")}
+    return {p: p.read_bytes() for p in store_files(app)}
 
-ASSET_RE = re.compile(r'(?:src|href)="(/[^"]+\.(?:js|css))"')
+
+def store_files(app: Path) -> list[Path]:
+    """The backend's mutable data files: store suffixes plus extensionless
+    files (a SQLite sidecar `.db-wal` must ride with its `.db`, or a stale WAL
+    replays the previous scenario's edits over the restored seed)."""
+    suffixes = {".json", ".csv", ".db", ".sqlite", ".db-wal", ".db-shm", ".txt", ""}
+    return [p for p in (app / "backend").rglob("*")
+            if p.is_file() and "node_modules" not in p.parts and p.suffix in suffixes
+            and not p.name.startswith(".") and p.name not in ("package.json", "package-lock.json")]
+
+
+def drop_unseeded_stores(app: Path, seed: dict[Path, bytes]) -> None:
+    """Delete data files a scenario CREATED that the seed never had -- records
+    an earlier test added must not satisfy a later test's GIVEN (a false pass
+    against fresh grading) nor poison it (a false fail)."""
+    for p in store_files(app):
+        if p not in seed:
+            p.unlink(missing_ok=True)
+
+ASSET_RE = re.compile(r'(?:src|href)="(/(?!/)[^"]+?\.(?:js|css)(?:\?[^"]*)?)"')
 PAGE_RE = re.compile(r'href="(/[^"]+)"')
 
 
@@ -271,41 +293,86 @@ def run_specs(app: Path, work: Path, root: Path, pw: str, env: dict,
         if rc and NO_BROWSER in log and install_browser(pw, root, run_env):
             rc, log = one()
         return rc, log
+    # Per-test boots multiply: a wall budget keeps the loop inside the node's
+    # own timeout (the class of wedge the >20 cutoff already guards against).
+    deadline = time.time() + float(os.environ.get("OCTOS_ARC_SPECS_BUDGET_MS", "900000")) / 1000.0
+    install_tried = False
     rc, logs, passed = 0, [], 0
-    for tid in ids:
+    i = 0
+    while i < len(ids):
+        tid = ids[i]
         for path, data in seed.items():
             path.write_bytes(data)
+        drop_unseeded_stores(app, seed)
         srv = boot()
         try:
-            trc, tlog = one(tid)
+            if free(port):
+                trc, tlog = 1, f"[verify] backend never bound port {port}; scenario {tid} unscored"
+            else:
+                trc, tlog = one(tid)
         finally:
             stop(srv)
+        if trc and not install_tried and NO_BROWSER in tlog and install_browser(pw, root, run_env):
+            # The whole-run path retries the install; the per-test path must
+            # too, or a wiped cache burns the node with STOP: no browser.
+            install_tried = True
+            rc, logs, passed = 0, [], 0
+            continue
         rc = rc or trc
         logs.append(tlog)
         counts = re.findall(r"(\d+) passed", tlog)
         passed += int(counts[-1]) if counts else 0
+        i += 1
+        if time.time() > deadline and i < len(ids):
+            for path, data in seed.items():
+                path.write_bytes(data)
+            logs.append(f"[verify] per-test budget spent after {i}/{len(ids)} scenarios; "
+                        "the rest share one boot")
+            srv = boot()
+            try:
+                if free(port):
+                    trc, tlog = 1, "[verify] backend never bound port for the shared boot"
+                else:
+                    trc, tlog = one(*ids[i:])
+            finally:
+                stop(srv)
+            rc = rc or trc
+            logs.append(tlog)
+            break
     log = "\n".join(logs) + f"\n[verify] {passed} passed of {len(ids)} scenario(s), each from the seeded state"
     return rc, log
 
 
-def js_syntax_errors(dist: Path) -> list[str]:
+def js_syntax_errors(dist: Path, env: dict | None = None) -> list[str]:
     """node --check every built script: an unbalanced brace from a repair edit
     makes the whole file fail to parse, so the static shell renders while all
     dynamic behaviour dies -- Playwright then reports an empty list, a symptom
     far from the cause. This names file and line of the SyntaxError itself.
-    Script-mode parsing alone would misread an ES module (import/export) as
-    broken; a file only counts as broken when module mode rejects it too."""
+    Mode is chosen by content: node --check on an import/export-bearing .js
+    silently returns success without checking (v22 verified: import + a
+    broken brace -> rc 0), so those files are judged through an .mjs copy;
+    plain scripts by the direct check. The node binary comes from the run's
+    own PATH: a stale system node would reject modern syntax the browser
+    accepts."""
     dist = dist.resolve()
+    env = dict(env or os.environ)
+    node = shutil.which("node", path=env.get("PATH")) or "node"
     errs = []
     for js in sorted(dist.rglob("*.js")) if dist.is_dir() else []:
-        rc, log = sh(["node", "--check", str(js)], dist, {}, 30)
+        content = js.read_bytes()
+        is_module = re.search(rb"^\s*(import|export)\s", content, re.M)
+        if is_module:
+            with tempfile.TemporaryDirectory(prefix="arc-modcheck-") as td:
+                mjs = Path(td) / (js.stem + ".mjs")
+                mjs.write_bytes(content)
+                rc, log = sh([node, "--check", str(mjs)], Path(td), env, 30)
+        else:
+            rc, log = sh([node, "--check", str(js)], dist, env, 30)
         if not rc:
             continue
-        mrc, _ = sh(f"node --input-type=module --check < '{js}'", dist, {}, 30)
-        if not mrc:
-            continue
         where = re.search(r"^.*SyntaxError.*$", log, re.M)
-        line = re.search(rf"{re.escape(js.name)}:(\d+)", log)
+        line = (re.search(rf"{re.escape(js.name)}:(\d+)", log)
+                or re.search(rf"{re.escape(js.stem)}\.mjs:(\d+)", log))
         at = f"{js.relative_to(dist)}:{line.group(1)}" if line else js.relative_to(dist)
         errs.append(f"{at}: {(where.group(0).strip() if where else '') or 'syntax error'}")
     return errs
@@ -317,7 +384,7 @@ def run_app(app: Path, out: Path, env: dict, tests: Path, port: int, specs: list
         if rc:
             print(f"[verify] {cwd.name}: {step!r} failed\n{log[-1500:]}")
             return 1
-    broken = js_syntax_errors(app / "frontend" / "dist")
+    broken = js_syntax_errors(app / "frontend" / "dist", env)
     if broken:
         print("[verify] the built app has scripts that do not parse; every dynamic "
               f"behaviour is dead while the markup still renders: {'; '.join(broken)}\n"
@@ -367,12 +434,14 @@ def run_app(app: Path, out: Path, env: dict, tests: Path, port: int, specs: list
         # the spec, so the copy sits under the install when it is writable
         # (NODE_PATH covers the temp-dir fallback).
         work = root / ".octos-acceptance" / "run"
+        scratch = None
         try:
             if work.exists():
                 shutil.rmtree(work)
             (work / "tests").mkdir(parents=True)
         except OSError:
-            work = Path(tempfile.mkdtemp(prefix="arc-verify-")) / "run"
+            scratch = Path(tempfile.mkdtemp(prefix="arc-verify-"))
+            work = scratch / "run"                # cleaned in the finally below
             (work / "tests").mkdir(parents=True)
         # The node's specs plus the helpers they import (support/*.ts), at the
         # same relative paths so `../support/e2e` still resolves.
@@ -383,8 +452,8 @@ def run_app(app: Path, out: Path, env: dict, tests: Path, port: int, specs: list
             if (tests / rel).is_file():
                 (work / "tests" / rel).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(tests / rel, work / "tests" / rel)
-        # The platform grades with a 10 s per-test timeout; verify under the
-        # same limit so a slow app fails here, where it can still be repaired.
+        # The per-test clock rides OCTOS_ARC_TEST_TIMEOUT_MS (the 40s the
+        # helper-driven official specs need; grading itself uses the same).
         (work / "playwright.config.ts").write_text(
             "import { defineConfig } from '@playwright/test';\n"
             "export default defineConfig({ testDir: './tests', outputDir: './test-results', timeout: %s, retries: 0, workers: 4, "
@@ -397,6 +466,8 @@ def run_app(app: Path, out: Path, env: dict, tests: Path, port: int, specs: list
         rc, log = run_specs(app, work, root, pw, env, run_env, port)
     finally:
         stop(srv)
+        if scratch:                    # the mkdtemp fallback never self-cleans
+            shutil.rmtree(scratch, ignore_errors=True)
     if rc and NO_BROWSER in log:
         # The runner has no browser and none could be installed: nothing the
         # model can fix, so do not spend repair rounds on it.
@@ -443,7 +514,10 @@ def keep_best(out: Path, rc: int) -> None:
     the middle of one, must not ship: the adapter delivers the snapshot."""
     best = out / ".arc-best"
     score = best / "score.json"
-    prev = json.loads(score.read_text())["passed"] if score.is_file() else -1
+    try:
+        prev = json.loads(score.read_text())["passed"] if score.is_file() else -1
+    except (OSError, ValueError, KeyError, TypeError):   # truncated by a kill: re-keep
+        prev = -1
     if PASSED["count"] <= prev:
         return
     snapshot(out, best / "app")

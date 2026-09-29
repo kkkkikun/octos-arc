@@ -103,7 +103,11 @@ done
 # probe (a repair edit's unbalanced brace kills the whole script while the
 # static shell still renders; the check now names file:line of the SyntaxError
 # instead of letting Playwright report the distant symptom).
-LIMIT_PY=2250
+# 2400: the full-sweep hardening (2026-09-29 audit) -- cross-run-dir collect,
+# dispatch wall + protocol-error survival, per-test browser install + budget,
+# store-file isolation, killpg teardown, staging swaps. All verdict/delivery
+# guards, no loops.
+LIMIT_PY=2400
 PYLINES=$(find "$PKG" -name '*.py' -exec cat {} + | wc -l | tr -d ' ')
 echo "打包内容：$(find "$PKG" -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/null || ls "$PKG" | tr '\n' ' ')"
 echo "包内 Python 行数：$PYLINES"

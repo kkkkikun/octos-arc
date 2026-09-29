@@ -52,6 +52,17 @@ function serveNext(req, res, rels, i) {
 }
 
 const server = http.createServer((req, res) => {
+  // A malformed URL (a NUL from /%00, a bad decode) must answer 400, never
+  // crash the process: one thrown exception here kills the backend for every
+  // remaining request of the run.
+  try {
+    handle(req, res);
+  } catch (err) {
+    try { send(res, 400, "bad request\n"); } catch { /* socket already gone */ }
+  }
+});
+
+function handle(req, res) {
   // Generic JSON persistence backing the frontend component library's store:
   // GET returns the file (404 when absent -- the client seeds), PUT writes it.
   // Task-agnostic by construction; the store's shape is the app's business.
@@ -67,7 +78,14 @@ const server = http.createServer((req, res) => {
       let body = "";
       req.on("data", (chunk) => { body += chunk; });
       req.on("end", () => {
-        fs.writeFile(file, body, () => send(res, 204, ""));
+        // Atomic (tmp + rename): a torn store.json reads as corrupt on the
+        // next boot and every persisted edit looks lost. A failed write is a
+        // 500 the client can see, not a silent 204.
+        const tmp = file + ".tmp";
+        fs.writeFile(tmp, body, (err) => {
+          if (err) { send(res, 500, "write failed\n"); return; }
+          fs.rename(tmp, file, (err2) => send(res, err2 ? 500 : 204, err2 ? "write failed\n" : ""));
+        });
       });
     }
     return;
@@ -83,6 +101,9 @@ const server = http.createServer((req, res) => {
     send(res, 400, "bad request\n");
     return;
   }
+  // A NUL in the decoded path makes every fs call throw synchronously
+  // (ERR_INVALID_ARG_VALUE); reject it before touching the disk.
+  if (pathname.includes("\0")) { send(res, 400, "bad request\n"); return; }
   // Static frontend only: "/" serves index.html, "/<name>" serves
   // <name>.html when it exists -- extensionless aliases are never created,
   // they would shadow HTML routes with a binary MIME type. Anything the
@@ -90,7 +111,7 @@ const server = http.createServer((req, res) => {
   // 404s until codegen adds it.
   const rel = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   serveNext(req, res, path.extname(rel) ? [rel] : [rel + ".html", rel], 0);
-});
+}
 
 function pathname0(req) {
   try { return decodeURIComponent(new URL(req.url, "http://localhost").pathname); }
