@@ -292,15 +292,22 @@ def js_syntax_errors(dist: Path) -> list[str]:
     """node --check every built script: an unbalanced brace from a repair edit
     makes the whole file fail to parse, so the static shell renders while all
     dynamic behaviour dies -- Playwright then reports an empty list, a symptom
-    far from the cause. This names file and line of the SyntaxError itself."""
+    far from the cause. This names file and line of the SyntaxError itself.
+    Script-mode parsing alone would misread an ES module (import/export) as
+    broken; a file only counts as broken when module mode rejects it too."""
+    dist = dist.resolve()
     errs = []
     for js in sorted(dist.rglob("*.js")) if dist.is_dir() else []:
         rc, log = sh(["node", "--check", str(js)], dist, {}, 30)
-        where = re.search(r"^(\s+at \S+ )?\S*SyntaxError.*", log, re.M)
-        line = re.search(r"app[.]js:(\d+)|:(\d+)", log)
-        if rc:
-            at = f"{js.relative_to(dist)}:{line.group(1) or line.group(2)}" if line else js.relative_to(dist)
-            errs.append(f"{at}: {(where.group(0) or '').strip() or 'syntax error'}")
+        if not rc:
+            continue
+        mrc, _ = sh(f"node --input-type=module --check < '{js}'", dist, {}, 30)
+        if not mrc:
+            continue
+        where = re.search(r"^.*SyntaxError.*$", log, re.M)
+        line = re.search(rf"{re.escape(js.name)}:(\d+)", log)
+        at = f"{js.relative_to(dist)}:{line.group(1)}" if line else js.relative_to(dist)
+        errs.append(f"{at}: {(where.group(0).strip() if where else '') or 'syntax error'}")
     return errs
 
 

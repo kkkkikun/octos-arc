@@ -149,3 +149,36 @@ class JsSyntaxErrors(unittest.TestCase):
             (dist / "lib").mkdir()
             (dist / "lib" / "grid.js").write_text("var x = 1;\n")
             self.assertEqual(verify_node.js_syntax_errors(dist), [])
+
+    def test_es_module_syntax_is_not_a_false_positive(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp)
+            # import/export parses in module mode, not script mode: a page can
+            # ship it under <script type="module"> and work perfectly.
+            (dist / "mod.js").write_text("import x from './x.js';\nexport default x;\n")
+            self.assertEqual(verify_node.js_syntax_errors(dist), [])
+
+    def test_broken_in_both_modes_is_reported(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp)
+            (dist / "both.js").write_text("import x from './x.js';\nfunction f() {\n  return x;\n}}\n")
+            errs = verify_node.js_syntax_errors(dist)
+            self.assertEqual(len(errs), 1)
+            self.assertIn("both.js", errs[0])
+
+    def test_relative_dist_path_still_finds_the_files(self):
+        # sh() runs with cwd=dist: a relative dist must be resolved first, or
+        # node --check gets a path that no longer exists from the new cwd and
+        # every script reads as broken.
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            (work / "rel").mkdir()
+            (work / "rel" / "app.js").write_text("var ok = 1;\n")
+            shutil.copy(work / "rel" / "app.js", work / "broken.js")  # placeholder
+            (work / "rel" / "bad.js").write_text("function f() {\n}}\n")
+            self.assertEqual(verify_node.js_syntax_errors(work / "rel"),
+                             ["bad.js:2: SyntaxError: Unexpected token '}'"])
