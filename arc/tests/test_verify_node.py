@@ -119,3 +119,33 @@ class NameTwins(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JsSyntaxErrors(unittest.TestCase):
+    """js_syntax_errors: an unbalanced brace ships a page whose JS never runs.
+
+    A repair edit with a missing ')' makes the whole app.js fail to parse:
+    the static shell still renders (headings, buttons) while every dynamic
+    behaviour dies, so Playwright reports an empty workbook list -- a symptom
+    far from the cause. The probe runs node --check over the built scripts
+    and names file and line of the SyntaxError itself."""
+
+    def test_broken_script_is_named_with_its_line(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp)
+            (dist / "app.js").write_text("function f() {\n  return 1;\n}}\n")  # extra }
+            (dist / "ok.js").write_text("console.log('fine');\n")
+            errs = verify_node.js_syntax_errors(dist)
+            self.assertEqual(len(errs), 1)
+            self.assertIn("app.js", errs[0])
+            self.assertRegex(errs[0], r"3")
+
+    def test_clean_scripts_report_nothing(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp)
+            (dist / "app.js").write_text("console.log('fine');\n")
+            (dist / "lib").mkdir()
+            (dist / "lib" / "grid.js").write_text("var x = 1;\n")
+            self.assertEqual(verify_node.js_syntax_errors(dist), [])

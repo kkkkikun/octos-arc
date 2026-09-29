@@ -288,12 +288,34 @@ def run_specs(app: Path, work: Path, root: Path, pw: str, env: dict,
     return rc, log
 
 
+def js_syntax_errors(dist: Path) -> list[str]:
+    """node --check every built script: an unbalanced brace from a repair edit
+    makes the whole file fail to parse, so the static shell renders while all
+    dynamic behaviour dies -- Playwright then reports an empty list, a symptom
+    far from the cause. This names file and line of the SyntaxError itself."""
+    errs = []
+    for js in sorted(dist.rglob("*.js")) if dist.is_dir() else []:
+        rc, log = sh(["node", "--check", str(js)], dist, {}, 30)
+        where = re.search(r"^(\s+at \S+ )?\S*SyntaxError.*", log, re.M)
+        line = re.search(r"app[.]js:(\d+)|:(\d+)", log)
+        if rc:
+            at = f"{js.relative_to(dist)}:{line.group(1) or line.group(2)}" if line else js.relative_to(dist)
+            errs.append(f"{at}: {(where.group(0) or '').strip() or 'syntax error'}")
+    return errs
+
+
 def run_app(app: Path, out: Path, env: dict, tests: Path, port: int, specs: list[str]) -> int:
     for cwd, step in ((app / "frontend", f"{INSTALL} && npm run build"), (app / "backend", INSTALL)):
         rc, log = sh(step, cwd, env, 240)
         if rc:
             print(f"[verify] {cwd.name}: {step!r} failed\n{log[-1500:]}")
             return 1
+    broken = js_syntax_errors(app / "frontend" / "dist")
+    if broken:
+        print("[verify] the built app has scripts that do not parse; every dynamic "
+              f"behaviour is dead while the markup still renders: {'; '.join(broken)}\n"
+              "Fix the named syntax error(s) -- do not rewrite the file around them.")
+        return 1
     if not free(port):
         print(f"[verify] port {port} already serving; refusing to score another process")
         return 1

@@ -99,8 +99,11 @@ done
 # 2100: +per-test isolation in the acceptance command (stateful spec pairs
 # scored each other's debris; restore-seed + reboot between scenarios).
 # 2150: isolation's file:line filter fix + dedupe. 2200: session-recycle
-# for orphan turns (thinking-model dispatch timeouts).
-LIMIT_PY=2200
+# for orphan turns (thinking-model dispatch timeouts). 2250: +js_syntax_errors
+# probe (a repair edit's unbalanced brace kills the whole script while the
+# static shell still renders; the check now names file:line of the SyntaxError
+# instead of letting Playwright report the distant symptom).
+LIMIT_PY=2250
 PYLINES=$(find "$PKG" -name '*.py' -exec cat {} + | wc -l | tr -d ' ')
 echo "打包内容：$(find "$PKG" -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/null || ls "$PKG" | tr '\n' ' ')"
 echo "包内 Python 行数：$PYLINES"
