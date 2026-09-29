@@ -52,6 +52,26 @@ function serveNext(req, res, rels, i) {
 }
 
 const server = http.createServer((req, res) => {
+  // Generic JSON persistence backing the frontend component library's store:
+  // GET returns the file (404 when absent -- the client seeds), PUT writes it.
+  // Task-agnostic by construction; the store's shape is the app's business.
+  if (pathname0(req) === "/api/store" && (req.method === "GET" || req.method === "PUT")) {
+    const file = path.join(__dirname, "store.json");
+    if (req.method === "GET") {
+      fs.readFile(file, (err, data) => {
+        if (err) { send(res, 404, "{}\n"); return; }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(data);
+      });
+    } else {
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => {
+        fs.writeFile(file, body, () => send(res, 204, ""));
+      });
+    }
+    return;
+  }
   if (req.method !== "GET" && req.method !== "HEAD") {
     send(res, 405, "method not allowed\n");
     return;
@@ -71,6 +91,11 @@ const server = http.createServer((req, res) => {
   const rel = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
   serveNext(req, res, path.extname(rel) ? [rel] : [rel + ".html", rel], 0);
 });
+
+function pathname0(req) {
+  try { return decodeURIComponent(new URL(req.url, "http://localhost").pathname); }
+  catch { return ""; }
+}
 
 server.listen(PORT, () => {
   console.log(`backend listening on port ${PORT}, serving ${DIST_DIR}`);

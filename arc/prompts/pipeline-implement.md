@@ -33,6 +33,14 @@ Rules:
   notes, summaries or other .md files: nobody reads them and they cost output.
 - Prefer zero runtime dependencies; if you must install, the registry is
   already pointed at npmmirror.
+- The workspace ships a generic, task-agnostic component library under
+  `frontend/src/lib/` (an accessible data grid with cell-text editing and
+  document-level keyboard clipboard/undo, ARIA dialogs, tabsets, labeled
+  fields, JSON persistence). Build on these primitives instead of
+  hand-rolling them: the requirements' grids, overlays, tabs and stores map
+  onto the library with the exact labels and record names each requirement
+  names. Extending the library is fine; replacing it with ad-hoc markup
+  re-introduces the accessibility failures the checks fail.
 - Ship the evaluation seed as the shipped initial state: the scenario GIVEN
   steps name records and values in backticks (workbook `Q3 Sales`, account
   `alice-dev`, org `acme-corp`, ranges `Region/Sales/Status` with rows
