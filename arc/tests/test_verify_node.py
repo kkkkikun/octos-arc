@@ -228,3 +228,37 @@ class AuditHardening(unittest.TestCase):
             self.assertIn("data.sqlite", names)
             self.assertIn("data.db-wal", names)
             self.assertNotIn("server.js", names)
+
+
+class SeedCanary(unittest.TestCase):
+    def test_first_requirements_spec_is_forced_in_even_before_it_passed(self):
+        # The canary must ride from node 1 onward: waiting for the first tag's
+        # status to read "0" would skip the very nodes whose rewrites poison
+        # the seed (arch-13 banked the poison at node 10 of 24).
+        import json, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            Path.cwd  # noqa: B018
+            cwd = Path(tmp)
+            (cwd / ".arc-status").mkdir()
+            map_file = cwd / "map.json"
+            map_file.write_text(json.dumps({"REQ-1-1-1": ["REQ-1-1-1.spec.ts"],
+                                            "REQ-9-9-9": ["REQ-9-9-9.spec.ts"]}))
+            argv = ["verify_node.py", str(cwd), "43100", "--tag", "REQ-9-9-9",
+                    "--regress", str(map_file), "REQ-9-9-9.spec.ts"]
+            it = iter(argv[2:])
+            opts, specs = {}, []
+            for arg in it:
+                if arg.startswith("--"):
+                    opts[arg[2:]] = next(it)
+                else:
+                    specs.append(arg)
+            # mirror the main() selection under test
+            m = json.loads(Path(opts["regress"]).read_text())
+            status = cwd / ".arc-status"
+            earlier = [rel for tag, rels in m.items()
+                       if tag != opts.get("tag") and (status / tag).is_file()
+                       and (status / tag).read_text().strip() == "0" for rel in rels]
+            canary = next(iter(m.items()))
+            chosen = [*( [canary[1][0]] if canary[0] != opts.get("tag") else [] ), *earlier]
+            self.assertIn("REQ-1-1-1.spec.ts", chosen)

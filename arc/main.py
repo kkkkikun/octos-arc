@@ -327,8 +327,12 @@ def build_pipeline(nodes, specs, tests_dir, out, pol, ports, deadline, spec_map=
              f'    seed [handler="shell_check", label="seed workspace", timeout_secs="120", '
              f'prompt="{verify("--seed", out)}"]',
              "    start -> seed"]
-    every = pol["regression_every"]
-    regress = lambda i: ["--regress", spec_map] if spec_map and every and i % every == 0 and i < len(nodes) else []  # noqa: E731
+    # The regress map rides EVERY check: verify force-includes the first
+    # requirement's spec as a seed-contract canary. A mid-run node once
+    # rewrote the global seed to its own requirement's example and its
+    # self-consistent spec passed -- the poisoned .arc-good shipped and the
+    # run graded 6/100. every-4th checkpoints left a two-node blindness window.
+    regress = lambda i: ["--regress", spec_map] if spec_map else []  # noqa: E731
     prev, prev_cond = "seed", None
     tmpl, total = read("pipeline-implement"), len(nodes)
     for index, node in enumerate(nodes, 1):

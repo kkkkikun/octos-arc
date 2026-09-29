@@ -535,16 +535,26 @@ def main(argv: list[str]) -> int:
         else:
             specs.append(arg)
     if "regress" in opts:
-        # Regression checkpoint: also re-run the specs of earlier requirements
-        # whose last verdict was a pass.
+        # Regression checkpoint + SEED CANARY: also re-run the specs of
+        # earlier requirements whose last verdict was a pass, and always the
+        # FIRST requirement's spec. A mid-run node can rewrite the global
+        # seed to its own requirement's example; its self-consistent spec
+        # then passes and the poisoned .arc-good ships (arch-13 graded
+        # 6/100 that way). The first requirement's spec is the seed
+        # contract's canary -- it must hold at every check.
         status = Path.cwd() / ".arc-status"
-        earlier = [rel for tag, rels in json.loads(Path(opts["regress"]).read_text()).items()
+        mapping = json.loads(Path(opts["regress"]).read_text())
+        earlier = [rel for tag, rels in mapping.items()
                    if tag != opts.get("tag") and (status / tag).is_file()
                    and (status / tag).read_text().strip() == "0" for rel in rels]
+        canary = next(iter(mapping.items()), None)
+        if canary and canary[0] != opts.get("tag") and canary[1]:
+            earlier.append(canary[1][0])
         extra = [rel for rel in dict.fromkeys(earlier) if rel not in specs]
         if extra:
-            print(f"[verify] regression checkpoint: also re-running {len(extra)} spec(s) of earlier "
-                  "requirements that passed; a failure there is a regression to fix now")
+            print(f"[verify] regression checkpoint (+seed canary): also re-running "
+                  f"{len(extra)} spec(s) of earlier requirements; a failure there is a "
+                  "regression to fix now")
             specs = [*specs, *extra]
     rc = check(Path(argv[0]).resolve(), int(argv[1]), specs)
     if "best" in opts:

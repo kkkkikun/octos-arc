@@ -127,19 +127,35 @@ class PipelineDot(unittest.TestCase):
         self.assertIn('reasoning_effort="none"', line)
         self.assertIn('max_output_tokens="32768"', line)
 
-    def test_every_fourth_check_is_a_regression_checkpoint(self):
+    def test_all_but_the_last_check_carry_the_regress_map(self):
         nodes = main.atomic_nodes(tree([atomic(f"REQ-{i}") for i in range(1, 10)]))
         specs = {str(n["id"]): [] for n in nodes}
         dot = main.build_pipeline(nodes, specs, None, "/tmp/out", POLICY, [43100], 1e10, "/tmp/map.json")
-        checks = [l for l in dot.splitlines() if l.strip().startswith("check_task_n_REQ_")]
-        with_regress = [l.split()[0] for l in checks if "--regress" in l]
-        self.assertEqual(with_regress, ["check_task_n_REQ_4", "check_task_n_REQ_8"])
+        checks = [l.split()[0] for l in dot.splitlines()
+                  if l.strip().startswith("check_task_n_REQ_") and "handler=" in l]
+        with_regress = [l.split()[0] for l in checks and dot.splitlines()
+                        if l.strip().startswith("check_task_n_REQ_") and "handler=" in l and "--regress" in l]
+        self.assertEqual(with_regress, checks)        # every check node, last one too
 
     def test_workspace_is_seeded_before_the_first_requirement(self):
         dot = build([atomic("REQ-1")])
         self.assertIn("start -> seed", dot)
         self.assertIn("seed -> impl_task_n_REQ_1", dot)
         self.assertIn("--seed", dot)
+
+    def test_every_check_carries_the_regress_map_seed_canary(self):
+        # arch-13: a mid-run node rewrote the global seed to its own
+        # requirement's example and its self-consistent spec passed -- the
+        # poisoned .arc-good banked it (6/100 at grading). The map must ride
+        # EVERY check so verify can force the first requirement's spec in as
+        # a canary; every-4th left a two-node blindness window.
+        nodes = main.atomic_nodes(tree([atomic("REQ-1", with_specs=True), atomic("REQ-2", deps=["REQ-1"], with_specs=True),
+                     atomic("REQ-3", deps=["REQ-2"], with_specs=True), atomic("REQ-4", deps=["REQ-3"], with_specs=True)]))
+        specs = {str(n["id"]): [f"{n['id']}.spec.ts"] for n in nodes}
+        dot = main.build_pipeline(nodes, specs, None, "/tmp/out", POLICY, [43100], 1e10, "/tmp/map.json")
+        n_regress = sum(1 for l in dot.splitlines() if "handler=" in l and "--regress" in l)
+        n_checks = sum(1 for l in dot.splitlines() if "handler=" in l and "--tag" in l and "ALL" not in l)
+        self.assertEqual(n_regress, n_checks)      # every check, not every 4th
 
     def test_regression_pass_runs_every_spec_after_the_last_requirement(self):
         dot = build([atomic("REQ-1", with_specs=True), atomic("REQ-2", deps=["REQ-1"])])
