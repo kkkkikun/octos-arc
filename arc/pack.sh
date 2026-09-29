@@ -58,7 +58,12 @@ if [ -n "${BOOTSTRAP_DIR:-}" ]; then
         cp -R "$BOOTSTRAP_DIR/$part" "$PKG/template/$part"
         rm -rf "$PKG/template/$part/node_modules" "$PKG/template/$part/dist"
     done
-    echo "自举模板：$BOOTSTRAP_DIR 覆盖 frontend+backend"
+    # The generic component library is scaffold, not artifact: an artifact
+    # grown before the library does not carry it, and the wholesale overlay
+    # above would otherwise delete it out of the template.
+    mkdir -p "$PKG/template/frontend/src"
+    cp -R template/frontend/src/lib "$PKG/template/frontend/src/lib"
+    echo "自举模板：$BOOTSTRAP_DIR 覆盖 frontend+backend（lib/ 保底回填）"
 fi
 
 find "$PKG" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
