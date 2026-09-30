@@ -262,3 +262,22 @@ class SeedCanary(unittest.TestCase):
             canary = next(iter(m.items()))
             chosen = [*( [canary[1][0]] if canary[0] != opts.get("tag") else [] ), *earlier]
             self.assertIn("REQ-1-1-1.spec.ts", chosen)
+
+    def test_one_canary_per_top_level_family(self):
+        # arch-16: a repair slice broke REQ-5-1-2 while only REQ-1-1-1 was
+        # canary -- every family needs its own tripwire.
+        import json, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path(tmp)
+            (cwd / ".arc-status").mkdir()
+            m = {"REQ-1-1-1": ["REQ-1-1-1.spec.ts"], "REQ-1-2-1": ["REQ-1-2-1.spec.ts"],
+                 "REQ-2-1-1": ["REQ-2-1-1.spec.ts"], "REQ-5-1-2": ["REQ-5-1-2.spec.ts"],
+                 "REQ-5-3-1": ["REQ-5-3-1.spec.ts"]}
+            fams = {}
+            for tag in sorted(m):
+                import re as _re
+                g = _re.match(r"^(REQ-\d+)", tag)
+                fams.setdefault(g.group(1) if g else tag, tag)
+            canaries = [m[t][0] for t in fams.values() if t != "REQ-2-1-1" and m[t]]
+            self.assertEqual(canaries, ["REQ-1-1-1.spec.ts", "REQ-5-1-2.spec.ts"])

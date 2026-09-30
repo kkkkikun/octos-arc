@@ -658,7 +658,16 @@ def main() -> int:
     data_dir = Path(tempfile.mkdtemp(prefix="octos-data-"))
     (data_dir / "pipelines").mkdir(parents=True, exist_ok=True)
     spec_map = data_dir / "arc-specs.json"     # requirement -> specs, for regression checkpoints
-    spec_map.write_text(json.dumps(specs), encoding="utf-8")
+    # The map carries EVERY spec in the tests dir, not just this run's nodes:
+    # a repair slice prunes the tree, and its repairs once broke a family the
+    # slice no longer guarded (arch-16: 5-1-2 went 1->5 failing scenarios
+    # while only REQ-1-1-1 was canary). Verify's canary set covers the first
+    # spec of each top-level family from this map.
+    full_map = dict(specs)
+    if tests_dir:
+        for p in sorted(tests_dir.rglob("REQ-*.spec.ts")):
+            full_map.setdefault(p.stem, [p.name])
+    spec_map.write_text(json.dumps(full_map), encoding="utf-8")
     dot = build_pipeline(nodes, specs, tests_dir, out, pol, ports, started + pol["run_timeout"], spec_map)
     (data_dir / "pipelines" / f"{pol['name']}.dot").write_text(dot, encoding="utf-8")
     (out / ".arc").mkdir(exist_ok=True)
