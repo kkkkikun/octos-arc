@@ -82,7 +82,12 @@ Rules:
 - Adding a worksheet makes it the ACTIVE sheet the moment it is created: its
   tab carries `aria-selected="true"`, the grid switches to its (empty) cells
   with A1 selected -- appending an inert tab while the old sheet stays
-  active fails the scenario's very next assertion.
+  active fails the scenario's very next assertion. When a check failure
+  reads `tab ... aria-selected: Expected "true", Received "false"`, the
+  defect is in the tab-rendering code path: the variable that decides which
+  sheet is active is not updated by the add-sheet handler -- update it there
+  and re-render, so the new tab's aria-selected attribute itself becomes
+  "true".
 - Dialogs are real ARIA dialogs: an overlay named by the requirement
   ("Import CSV", "Sort range", ...) is `role="dialog"` with that exact
   accessible name, and it mounts/opens from the control the requirement
