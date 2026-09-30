@@ -83,7 +83,9 @@ _POLICY = {
 
 
 def policy() -> dict:
-    """arc-policy.toml is the single source of tunables; env vars still win."""
+    """arc-policy.toml is the single source of tunables; env vars still win --
+    except on the platform, where the runner injects a 6h default the rules'
+    48h window does not require: platform_run_timeout_seconds then overrides."""
     path = BUNDLE_DIR / "arc-policy.toml"
     data = tomllib.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     pipe = data.get("pipeline", {})
@@ -91,6 +93,9 @@ def policy() -> dict:
     for key, (toml_key, env_key, default) in _POLICY.items():
         value = os.environ.get(env_key) or pipe.get(toml_key, default)
         out[key] = type(default)(value)      # set-but-empty env falls back, never raises
+    on_platform = bool(os.environ.get("ARCBENCH_TASK_DIR") or os.environ.get("ARCBENCH_RUNNER_EVENTS_PATH"))
+    if on_platform and pipe.get("platform_run_timeout_seconds"):
+        out["run_timeout"] = int(pipe["platform_run_timeout_seconds"])
     return out
 
 

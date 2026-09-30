@@ -357,3 +357,33 @@ class AuditHardening(unittest.TestCase):
             dot = main.build_pipeline(nodes, {"REQ-9": ["REQ-9.spec.ts"]}, tests,
                                       "/tmp/out", POLICY, [43100], 1e10)
             self.assertIn("[... truncated ...]", dot)
+
+
+class PlatformWallOverride(unittest.TestCase):
+    def test_platform_marker_activates_the_toml_wall(self):
+        # The platform runner injects a 6h OCTOS_TIME_BUDGET; the rules allow
+        # 48h. With the platform markers present, the bundle's own
+        # platform_run_timeout_seconds must win -- 6h runs died at node ~19
+        # three times while the formula family never ran once.
+        import os, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp).mkdir(parents=True, exist_ok=True)
+            old = {k: os.environ.get(k) for k in
+                   ("OCTOS_TIME_BUDGET", "ARCBENCH_TASK_DIR", "ARCBENCH_RUNNER_EVENTS_PATH")}
+            try:
+                os.environ["OCTOS_TIME_BUDGET"] = "21600"
+                os.environ["ARCBENCH_TASK_DIR"] = "/workspace/task"
+                pol = main.policy()
+                self.assertEqual(pol["run_timeout"], 43200)
+                del os.environ["ARCBENCH_TASK_DIR"]
+                os.environ["ARCBENCH_RUNNER_EVENTS_PATH"] = "/tmp/ev"
+                pol = main.policy()
+                self.assertEqual(pol["run_timeout"], 43200)
+                os.environ.pop("ARCBENCH_RUNNER_EVENTS_PATH", None)
+                pol = main.policy()                     # local: env stays in charge
+                self.assertEqual(pol["run_timeout"], 21600)
+            finally:
+                for k, v in old.items():
+                    if v is None: os.environ.pop(k, None)
+                    else: os.environ[k] = v

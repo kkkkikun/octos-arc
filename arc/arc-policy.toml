@@ -49,6 +49,11 @@ node_timeout_seconds = 1200     # OCTOS_NODE_TIMEOUT — one implement node
 verify_timeout_seconds = 2400   # OCTOS_ARC_VERIFY_TIMEOUT — one acceptance node; above the sum of verify_node.py's own step timeouts, since an overrun aborts the pipeline. 2400 since the final whole-suite check (100 shared-session tests at the 40s clock) measured 1110s locally and the platform box runs ~1.5x slower
 max_iterations = 40             # OCTOS_MAX_ITERATIONS — tool iterations inside an implement node
 run_timeout_seconds = 3600      # OCTOS_TIME_BUDGET — whole run
+# The platform runner injects OCTOS_TIME_BUDGET=21600 (6h); the rules allow
+# 48h per task. On the platform this key overrides the injection: deepseek's
+# 20-min iteration-capped impl turns on hard nodes need the extra hours to
+# reach the formula family at all (three 6h runs died at node ~19).
+platform_run_timeout_seconds = 43200
 node_budget_seconds = 900       # OCTOS_NODE_TIME_BUDGET — floor driver: max(env, this x nodes); real-spec acceptance needs ~1200s/node (slice 2026-09-27), so 900 keeps the 24-node sheet floor at 6h, github at 11.8h (48h rule has room)
 node_tools = "read_file,write_file,edit_file,glob,grep,list_dir"  # OCTOS_ARC_NODE_TOOLS
 # Put on every worker node as reasoning_effort (the kernel maps it per model:
