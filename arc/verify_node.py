@@ -547,17 +547,24 @@ def main(argv: list[str]) -> int:
         earlier = [rel for tag, rels in mapping.items()
                    if tag != opts.get("tag") and (status / tag).is_file()
                    and (status / tag).read_text().strip() == "0" for rel in rels]
-        # One canary per TOP-LEVEL family, not just the first requirement: a
-        # repair slice's edits once broke a family the single canary did not
-        # cover (arch-16: 5-1-2 lost 4 scenarios unnoticed while .arc-good
-        # banked the damage). Sorted tags keep REQ-1-1-1 first.
-        families = {}
-        for tag in sorted(mapping):
-            m = re.match(r"^(REQ-\d+)", tag)
-            families.setdefault(m.group(1) if m else tag, tag)
-        for fam, tag in families.items():
-            if tag != opts.get("tag") and mapping[tag]:
-                earlier.append(mapping[tag][0])
+        # One canary per TOP-LEVEL family -- but a family EARNS its tripwire
+        # only once this run has passed one of its checks: on a cold run the
+        # REQ-5 canary tests features no node has built yet, and a canary of
+        # an inherited-broken bootstrap family fails every check forever --
+        # both freeze .arc-good on the seed state (two runs graded 6/100
+        # that way). Sorted tags keep REQ-1-1-1 first once earned.
+        passed = {t for t in mapping
+                  if (status / t).is_file() and (status / t).read_text().strip() == "0"}
+        if passed:
+            families = {}
+            for tag in sorted(mapping):
+                m = re.match(r"^(REQ-\d+)", tag)
+                families.setdefault(m.group(1) if m else tag, []).append(tag)
+            for fam, tags in families.items():
+                if any(t in passed for t in tags):
+                    ride = next((t for t in tags if t != opts.get("tag") and mapping[t]), None)
+                    if ride:
+                        earlier.append(mapping[ride][0])
         extra = [rel for rel in dict.fromkeys(earlier) if rel not in specs]
         if extra:
             print(f"[verify] regression checkpoint (+seed canary): also re-running "
