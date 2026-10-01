@@ -111,7 +111,10 @@ done
 # (note_attempt: two repair rounds that leave the scenario score unchanged
 # stop the node) and the adapter's fuel gauge (cost budget stop in the wait
 # loop, glitch-guarded). A counter and a predicate, no loops.
-LIMIT_PY=2450
+# 2500: +task-asymmetric fuel (apply_task_overrides: the github tree tops the
+# cap up) and the quarantine fuse (quarantined(): signal-only tags whose
+# failures print STOP without burning repairs). Same class: predicates.
+LIMIT_PY=2500
 PYLINES=$(find "$PKG" -name '*.py' -exec cat {} + | wc -l | tr -d ' ')
 echo "打包内容：$(find "$PKG" -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/null || ls "$PKG" | tr '\n' ' ')"
 echo "包内 Python 行数：$PYLINES"

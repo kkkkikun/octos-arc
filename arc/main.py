@@ -64,6 +64,14 @@ _POLICY = {
     # instead of burning to the clock. The wall bounds time; this bounds
     # money -- what the score formula actually divides by. 0 = off.
     "cost_budget": ("platform_cost_budget_usd", "OCTOS_ARC_COST_BUDGET", 0.0),
+    # Asymmetric top-up for the github task (every point is net-new from
+    # p=4, so buy the full tree); the base budget covers sheet. 0 = off.
+    "github_cost_budget": ("platform_cost_budget_github_usd", "OCTOS_ARC_COST_BUDGET_GH", 0.0),
+    # Signal-only tags (comma-separated REQ ids): their checks still run and
+    # report, but a failure prints STOP -- no repair back-edge, no attempt
+    # burn. For requirements known structurally unsatisfiable in one static
+    # seed world; kept empty unless a local run proves a family hopeless.
+    "quarantine": ("quarantine_tags", "OCTOS_ARC_QUARANTINE", ""),
     # Every Nth acceptance node also re-runs the specs of earlier requirements
     # that passed, so a regression is repaired while its cause is fresh
     # rather than all at once at the end. 0 = off.
@@ -462,6 +470,9 @@ def kernel_env(pol: dict, config_dir: Path) -> dict:
     # shared-boot fallback, where stateful pairs bleed. 1800s + the shared
     # tail still fits the 2400s verify timeout.
     env["OCTOS_ARC_SPECS_BUDGET_MS"] = "1800000"
+    # Signal-only tags ride along so verify can STOP their repair ladder.
+    if pol.get("quarantine"):
+        env["OCTOS_ARC_QUARANTINE"] = str(pol["quarantine"])
     # Ride out a minute or two of refused / reset connections (1+2+...+60s)
     # instead of failing the node after 7s; timeouts are never retried.
     env["OCTOS_LLM_MAX_RETRIES"] = "8"
@@ -583,6 +594,17 @@ def find_octos() -> str:
 
 
 
+def apply_task_overrides(pol: dict, node_ids: list[str]) -> None:
+    """Per-task policy adjustments the tree itself reveals. The github task
+    (REQ-6 families) starts from p=4: every scenario is net-new score, so its
+    fuel cap tops up to buy the full tree; sheet (p=25 banked) pays only to
+    beat its ceiling (aurora/11 red-team: symmetric caps spend the fattest
+    margin and the hardest ceiling identically)."""
+    if pol.get("cost_budget") and pol.get("github_cost_budget") \
+            and any(nid.startswith("REQ-6") for nid in node_ids):
+        pol["cost_budget"] = max(float(pol["cost_budget"]), float(pol["github_cost_budget"]))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("requirement_path", nargs="?")
@@ -601,6 +623,7 @@ def main() -> int:
     tree = load_tree(req_dir)
     nodes = atomic_nodes(tree)
     node_ids = [str(n["id"]) for n in nodes]
+    apply_task_overrides(pol, node_ids)
     log(f"[arc] {len(nodes)} atomic nodes: {node_ids}")
 
     runtime = AgentRuntime.from_env(project_dir=str(out))

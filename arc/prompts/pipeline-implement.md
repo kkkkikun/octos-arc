@@ -101,6 +101,17 @@ Rules:
   sheet is active is not updated by the add-sheet handler -- update it there
   and re-render, so the new tab's aria-selected attribute itself becomes
   "true".
+- A check failure showing a `GET /... 404` for a script or stylesheet while
+  the page still renders means the server's static mounts do not cover that
+  route -- fix the server's file mapping, not the page's markup.
+- When Playwright times out waiting for a control and the server log shows
+  no matching request, the backend was not ready or the route never fired:
+  check startup readiness and the handler wiring before touching markup.
+- Permission failures about reviewers, authors or roles (a review is
+  rejected, a control stays absent for the wrong role) mean the SEEDED
+  ACCOUNTS must be independent -- the PR author is not the reviewer, the
+  viewer is not an admin. Fix the seed's account structure; never loosen
+  the permission check itself to make a test pass.
 - Dialogs are real ARIA dialogs: an overlay named by the requirement
   ("Import CSV", "Sort range", ...) is `role="dialog"` with that exact
   accessible name, and it mounts/opens from the control the requirement

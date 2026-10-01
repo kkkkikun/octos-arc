@@ -537,6 +537,16 @@ def _write_score(text: str) -> None:
     (Path.cwd() / ".arc-score").write_text(text, encoding="utf-8")
 
 
+def quarantined(tag: str) -> bool:
+    """Signal-only tag (OCTOS_ARC_QUARANTINE, comma-separated): its check
+    still runs and reports, but a failure prints STOP directly -- no repair
+    back-edge fires, no attempt budget burns. For requirements proven
+    structurally unsatisfiable in one static seed world; the list ships
+    empty unless a local run proves a family hopeless."""
+    return tag in {t.strip() for t in os.environ.get("OCTOS_ARC_QUARANTINE", "").split(",")
+                   if t.strip()}
+
+
 def note_attempt(tag: str, opts: dict) -> tuple[int, str | None]:
     """Count this FAILED attempt for `tag`; return (attempt, stop reason or
     None). The flat caps (attempts/deadline/repair-window) bound the ladder;
@@ -634,9 +644,13 @@ def main(argv: list[str]) -> int:
         (Path.cwd() / ".arc-status").mkdir(exist_ok=True)
         (Path.cwd() / ".arc-status" / opts["tag"]).write_text(str(rc))
     if rc and "tag" in opts:
-        attempts, why = note_attempt(opts["tag"], opts)
-        if why:
-            print(f"{STOP}: {why} for {opts['tag']}; moving on")
+        if quarantined(opts["tag"]):
+            print(f"{STOP}: {opts['tag']} is quarantined (signal-only; "
+                  "failures here never trigger a repair round)")
+        else:
+            attempts, why = note_attempt(opts["tag"], opts)
+            if why:
+                print(f"{STOP}: {why} for {opts['tag']}; moving on")
     return rc
 
 

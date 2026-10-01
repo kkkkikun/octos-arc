@@ -352,6 +352,23 @@ class StallLimit(unittest.TestCase):
             finally:
                 os.chdir(prev)
 
+    def test_quarantined_tag_is_signal_only(self):
+        # OCTOS_ARC_QUARANTINE tags: checks run, failures never repair --
+        # verify prints STOP before any attempt budget burns.
+        import os
+        old = os.environ.get("OCTOS_ARC_QUARANTINE")
+        try:
+            os.environ["OCTOS_ARC_QUARANTINE"] = "REQ-3-1-1, REQ-9"
+            self.assertTrue(verify_node.quarantined("REQ-3-1-1"))
+            self.assertTrue(verify_node.quarantined("REQ-9"))
+            self.assertFalse(verify_node.quarantined("REQ-3-1-2"))
+            os.environ["OCTOS_ARC_QUARANTINE"] = ""
+            for tag in ("REQ-3-1-1", "REQ-9"):
+                self.assertFalse(verify_node.quarantined(tag))   # empty list = no-op
+        finally:
+            if old is None: os.environ.pop("OCTOS_ARC_QUARANTINE", None)
+            else: os.environ["OCTOS_ARC_QUARANTINE"] = old
+
     def test_run_specs_records_the_score_it_stops_on(self):
         import inspect
         # The signature source: both return paths of run_specs write the

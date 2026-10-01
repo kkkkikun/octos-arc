@@ -376,8 +376,8 @@ class PlatformWallOverride(unittest.TestCase):
                 os.environ["OCTOS_TIME_BUDGET"] = "21600"
                 os.environ["ARCBENCH_TASK_DIR"] = "/workspace/task"
                 pol = main.policy()
-                self.assertEqual(pol["run_timeout"], 86400)  # 24h wall; $6.5 fuel gauge caps the spend
-                self.assertEqual(pol["cost_budget"], 6.5)
+                self.assertEqual(pol["run_timeout"], 86400)  # 24h wall; the fuel gauge caps the spend
+                self.assertEqual(pol["cost_budget"], 5.5)   # base (sheet); github tops up to 8.0
                 del os.environ["ARCBENCH_TASK_DIR"]
                 os.environ["ARCBENCH_RUNNER_EVENTS_PATH"] = "/tmp/ev"
                 pol = main.policy()
@@ -385,7 +385,7 @@ class PlatformWallOverride(unittest.TestCase):
                 os.environ.pop("ARCBENCH_RUNNER_EVENTS_PATH", None)
                 pol = main.policy()                     # local: env stays in charge
                 self.assertEqual(pol["run_timeout"], 21600)
-                self.assertEqual(pol["cost_budget"], 6.5)   # the fuel gauge guards local money too
+                self.assertEqual(pol["cost_budget"], 5.5)   # the fuel gauge guards local money too
             finally:
                 for k, v in old.items():
                     if v is None: os.environ.pop(k, None)
@@ -434,6 +434,20 @@ class CostGauge(unittest.TestCase):
                      and state["tokens_in"] >= 10_000_000
                      and _time.time() - state["started"] > 900)
             self.assertEqual(armed, fires)
+
+
+class TaskOverrides(unittest.TestCase):
+    def test_github_tree_tops_up_the_fuel_sheet_tree_keeps_base(self):
+        # aurora/11: symmetric caps spend the fattest margin (github p=4,
+        # every point net-new) and the hardest ceiling (sheet p=25) alike.
+        base = {"cost_budget": 5.5, "github_cost_budget": 8.0}
+        gh = dict(base); main.apply_task_overrides(gh, ["REQ-1-1-2", "REQ-6-2-1"])
+        self.assertEqual(gh["cost_budget"], 8.0)
+        sheet = dict(base); main.apply_task_overrides(sheet, ["REQ-1-1-1", "REQ-5-3-1"])
+        self.assertEqual(sheet["cost_budget"], 5.5)
+        off = {"cost_budget": 0.0, "github_cost_budget": 0.0}
+        main.apply_task_overrides(off, ["REQ-6-1"])
+        self.assertEqual(off["cost_budget"], 0.0)      # 0 = gauge off, stays off
 
 
 class ExamplePrecedence(unittest.TestCase):
