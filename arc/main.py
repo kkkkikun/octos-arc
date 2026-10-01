@@ -451,6 +451,12 @@ def kernel_env(pol: dict, config_dir: Path) -> dict:
     # 600s default kills a whole-suite run that the 2400s node timeout was
     # sized for -- a false FAIL the final repair loop then burns rounds on.
     env["OCTOS_ARC_PLAYWRIGHT_TIMEOUT"] = str(pol["verify_timeout"])
+    # The per-test isolation wall budget: check-time suites (own specs +
+    # regression riders + family canaries) must finish ISOLATED inside the
+    # node's own timeout; the default 900s would push mid-run tails into the
+    # shared-boot fallback, where stateful pairs bleed. 1800s + the shared
+    # tail still fits the 2400s verify timeout.
+    env["OCTOS_ARC_SPECS_BUDGET_MS"] = "1800000"
     # Ride out a minute or two of refused / reset connections (1+2+...+60s)
     # instead of failing the node after 7s; timeouts are never retried.
     env["OCTOS_LLM_MAX_RETRIES"] = "8"
