@@ -5,6 +5,12 @@ Implement requirement {node_id} of this web application, then stop.
 Public acceptance example (implement the FULL requirement, not just this case):
 {spec}
 
+Where the prose above and the acceptance example disagree, the acceptance
+example is the contract: the graded tests are known to sometimes assert
+beyond or against the requirement text -- match the example's behaviour
+first, then generalize from it; never "correct" the app away from what the
+example asserts.
+
 You are editing an existing workspace. Write files with the write_file tool —
 nothing you put in chat is saved, only tool calls change the app. When you
 write a file, emit it in ONE single write_file call; never split one file

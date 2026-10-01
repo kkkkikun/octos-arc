@@ -364,8 +364,8 @@ class PlatformWallOverride(unittest.TestCase):
         # The platform runner injects a 6h OCTOS_TIME_BUDGET; the rules allow
         # 48h. With the platform markers present, the bundle's own
         # platform_run_timeout_seconds must win -- the wall is the backstop
-        # and money is bounded by platform_cost_budget_usd, so 10h only buys
-        # more requirements attempted, not more burn.
+        # and money is bounded by platform_cost_budget_usd, so a long wall
+        # only buys more requirements attempted, not more burn.
         import os, tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as tmp:
@@ -376,16 +376,16 @@ class PlatformWallOverride(unittest.TestCase):
                 os.environ["OCTOS_TIME_BUDGET"] = "21600"
                 os.environ["ARCBENCH_TASK_DIR"] = "/workspace/task"
                 pol = main.policy()
-                self.assertEqual(pol["run_timeout"], 36000)   # 10h wall; $5 fuel gauge caps the spend
-                self.assertEqual(pol["cost_budget"], 5.0)
+                self.assertEqual(pol["run_timeout"], 86400)  # 24h wall; $6.5 fuel gauge caps the spend
+                self.assertEqual(pol["cost_budget"], 6.5)
                 del os.environ["ARCBENCH_TASK_DIR"]
                 os.environ["ARCBENCH_RUNNER_EVENTS_PATH"] = "/tmp/ev"
                 pol = main.policy()
-                self.assertEqual(pol["run_timeout"], 36000)
+                self.assertEqual(pol["run_timeout"], 86400)
                 os.environ.pop("ARCBENCH_RUNNER_EVENTS_PATH", None)
                 pol = main.policy()                     # local: env stays in charge
                 self.assertEqual(pol["run_timeout"], 21600)
-                self.assertEqual(pol["cost_budget"], 5.0)   # the fuel gauge guards local money too
+                self.assertEqual(pol["cost_budget"], 6.5)   # the fuel gauge guards local money too
             finally:
                 for k, v in old.items():
                     if v is None: os.environ.pop(k, None)
@@ -434,3 +434,14 @@ class CostGauge(unittest.TestCase):
                      and state["tokens_in"] >= 10_000_000
                      and _time.time() - state["started"] > 900)
             self.assertEqual(armed, fires)
+
+
+class ExamplePrecedence(unittest.TestCase):
+    def test_implement_prompt_declares_the_example_the_contract(self):
+        # The github task's tests are known (2026-10-01 intel) to sometimes
+        # assert beyond or against the requirement text. The model sees both
+        # the prose and the test excerpt; without an explicit precedence rule
+        # it follows the prose and fails the test that actually grades.
+        from pathlib import Path
+        tmpl = (Path(main.__file__).resolve().parent / "prompts" / "pipeline-implement.md")
+        self.assertIn("the acceptance\nexample is the contract", tmpl.read_text(encoding="utf-8"))
