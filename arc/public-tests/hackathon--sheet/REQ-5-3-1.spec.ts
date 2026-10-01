@@ -32,9 +32,11 @@ test('REQ-5-3-1: Create and Refresh a Basic Pivot Table - Scenario 2', async ({ 
 
 test('REQ-5-3-1: Create and Refresh a Basic Pivot Table - Scenario 3', async ({ page }) => {
   await h.openQ3Sales(page);
-  // a record whose value field is empty counts as 0 under COUNT
-  await h.clickCell(page, 'B4');
-  await page.keyboard.press('Delete');
+  // a record whose value field is empty counts as 0 under COUNT. Clear via
+  // the documented edit path (Enter commit): the requirements bind no
+  // Delete key, so pressing it only works on implementations that added an
+  // undocumented binding (deepseek 2nd-scan, optional).
+  await h.editCell(page, 'B4', '');
   await h.expectCellValue(page, 'B4', '');
   await h.createPivot(page, { rows: 'Region', values: 'Sales', summary: 'COUNT' });
   await h.expectCellValue(page, 'B1', 'COUNT of Sales');
