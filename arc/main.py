@@ -129,7 +129,15 @@ def load_tree(req_dir: Path) -> dict:
 
 
 def atomic_nodes(tree: dict) -> list[dict]:
-    """Atomic requirements in dependency order (FOLDERs are grouping only)."""
+    """Atomic requirements in dependency order (FOLDERs are grouping only).
+
+    Among the ready nodes (every dependency already placed) the one with the
+    most scenarios goes first (aurora/11 (b) cheap ordering): the fat
+    requirements bank their scenarios before a wall or the fuel cap can
+    fall. Document order breaks ties; dependencies always precede
+    dependents, and a cyclic tree still yields every node exactly once
+    (the cycle is broken in document order).
+    """
     flat: dict[str, dict] = {}
 
     def walk(node: dict) -> None:
@@ -139,20 +147,25 @@ def atomic_nodes(tree: dict) -> list[dict]:
             walk(child)
 
     walk(tree)
+    deps = {nid: {str(d) for d in node.get("dependencies") or []} & set(flat) - {nid}
+            for nid, node in flat.items()}
+    doc_order = {nid: i for i, nid in enumerate(flat)}
+
+    def weight(nid: str) -> int:
+        return len(flat[nid].get("scenarios") or [])
+
     ordered: list[dict] = []
-    seen: set[str] = set()
-
-    def visit(nid: str, stack: set[str]) -> None:
-        if nid in seen or nid in stack or nid not in flat:
-            return
-        stack.add(nid)
-        for dep in flat[nid].get("dependencies") or []:
-            visit(str(dep), stack)
-        seen.add(nid)
+    placed: set[str] = set()
+    remaining = set(flat)
+    while remaining:
+        ready = [nid for nid in remaining if deps[nid] <= placed]
+        if not ready:                       # cycle: break in document order
+            nid = min(remaining, key=lambda n: doc_order[n])
+        else:
+            nid = min(ready, key=lambda n: (-weight(n), doc_order[n]))
+        placed.add(nid)
+        remaining.discard(nid)
         ordered.append(flat[nid])
-
-    for nid in flat:
-        visit(nid, set())
     return ordered
 
 

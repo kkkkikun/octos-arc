@@ -24,6 +24,11 @@ def atomic(node_id, deps=(), with_specs=False):
             "description": f"build {node_id}", "dependencies": list(deps)}
 
 
+def fat(node_id, scenarios, deps=()):
+    return {"id": node_id, "type": "ATOMIC", "name": node_id, "dependencies": list(deps),
+            "scenarios": [{"name": f"{node_id}-s{i}"} for i in range(scenarios)]}
+
+
 POLICY = dict(name="arc_build", repairs=5, repair_window=1800, node_timeout=1200, verify_timeout=900,
               max_iterations=40, run_timeout=3600, tools="read_file,write_file",
               reasoning="none", max_output_tokens=65536, node_budget=600,
@@ -58,6 +63,33 @@ def template_refs(dot):
 
 
 EDGE = re.compile(r"^\s{4}(\w+) -> (\w+)(?:\s*\[(.*)\])?$", re.M)
+
+
+class AtomicOrdering(unittest.TestCase):
+    def test_ready_wave_prefers_the_fattest_requirement(self):
+        # REQ-thin (1 scenario) is documented first and ready, but REQ-fat
+        # (7 scenarios) is just as ready: the wave must pick REQ-fat so the
+        # score-heavy work banks before a wall or the fuel cap can fall.
+        nodes = main.atomic_nodes(tree([fat("REQ-thin", 1), fat("REQ-fat", 7)]))
+        self.assertEqual([n["id"] for n in nodes], ["REQ-fat", "REQ-thin"])
+
+    def test_dependencies_still_precede_dependents(self):
+        # REQ-fat sits later in the document with more scenarios, but it
+        # depends on REQ-thin: topology beats weight, every time.
+        nodes = main.atomic_nodes(tree([fat("REQ-fat", 7, ["REQ-thin"]), fat("REQ-thin", 1)]))
+        ids = [n["id"] for n in nodes]
+        self.assertLess(ids.index("REQ-thin"), ids.index("REQ-fat"))
+
+    def test_equal_weight_keeps_document_order(self):
+        # No scenarios anywhere (the old shape): the order is exactly the
+        # document order -- trees without scenario counts behave as before.
+        nodes = main.atomic_nodes(tree([atomic("REQ-1"), atomic("REQ-2"), atomic("REQ-3")]))
+        self.assertEqual([n["id"] for n in nodes], ["REQ-1", "REQ-2", "REQ-3"])
+
+    def test_cycle_still_yields_every_node_in_document_order(self):
+        nodes = main.atomic_nodes(tree([fat("REQ-1", 3, ["REQ-2"]), fat("REQ-2", 5, ["REQ-1"]),
+                                        fat("REQ-3", 1)]))
+        self.assertEqual([n["id"] for n in nodes], ["REQ-3", "REQ-1", "REQ-2"])
 
 
 class PipelineDot(unittest.TestCase):
@@ -376,16 +408,16 @@ class PlatformWallOverride(unittest.TestCase):
                 os.environ["OCTOS_TIME_BUDGET"] = "21600"
                 os.environ["ARCBENCH_TASK_DIR"] = "/workspace/task"
                 pol = main.policy()
-                self.assertEqual(pol["run_timeout"], 86400)  # 24h wall; the fuel gauge caps the spend
-                self.assertEqual(pol["cost_budget"], 5.5)   # base (sheet); github tops up to 8.0
+                self.assertEqual(pol["run_timeout"], 64800)  # 18h T2 wall (aurora/11); fuel gauge caps the spend
+                self.assertEqual(pol["cost_budget"], 5.0)   # base (sheet); github tops up to 8.0
                 del os.environ["ARCBENCH_TASK_DIR"]
                 os.environ["ARCBENCH_RUNNER_EVENTS_PATH"] = "/tmp/ev"
                 pol = main.policy()
-                self.assertEqual(pol["run_timeout"], 86400)
+                self.assertEqual(pol["run_timeout"], 64800)
                 os.environ.pop("ARCBENCH_RUNNER_EVENTS_PATH", None)
                 pol = main.policy()                     # local: env stays in charge
                 self.assertEqual(pol["run_timeout"], 21600)
-                self.assertEqual(pol["cost_budget"], 5.5)   # the fuel gauge guards local money too
+                self.assertEqual(pol["cost_budget"], 5.0)   # the fuel gauge guards local money too
             finally:
                 for k, v in old.items():
                     if v is None: os.environ.pop(k, None)
