@@ -375,11 +375,11 @@ class PlatformWallOverride(unittest.TestCase):
                 os.environ["OCTOS_TIME_BUDGET"] = "21600"
                 os.environ["ARCBENCH_TASK_DIR"] = "/workspace/task"
                 pol = main.policy()
-                self.assertEqual(pol["run_timeout"], 43200)
+                self.assertEqual(pol["run_timeout"], 21600)   # 6h: the score formula divides by spend^0.2
                 del os.environ["ARCBENCH_TASK_DIR"]
                 os.environ["ARCBENCH_RUNNER_EVENTS_PATH"] = "/tmp/ev"
                 pol = main.policy()
-                self.assertEqual(pol["run_timeout"], 43200)
+                self.assertEqual(pol["run_timeout"], 21600)
                 os.environ.pop("ARCBENCH_RUNNER_EVENTS_PATH", None)
                 pol = main.policy()                     # local: env stays in charge
                 self.assertEqual(pol["run_timeout"], 21600)

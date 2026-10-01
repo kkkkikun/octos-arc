@@ -53,7 +53,10 @@ run_timeout_seconds = 3600      # OCTOS_TIME_BUDGET — whole run
 # 48h per task. On the platform this key overrides the injection: deepseek's
 # 20-min iteration-capped impl turns on hard nodes need the extra hours to
 # reach the formula family at all (three 6h runs died at node ~19).
-platform_run_timeout_seconds = 43200
+# 21600 (the 6h standard): the 12h override doubled platform burn (¥65 vs
+# the field's ¥30-50) for +1-2 nodes that all died in repair swamps, and the
+# score formula divides by spend^0.2 -- two 6h tickets beat one 12h.
+platform_run_timeout_seconds = 21600
 node_budget_seconds = 900       # OCTOS_NODE_TIME_BUDGET — floor driver: max(env, this x nodes); real-spec acceptance needs ~1200s/node (slice 2026-09-27), so 900 keeps the 24-node sheet floor at 6h, github at 11.8h (48h rule has room)
 node_tools = "read_file,write_file,edit_file,glob,grep,list_dir"  # OCTOS_ARC_NODE_TOOLS
 # Put on every worker node as reasoning_effort (the kernel maps it per model:
