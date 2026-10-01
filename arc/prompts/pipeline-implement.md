@@ -65,6 +65,12 @@ Rules:
   requirement's records into the workbook the example opens -- never
   overwrite the cells of a workbook an earlier requirement seeded with
   different content. A new seeded workbook is cheap; a poisoned world is not.
+- Every feature must work in ANY workbook, not only the shipped seeded
+  ones: the graded tests provision their own worlds (blank workbooks the
+  user creates, CSV-imported ones) and run the SAME flows there. Before
+  finishing, exercise your feature once in a world you did NOT seed --
+  formulas must recalc, sorting must order, pivots must aggregate, sheet
+  operations must switch -- on data the acceptance example never named.
 - Hidden overlays must actually unrender: a `.hidden`/closed-modal utility
   must not be beaten by a later `display:flex/grid` rule in the cascade
   (declare it `!important` or place it after the display rules). A transparent

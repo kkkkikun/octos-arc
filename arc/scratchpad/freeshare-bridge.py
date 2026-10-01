@@ -50,11 +50,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         headers = {k: v for k, v in self.headers.items()
                    if k.lower() not in ("host", "connection", "content-length")}
         headers["Host"] = UPSTREAM_HOST
+        with open("/tmp/freeshare-bridge-req.log", "a") as _lg:   # request-level truth
+            _lg.write(f">> {self.command} {self.path} via {upstream_ip()} "
+                      f"hdrs={sorted(headers)} bodylen={len(body or b'')}\n")
         try:
             conn = http.client.HTTPSConnection(upstream_ip(), 443, context=_ctx, timeout=600)
             conn.request(self.command, self.path, body=body, headers=headers)
             resp = conn.getresponse()
             data = resp.read()
+            with open("/tmp/freeshare-bridge-req.log", "a") as _lg:
+                _lg.write(f"<< {resp.status} datalen={len(data)} "
+                          f"rhdrs={[(k, v) for k, v in resp.getheaders()][:6]}\n")
         except (OSError, http.client.HTTPException) as exc:
             payload = json.dumps({"error": f"bridge upstream failure: {exc}"}).encode()
             self.send_response(502)
