@@ -12,7 +12,7 @@ test('REQ-3-1-1: Edit a Cell Through the Grid or Formula Bar - Scenario 1', asyn
   await h.expectFormulaBar(page, '7');
   // boolean-like values and date text are supported cell content
   await h.editCell(page, 'D5', 'TRUE');
-  await h.expectCellValue(page, 'D5', 'TRUE');
+  await h.expectCellValue(page, 'D5', /^true$/i);  // doc pins no casing
   await h.editCell(page, 'D6', '2024-01-15');
   await h.expectCellValue(page, 'D6', '2024-01-15');
 });

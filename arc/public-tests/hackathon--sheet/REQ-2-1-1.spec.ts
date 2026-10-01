@@ -7,7 +7,11 @@ import * as h from './helpers';
 test('REQ-2-1-1: Add a Worksheet - Scenario 1', async ({ page }) => {
   await h.openQ3Sales(page);
   await h.clickNamed(page, 'Add worksheet');
-  await h.expectTabActive(page, h.SEED.sheet2);
+  // The seeded world carries Sheet1 AND Sheet2, so the first unused SheetN
+  // name is Sheet3 -- Sc2 asserts the same rule from the same start; the
+  // old Sheet2 expectation made the two scenarios mutually exclusive
+  // (deepseek 2nd-scan, class 2).
+  await h.expectTabActive(page, 'Sheet3');
   await h.expectCellSelected(page, 'A1', true);
   await h.clickNamed(page, h.SEED.sheet1);
   await h.expectVisible(page, 'East');

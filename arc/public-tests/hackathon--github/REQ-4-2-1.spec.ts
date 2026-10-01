@@ -9,7 +9,9 @@ test('REQ-4-2-1: View Repository Commit History - Scenario 1', async ({ page }) 
   await h.openRepo(page, h.SEED.repo);
   await h.clickNamed(page, 'Commits');
   await h.expectVisible(page, h.SEED.commitMessage);
-  await h.expectVisible(page, 'ago');
+  // A <time>/<span> never matches the probe ladder's button fallback:
+  // assert the substring directly (deepseek 2nd-scan, class 3).
+  await expect(page.getByText(/ago/i).first()).toBeVisible();
   await expect(page.getByText(/[0-9a-f]{7,40}/i).first()).toBeVisible();
   await h.reload(page);
   await h.expectVisible(page, h.SEED.commitMessage);

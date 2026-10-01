@@ -134,14 +134,18 @@ export async function expectVisibleTexts(scope: Scope, values: Match[]): Promise
 }
 
 export async function expectAbsent(scope: Scope, value: Match): Promise<void> {
+  // Hidden-not-necessarily-deleted: the doc's verbs are "no longer
+  // displays"/"is absent" -- a compliant implementation may keep the node
+  // in the DOM and hide it, which count==0 fails. toBeHidden passes on no
+  // match AND on CSS-hidden nodes (deepseek 2nd-scan, class 1).
   const t = target(scope);
   const pattern = value instanceof RegExp ? value : rxContains(value);
-  await expect(t.getByRole('button', { name: pattern })).toHaveCount(0);
-  await expect(t.getByRole('link', { name: pattern })).toHaveCount(0);
-  await expect(t.getByRole('menuitem', { name: pattern })).toHaveCount(0);
-  await expect(t.getByRole('option', { name: pattern })).toHaveCount(0);
-  await expect(t.getByRole('tab', { name: pattern })).toHaveCount(0);
-  await expect(t.getByText(pattern)).toHaveCount(0);
+  await expect(t.getByRole('button', { name: pattern }).first()).toBeHidden();
+  await expect(t.getByRole('link', { name: pattern }).first()).toBeHidden();
+  await expect(t.getByRole('menuitem', { name: pattern }).first()).toBeHidden();
+  await expect(t.getByRole('option', { name: pattern }).first()).toBeHidden();
+  await expect(t.getByRole('tab', { name: pattern }).first()).toBeHidden();
+  await expect(t.getByText(pattern).first()).toBeHidden();
 }
 
 export async function fillField(scope: Scope, label: Match, value: string): Promise<void> {

@@ -23,8 +23,11 @@ test('REQ-1-3-2: Export the Current Worksheet as CSV - Scenario 1', async ({ pag
 
 test('REQ-1-3-2: Export the Current Worksheet as CSV - Scenario 2', async ({ page }) => {
   await h.openQ3Sales(page);
-  await h.editCell(page, 'A9', 'Playwright,Export');
-  await h.editCell(page, 'B9', 'He said "hi"');
+  // In-used-range cells (B2/B3): row 9 may sit outside the grid a
+  // used-range-only renderer draws, and a missed cell click burns 30s of
+  // actionability retries inside the 40s clock (deepseek 2nd-scan, class 4).
+  await h.editCell(page, 'B2', 'Playwright,Export');
+  await h.editCell(page, 'B3', 'He said "hi"');
   const text = await exportCsv(page);
   expect(text).toContain('Playwright');
   expect(text).toContain('He said');
@@ -32,7 +35,7 @@ test('REQ-1-3-2: Export the Current Worksheet as CSV - Scenario 2', async ({ pag
 
 test('REQ-1-3-2: Export the Current Worksheet as CSV - Scenario 3', async ({ page }) => {
   await h.openQ3Sales(page);
-  await h.editCell(page, 'C9', '=1+2');
+  await h.editCell(page, 'C3', '=1+2');
   const text = await exportCsv(page);
   expect(text).toContain('3');
 });

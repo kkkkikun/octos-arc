@@ -32,7 +32,10 @@ test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 3', async ({ page })
 });
 
 test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 4', async ({ page }) => {
-  await h.openInventory(page);
+  // North is Q3 Sales' Region/Sales/Status row -- the one multi-world
+  // rewiring miss: this scenario rode openInventory and then asserted data
+  // that only exists in the Region world (deepseek 2nd-scan).
+  await h.openQ3Sales(page);
   await h.openRowMenu(page, '3');
   await h.clickNamed(page, 'Insert 1 row above');
   await h.expectCellValue(page, 'A4', 'North');

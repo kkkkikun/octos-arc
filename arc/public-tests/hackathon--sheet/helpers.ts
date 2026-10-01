@@ -12,7 +12,7 @@ export const SEED = {
   // as its own workbook and each family's specs open theirs. The hidden tests
   // re-seed per scenario, so extra seeded workbooks are invisible to grading;
   // these exist to keep the in-run checks satisfiable.
-  workbook3: 'Inventory',      // REQ-3 world: A1:B2 Item/Qty with Pen/4; paste target D1:E2
+  workbook3: 'Inventory',      // REQ-3 world: A1:B2 Item/Qty with Pen/4 (paste/copy land per spec)
   workbook4: 'Calculations',   // REQ-4 world: A1=2, B1=3, formulas =A1+B1 and =C1*2
   sheet1: 'Sheet1',
   sheet2: 'Sheet2',
@@ -88,11 +88,15 @@ export async function expectVisible(scope: Page | Locator, value: Match): Promis
 }
 
 export async function expectAbsent(scope: Page | Locator, value: Match): Promise<void> {
+  // "Hidden, not deleted" is the doc's own semantics (REQ-5-1-2: filtered
+  // rows stay in the DOM, hidden). count==0 fails a compliant
+  // render-then-hide implementation; toBeHidden passes on no match AND on
+  // CSS-hidden elements alike (deepseek 2nd-scan, class 2).
   const pattern = rxContains(value);
-  await expect(scope.getByText(pattern)).toHaveCount(0);
-  await expect(scope.getByRole('button', { name: pattern })).toHaveCount(0);
-  await expect(scope.getByRole('menuitem', { name: pattern })).toHaveCount(0);
-  await expect(scope.getByRole('option', { name: pattern })).toHaveCount(0);
+  await expect(scope.getByText(pattern).first()).toBeHidden();
+  await expect(scope.getByRole('button', { name: pattern }).first()).toBeHidden();
+  await expect(scope.getByRole('menuitem', { name: pattern }).first()).toBeHidden();
+  await expect(scope.getByRole('option', { name: pattern }).first()).toBeHidden();
 }
 
 export async function fillField(scope: Page | Locator, label: Match, value: string): Promise<void> {
@@ -145,8 +149,16 @@ export async function cellRef(page: Page, ref: string): Promise<Locator> {
   return byCoordinate;
 }
 
-export function cellByText(page: Page, text: string): Locator {
-  return grid(page).getByText(text, { exact: true }).first();
+export function cellByText(page: Page, text: string | RegExp): Locator {
+  // Numbers may render with grouping separators (1,200 / 1 200): match the
+  // literal, or the literal with thin separators between digit groups, so a
+  // compliant renderer is not failed for formatting the doc never pinned
+  // (deepseek 2nd-scan). Order-preserving only -- locale date reformatting
+  // stays out of scope.
+  if (text instanceof RegExp) return grid(page).getByText(text).first();
+  const esc = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const loose = esc.replace(/([0-9])(?=[0-9])/g, '$1[,.\u00A0\u202F]?');
+  return grid(page).getByText(new RegExp(`^${loose}$`, 'i')).first();
 }
 
 export async function clickCell(page: Page, ref: string): Promise<void> {
@@ -160,7 +172,7 @@ export async function editCell(page: Page, ref: string, value: string, commit = 
   await page.keyboard.press(commit);
 }
 
-export async function expectCellValue(page: Page, ref: string, text: string): Promise<void> {
+export async function expectCellValue(page: Page, ref: string, text: string | RegExp): Promise<void> {
   const cell = await cellRef(page, ref);
   if (await cell.count()) {
     await expect(cell).toHaveText(text);

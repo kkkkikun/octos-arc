@@ -31,7 +31,7 @@ test('REQ-6-2-4: Create a Draft Pull Request - Scenario 2', async ({ page }) => 
     await h.clickNamed(page, 'Confirm');
   }
   await h.expectVisible(page, h.rx('Open'));
-  await expect(page.getByText(h.rx('Draft'))).toHaveCount(0);
+  await expect(page.getByText(h.rx('Draft')).first()).toBeHidden();  // hidden, not DOM-removed
   await h.reload(page);
   await h.expectVisible(page, h.rx('Open'));
   await h.expectAbsent(page, 'Ready for review');
