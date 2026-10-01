@@ -277,13 +277,13 @@ def run_specs(app: Path, work: Path, root: Path, pw: str, env: dict,
     seed = state_snapshot(app)
     rc, listing = one("--list")
     ids = spec_ids(listing)
-    if len(ids) > 20:
-        # A per-test reboot multiplies fast tests into slow boots: the final
-        # full-suite check (100 tests) blew the check node's own timeout on
-        # the platform's slower box and wedged the run in a kill-retry loop.
-        # Isolation buys repair precision on a node's few specs; a big suite
-        # runs whole and takes the state bleed it has always taken.
-        ids = []
+    # NO whole-suite bail for big suites at CHECK time: with regression specs
+    # riding every node, the count crosses any small threshold early, and one
+    # shared boot makes the official stateful pairs fail each other (S1
+    # renames the workbook, S2 expects the original name) -- the run then
+    # never passes a check again and .arc-good freezes on an early state (two
+    # platform runs shipped 6/100 that way). Oversized suites are bounded by
+    # the wall budget below, which finishes the remainder in one boot.
     if not ids:                                   # enumerate failed: run whole
         srv = boot()
         try:

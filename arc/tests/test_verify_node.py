@@ -281,3 +281,16 @@ class SeedCanary(unittest.TestCase):
                 fams.setdefault(g.group(1) if g else tag, tag)
             canaries = [m[t][0] for t in fams.values() if t != "REQ-2-1-1" and m[t]]
             self.assertEqual(canaries, ["REQ-1-1-1.spec.ts", "REQ-5-1-2.spec.ts"])
+
+
+class IsolationAlwaysAtCheckTime(unittest.TestCase):
+    """The >20 whole-run bail resurrected the arch-9 state-bleed wound once
+    regression specs rode every node (platform runs shipped 6/100 with a
+    frozen .arc-good). Check-time suites always isolate; the wall budget
+    bounds the oversized ones."""
+
+    def test_big_suites_are_not_sent_whole_by_a_count_cutoff(self):
+        import inspect
+        src = inspect.getsource(verify_node.run_specs)
+        self.assertNotIn("> 20", src)
+        self.assertIn("budget", src)
