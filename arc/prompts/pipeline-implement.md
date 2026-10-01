@@ -5,11 +5,11 @@ Implement requirement {node_id} of this web application, then stop.
 Public acceptance example (implement the FULL requirement, not just this case):
 {spec}
 
-Where the prose above and the acceptance example disagree, the acceptance
-example is the contract: the graded tests are known to sometimes assert
-beyond or against the requirement text -- match the example's behaviour
-first, then generalize from it; never "correct" the app away from what the
-example asserts.
+Where the prose above and the acceptance example disagree, the prose is the
+requirement: the example is a local proxy written from that text and can be
+wrong. Satisfy the described behaviour first; when the example asserts
+something the text does not, follow the text and treat the example's extra
+assertion as the proxy's error, not a hidden demand.
 
 You are editing an existing workspace. Write files with the write_file tool —
 nothing you put in chat is saved, only tool calls change the app. When you

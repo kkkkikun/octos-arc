@@ -437,11 +437,12 @@ class CostGauge(unittest.TestCase):
 
 
 class ExamplePrecedence(unittest.TestCase):
-    def test_implement_prompt_declares_the_example_the_contract(self):
-        # The github task's tests are known (2026-10-01 intel) to sometimes
-        # assert beyond or against the requirement text. The model sees both
-        # the prose and the test excerpt; without an explicit precedence rule
-        # it follows the prose and fails the test that actually grades.
+    def test_implement_prompt_declares_the_prose_the_requirement(self):
+        # The shipped acceptance examples are LOCAL PROXIES written from the
+        # requirement docs (the real graded tests never leaked) and can be
+        # wrong; the docs are the ground truth. The model sees both the prose
+        # and the test excerpt; without an explicit precedence rule a proxy
+        # error can lure it away from what the text demands.
         from pathlib import Path
         tmpl = (Path(main.__file__).resolve().parent / "prompts" / "pipeline-implement.md")
-        self.assertIn("the acceptance\nexample is the contract", tmpl.read_text(encoding="utf-8"))
+        self.assertIn("the prose is the\nrequirement", tmpl.read_text(encoding="utf-8"))
