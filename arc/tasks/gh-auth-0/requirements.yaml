@@ -1,0 +1,431 @@
+id: ROOT
+name: GitHub Collaboration Platform Core Requirements
+type: FOLDER
+dependencies: []
+description: This product is a simplified GitHub collaboration platform. Unless an
+  atomic requirement explicitly allows more than one role, every quoted user-interface
+  name is the exact English accessible name of the control; the role, scope, and observable-state
+  rules stated by each atomic requirement are authoritative. Values described as existing
+  accounts, organizations, teams, repositories, branches, files, commits, issues,
+  milestones, pull requests, reviews, and permission relationships are predefined
+  seed data. The application must provision those records before the corresponding
+  scenario and supply each account through an isolated browser session; they are not
+  extra features that a participant must expose through a private API. Generated names
+  may contain a unique suffix, but their role, ownership, visibility, and relationships
+  are exactly those stated in the atomic requirement. Every atomic requirement remains
+  enabled even when seed configuration is incomplete. All write operations must be
+  persisted on the server, checked against the current session and target-object permission,
+  and completed atomically. Organization Owner, repository Admin, Read, Triage, Write,
+  Maintain, and Admin permissions follow the operation-specific rules in the requirements
+  below; these roles are not an automatic cumulative ladder. Real-time collaboration,
+  Actions, Packages, Wiki, project boards, notification delivery, and external Git
+  remote protocols are outside the scope of this product.
+children:
+- id: REQ-1
+  name: Identity and Access
+  type: FOLDER
+  dependencies: []
+  description: This module defines the “account” and “session” required to access
+    the system. An account is a persistent individual identity storing a username,
+    verified email, and credential status; a session is a record created after successful
+    account sign-in that represents only the current browser login state. Visitors
+    enter the account-access page from “Sign up”, “Sign in”, or “Forgot password”
+    on the home page; signed-in users enter security settings or sign out from the
+    account menu. The account menu is the control in the upper-right corner of the
+    page that displays the current signed-in account, organization list, and sign-out
+    entry. No page, error message, or recovery flow may display a full password. After
+    successful sign-in, the account menu displays the current user, and subsequent
+    organization, repository, issue, and pull-request pages use this session to determine
+    visibility and operation permissions; sign-out, password changes, and recovery
+    must immediately change the session state visible to subsequent requests.
+  children:
+  - id: REQ-1-1
+    name: Account Registration and Recovery
+    type: FOLDER
+    dependencies: []
+    description: The account-access page is the shared page used by unauthenticated
+      users to register, sign in, and recover a password, with the frontend showing
+      the appropriate form and submit button for each operation. The local product
+      does not implement an email-verification page, email delivery, or an external
+      verification-code service — successful registration directly stores a sign-in-capable
+      account and marks its email as verified; successful sign-in only stores a new
+      session and does not create a duplicate account; after submitting an email for
+      password recovery, the page directly displays the fixed verification code `123456`
+      and the password-reset form, and only the correct code together with a compliant
+      new password updates the password of the same account. Registration, sign-in,
+      and recovery pages must use visible labels to identify fields and submit actions;
+      after failure, non-sensitive input is retained, while password and password-confirmation
+      fields must not redisplay submitted values.
+    children:
+    - id: REQ-1-1-1
+      name: Register a New GitHub Account
+      type: ATOMIC
+      dependencies: []
+      description: 'The registration page is the form opened by the unique link named
+        “Create an account” from the sign-in page. The form contains exactly one textbox
+        labeled “Username”, one textbox labeled “Email”, one password input labeled
+        “Password”, one password input labeled “Confirm password”, one initially unchecked
+        checkbox named “Agree to the terms”, and one enabled button named “Create
+        account”. The username and email identify the account, while passwords must
+        not be echoed on the page. This product directly marks the email of a successfully
+        registered account as verified and does not provide a subsequent email-verification
+        page. The visitor enters a unique username, email, password, and matching
+        confirmation, checks “Agree to the terms”, and activates “Create account”.
+        The username must consist of 1 to 39 lowercase ASCII letters, digits, or single
+        hyphens (`-`) and must not begin or end with a hyphen; after trimming leading
+        and trailing whitespace, the email must contain exactly one `@`, be no longer
+        than 254 characters, and have at least one dot and non-empty domain labels
+        after the `@`; the password must contain 12 to 128 characters, include at
+        least one uppercase letter, one lowercase letter, one digit, and one non-alphanumeric
+        special character, and contain no whitespace characters. The system stores
+        a sign-in-capable account together with its verified-email status and enters
+        the sign-in page; if the username or email conflicts, any field is missing,
+        the email format is invalid, the terms are not accepted, the password is noncompliant,
+        or the confirmation does not match, the system retains the username and email
+        input, displays an itemized message beside the corresponding field, and does
+        not create an account. The corresponding visible field message contains “Username
+        already exists”, “Username format is invalid”, “Email format is invalid”,
+        “Password requirements are not satisfied”, or “Agree to terms is required”,
+        as applicable. Visitors can use this capability on the account-access page.
+        The system validates input rules, displays field errors, and prevents duplicate
+        accounts; on success, it directly creates an available account. Submitting
+        several invalid fields together must show the username, email, password, and
+        missing-terms messages together, rather than revealing only one error per
+        submission; the submit button remains actionable so these messages can be
+        read. For example, a username beginning with a hyphen, email “not-an-email”,
+        password “short”, confirmation “different”, and unchecked terms produce these
+        field errors and preserve the attempted username. A duplicate username paired
+        with a different unused email displays “Username already exists” and retains
+        both attempted values. A successful registration accepts a unique username
+        such as “pw-user-<unique suffix>”, its “@example.test” email, and password
+        “Valid-password-123!”; the sign-in form is immediately available, accepts
+        that email, and the resulting signed-in username remains visible after reload.
+
+
+        Screenshot reference:
+
+        ![image](reference/github-sign-up.png)'
+      scenarios:
+      - name: 'REQ-1-1-1: Register a New GitHub Account - Scenario 1'
+        steps:
+        - keyword: GIVEN
+          content: 'The visitor starts at the application home page in a fresh unauthenticated
+            browser session. The seeded data is account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`. The visitor clicks “Sign in” on the home
+            page to enter the account-access page, then clicks “Create an account”.
+            The registration page displays visibly labeled Username, Email, Password,
+            Confirm password, a terms-agreement checkbox, and the “Create account”
+            button; the current username and email are both unused. Seed values: account
+            `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: WHEN
+          content: 'The visitor enters a compliant 1–39-character username, a compliant
+            email, a compliant 12–128-character password, and an identical confirmation
+            password, checks the terms-agreement checkbox, and clicks “Create account”.
+            Seed values: account `alice-dev`, email `alice.dev@example.test`, password
+            `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'The system displays registration success and redirects to the
+            sign-in page without displaying the password; the account''s email can
+            now be used for sign-in and password recovery. If the username, email,
+            any required field, terms, or password rules are not satisfied, the system
+            remains on the registration page, displays the reason beside the corresponding
+            field, retains the username and email input, and does not create an account.
+            Seed values: account `alice-dev`, email `alice.dev@example.test`, password
+            `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'The visitor can immediately sign in with the new account and enter
+            the workspace; after a failed submission, reopening the registration page
+            shows that no new account corresponding to the failed input exists. Seed
+            values: account `alice-dev`, email `alice.dev@example.test`, password
+            `Valid-password-123!`.'
+      - name: 'REQ-1-1-1: Register a New GitHub Account - Scenario 2'
+        steps:
+        - keyword: GIVEN
+          content: 'The visitor starts at the application home page in a fresh unauthenticated
+            browser session. The seeded data is account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`. The visitor starts at the application
+            home page in a fresh unauthenticated browser session. Seed values: account
+            `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: WHEN
+          content: 'The user signs in as `alice-dev` with `Valid-password-123!` and
+            follows the visible controls for the register a new github account workflow.
+            Seed values: account `alice-dev`, email `alice.dev@example.test`, password
+            `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'The page displays the required headings, controls, values, and
+            status for the register a new github account workflow. Seed values: account
+            `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'After refreshing or reopening the visible destination, the successful
+            result remains persisted; a rejected action leaves the original state
+            unchanged. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+      - name: 'REQ-1-1-1: Register a New GitHub Account - Scenario 3'
+        steps:
+        - keyword: GIVEN
+          content: 'The visitor starts at the application home page in a fresh unauthenticated
+            browser session. The seeded data is account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`. The visitor starts at the application
+            home page in a fresh unauthenticated browser session. Seed values: account
+            `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: WHEN
+          content: 'The user signs in as `alice-dev` with `Valid-password-123!` and
+            follows the visible controls for the register a new github account workflow.
+            Seed values: account `alice-dev`, email `alice.dev@example.test`, password
+            `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'The page displays the required headings, controls, values, and
+            status for the register a new github account workflow. Seed values: account
+            `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'After refreshing or reopening the visible destination, the successful
+            result remains persisted; a rejected action leaves the original state
+            unchanged. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+      children: []
+    - id: REQ-1-1-2
+      name: Sign In with an Existing Account
+      type: ATOMIC
+      dependencies:
+      - REQ-1-1-1
+      description: 'This feature builds on the persisted objects, opened pages, or
+        authenticated-session context provided by REQ-1-1-1 (Register a New GitHub
+        Account); it must reuse that context and keep pages and data consistent after
+        the context changes. The sign-in page is the form on the account-access page
+        containing “Username or email”, “Password”, and “Sign in”. A “session” is
+        the current-browser login record saved after successful account authentication,
+        represented in the frontend by the upper-right account menu and access to
+        protected pages. The visitor enters a username or email and a password and
+        submits the form. The system looks up the account and validates its credentials
+        and availability status; if authentication fails due to an unknown username/email,
+        incorrect password, or unavailable account, the system displays exactly the
+        same generic failure message “Invalid credentials”, does not disclose whether
+        the account exists or which credential was wrong, and does not create a session.
+        After successful authentication, the system stores a session with a unique
+        session identifier, account identifier, and active status, then redirects
+        to the workspace accessible to that user; the session remains valid after
+        refreshing or reopening the workspace, and subsequent protected organization,
+        repository, and work-item requests must use this session to determine the
+        current user.
+
+
+        Screenshot reference:
+
+        ![image](reference/github-sign-in.png)'
+      scenarios:
+      - name: 'REQ-1-1-2: Sign In with an Existing Account - Scenario 1'
+        steps:
+        - keyword: GIVEN
+          content: 'The visitor starts at the application home page in a fresh unauthenticated
+            browser session. The seeded data is account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`. The visitor enters the account-access
+            page from the home page; a verified and available account exists, and
+            the visitor has the account''s username or verified email and current
+            password. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+        - keyword: WHEN
+          content: 'The visitor enters the username or verified email in “Username
+            or email”, enters the correct password in “Password”, and clicks “Sign
+            in”. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'The system enters the user''s workspace, the account menu displays
+            the username, and the user can access organizations, repositories, and
+            work items they are authorized to view. An unknown account, incorrect
+            password, or unavailable account all produce exactly the same generic
+            failure message, remain on the sign-in page, and do not display the account
+            menu. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'After successful sign-in, refreshing the workspace or directly
+            reopening the previously accessible protected page still shows the signed-in
+            user; after failed sign-in, refreshing or opening the visible protected
+            page still requires authentication. Seed values: account `alice-dev`,
+            email `alice.dev@example.test`, password `Valid-password-123!`.'
+      - name: 'REQ-1-1-2: Sign In with an Existing Account - Scenario 2'
+        steps:
+        - keyword: GIVEN
+          content: 'The visitor starts at the application home page in a fresh unauthenticated
+            browser session. The seeded data is account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`. The visitor starts at the application
+            home page in a fresh unauthenticated browser session. Seed values: account
+            `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: WHEN
+          content: 'The user signs in as `alice-dev` with `Valid-password-123!` and
+            follows the visible controls for the sign in with an existing account
+            workflow. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'The page displays the required headings, controls, values, and
+            status for the sign in with an existing account workflow. Seed values:
+            account `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'After refreshing or reopening the visible destination, the successful
+            result remains persisted; a rejected action leaves the original state
+            unchanged. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+      - name: 'REQ-1-1-2: Sign In with an Existing Account - Scenario 3'
+        steps:
+        - keyword: GIVEN
+          content: 'The visitor starts at the application home page in a fresh unauthenticated
+            browser session. The seeded data is account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`. The visitor starts at the application
+            home page in a fresh unauthenticated browser session. Seed values: account
+            `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: WHEN
+          content: 'The user signs in as `alice-dev` with `Valid-password-123!` and
+            follows the visible controls for the sign in with an existing account
+            workflow. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'The page displays the required headings, controls, values, and
+            status for the sign in with an existing account workflow. Seed values:
+            account `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'After refreshing or reopening the visible destination, the successful
+            result remains persisted; a rejected action leaves the original state
+            unchanged. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+      - name: 'REQ-1-1-2: Sign In with an Existing Account - Scenario 4'
+        steps:
+        - keyword: GIVEN
+          content: 'The visitor starts at the application home page in a fresh unauthenticated
+            browser session. The seeded data is account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`. The visitor starts at the application
+            home page in a fresh unauthenticated browser session. Seed values: account
+            `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: WHEN
+          content: 'The user signs in as `alice-dev` with `Valid-password-123!` and
+            follows the visible controls for the sign in with an existing account
+            workflow. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'The page displays the required headings, controls, values, and
+            status for the sign in with an existing account workflow. Seed values:
+            account `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'After refreshing or reopening the visible destination, the successful
+            result remains persisted; a rejected action leaves the original state
+            unchanged. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+      children: []
+    - id: REQ-1-1-3
+      name: Recover Account Access Through a Verified Email
+      type: ATOMIC
+      dependencies:
+      - REQ-1-1-1
+      description: 'The password-recovery page is opened by the link “Forgot password”
+        on the sign-in page; the fixed code is displayed as a distinct visible text
+        value exactly “123456”, not only embedded inside a longer instruction. “Email”,
+        “Verification code”, “New password”, and “Confirm password” are associated
+        field labels; “Send reset link” and “Reset password” are buttons. The recovery
+        scenario uses a newly registered account, an unknown email, a compliant replacement
+        such as “Replacement-password-456!”, and invalid code “000000”; failure leaves
+        the registered account able to sign in with its old email/password. In this
+        flow, the local system does not send email, generate a copyable reset link,
+        or call an external verification-code service. After the visitor enters an
+        address in the Email field and clicks “Send reset link”, the page directly
+        switches to the next step of the same recovery flow, displays the fixed verification-code
+        text “123456” for local demonstration only, and shows visibly labeled Verification
+        code, New password, Confirm password fields and a “Reset password” button;
+        the page must not require access to email. To prevent disclosure through the
+        page of whether an account exists, both registered and unknown email addresses
+        enter the same next step and display the same fixed verification code. The
+        system atomically updates the credentials of that account only when the recovery
+        context is associated with a registered email, the Verification code is character-for-character
+        equal to “123456”, the new password complies with the password rules in REQ-1-1-1,
+        and Confirm password matches it. If the verification code is wrong, the email
+        is unknown, the password is noncompliant, or the confirmation does not match,
+        the page explains the reason beside the corresponding field and does not modify
+        any account; an incorrect verification code displays “Verification code is
+        invalid”. After successful submission, the page directly displays “Password
+        updated” and does not produce any email or link. This local verification code
+        has no email-delivery, expiration, or one-time-link semantics. Password fields
+        must not echo entered values.
+
+
+        Screenshot reference:
+
+        ![image](reference/github-password-reset.png) ![image](reference/github-password-reset-1.png)'
+      scenarios:
+      - name: 'REQ-1-1-3: Recover Account Access Through a Verified Email - Scenario
+          1'
+        steps:
+        - keyword: GIVEN
+          content: 'The visitor starts at the application home page in a fresh unauthenticated
+            browser session. The seeded data is account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`. The visitor opens “Forgot password” from
+            the account-access page; one registered account and its email exist, together
+            with another email that corresponds to no account for comparison. Seed
+            values: account `alice-dev`, email `alice.dev@example.test`, password
+            `Valid-password-123!`.'
+        - keyword: WHEN
+          content: 'The visitor submits the registered email and the unknown email
+            separately; in each directly opened next step, the visitor enters the
+            fixed verification code “123456”, a new password compliant with REQ-1-1-1,
+            and the same confirmation password, then submits. Seed values: account
+            `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'Both requests directly display the fixed verification code “123456”
+            and the password-reset form, do not indicate whether the email exists,
+            and do not require access to email or a link. Only the correct-code submission
+            for the registered email updates that account''s password and displays
+            a success result; an unknown email, incorrect verification code, noncompliant
+            password, or mismatched confirmation displays the reason and does not
+            modify any account. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'After success, sign-in with the old password fails and sign-in
+            with the new password succeeds; after failure, the old password still
+            works and the candidate new password does not. Refreshing the reset page
+            must not generate an email, link, or second account. Seed values: account
+            `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+      - name: 'REQ-1-1-3: Recover Account Access Through a Verified Email - Scenario
+          2'
+        steps:
+        - keyword: GIVEN
+          content: 'The visitor starts at the application home page in a fresh unauthenticated
+            browser session. The seeded data is account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`. The visitor starts at the application
+            home page in a fresh unauthenticated browser session. Seed values: account
+            `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: WHEN
+          content: 'The user signs in as `alice-dev` with `Valid-password-123!` and
+            follows the visible controls for the recover account access through a
+            verified email workflow. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'The page displays the required headings, controls, values, and
+            status for the recover account access through a verified email workflow.
+            Seed values: account `alice-dev`, email `alice.dev@example.test`, password
+            `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'After refreshing or reopening the visible destination, the successful
+            result remains persisted; a rejected action leaves the original state
+            unchanged. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+      - name: 'REQ-1-1-3: Recover Account Access Through a Verified Email - Scenario
+          3'
+        steps:
+        - keyword: GIVEN
+          content: 'The visitor starts at the application home page in a fresh unauthenticated
+            browser session. The seeded data is account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`. The visitor starts at the application
+            home page in a fresh unauthenticated browser session. Seed values: account
+            `alice-dev`, email `alice.dev@example.test`, password `Valid-password-123!`.'
+        - keyword: WHEN
+          content: 'The user signs in as `alice-dev` with `Valid-password-123!` and
+            follows the visible controls for the recover account access through a
+            verified email workflow. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'The page displays the required headings, controls, values, and
+            status for the recover account access through a verified email workflow.
+            Seed values: account `alice-dev`, email `alice.dev@example.test`, password
+            `Valid-password-123!`.'
+        - keyword: THEN
+          content: 'After refreshing or reopening the visible destination, the successful
+            result remains persisted; a rejected action leaves the original state
+            unchanged. Seed values: account `alice-dev`, email `alice.dev@example.test`,
+            password `Valid-password-123!`.'
+      children: []
