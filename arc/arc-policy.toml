@@ -64,17 +64,20 @@ run_timeout_seconds = 3600      # OCTOS_TIME_BUDGET — whole run
 # run 1's lessons in its bundle, and a bad-luck ticket only costs half the
 # remaining window. github's floor is 900s x 47 nodes = 11.75h regardless.
 platform_run_timeout_seconds = 86400
-# Fuel gauge ($5.5 ≈ ¥39 for sheet, inside the field's ¥30-50 band): the
-# kernel meter's session_cost streams into the adapter live; at the budget
-# the run stops at the last verified state (progressive delivery has it
-# staged). Glitch-safe: it also demands 10M+ input tokens and 15+ minutes
-# before it will fire. The stall knife handles per-node waste; this bounds
-# the run.
-# Asymmetric by task (aurora/11 red-team): github starts at p=4 -- every
-# scenario is net-new score, so it tops up to $8 (≈¥57) to buy the full
-# tree; sheet only pays to beat its banked 25.
-platform_cost_budget_usd = 5.5
-platform_cost_budget_github_usd = 8.0
+# Fuel gauge, TWO axes (T1 postmortem: the platform bills ~827x the kernel
+# meter's catalog price -- meter said 0.1028 while the platform charged ¥85,
+# so a $5.5 threshold could never fire):
+#   axis 1: kernel meter session_cost, in METER units. Target ¥41 for sheet
+#           (0.05 * 827) / ¥58 for github (0.07).
+#   axis 2: input tokens, the linear map (T1: 5.6M input == ¥85). Target
+#           2.6M for sheet (≈¥40) / 3.75M for github (≈¥57).
+# Whichever trips first stops the run at the last verified state. Sanity
+# guards: 1M+ tokens seen and 15+ minutes elapsed. The stall knife handles
+# per-node waste; this bounds the run.
+platform_cost_budget_usd = 0.05
+platform_cost_budget_github_usd = 0.07
+platform_token_budget = 2600000
+platform_token_budget_github = 3750000
 # Signal-only tags: checks run and report, failures never repair. Ships
 # EMPTY -- filled only if a local run proves a family structurally hopeless
 # (the sheet REQ-3/4 mutex broke open with multi-world workbooks, arch-20).

@@ -377,7 +377,8 @@ class PlatformWallOverride(unittest.TestCase):
                 os.environ["ARCBENCH_TASK_DIR"] = "/workspace/task"
                 pol = main.policy()
                 self.assertEqual(pol["run_timeout"], 86400)  # 24h wall; the fuel gauge caps the spend
-                self.assertEqual(pol["cost_budget"], 5.5)   # base (sheet); github tops up to 8.0
+                self.assertEqual(pol["cost_budget"], 0.05)   # METER units (T1: 0.1028 == platform ¥85)
+                self.assertEqual(pol["token_budget"], 2_600_000)
                 del os.environ["ARCBENCH_TASK_DIR"]
                 os.environ["ARCBENCH_RUNNER_EVENTS_PATH"] = "/tmp/ev"
                 pol = main.policy()
@@ -385,7 +386,7 @@ class PlatformWallOverride(unittest.TestCase):
                 os.environ.pop("ARCBENCH_RUNNER_EVENTS_PATH", None)
                 pol = main.policy()                     # local: env stays in charge
                 self.assertEqual(pol["run_timeout"], 21600)
-                self.assertEqual(pol["cost_budget"], 5.5)   # the fuel gauge guards local money too
+                self.assertEqual(pol["cost_budget"], 0.05)  # the fuel gauge guards local money too
             finally:
                 for k, v in old.items():
                     if v is None: os.environ.pop(k, None)
@@ -422,17 +423,18 @@ class CostGauge(unittest.TestCase):
 
     def test_glitched_meter_with_cold_tokens_never_fires(self):
         import time as _time
-        # Same wild cost, but tokens_in is tiny or the run is young: the
-        # guard clauses must hold the kill back until the wall or a real
-        # summary ends the wait. Prove the gate by the loop's own predicate
-        # rather than sleeping through the loop.
-        pol = {"cost_budget": 5.0}
-        for tokens, age, fires in ((21_000_000, 1200, True), (1_000, 1200, False),
-                                   (21_000_000, 60, False)):
-            state = {"cost": 6.2, "tokens_in": tokens, "started": _time.time() - age}
-            armed = (float(pol["cost_budget"]) and state["cost"] >= pol["cost_budget"]
-                     and state["tokens_in"] >= 10_000_000
-                     and _time.time() - state["started"] > 900)
+        # Two axes (T1 postmortem: meter 0.1028 == platform ¥85): meter
+        # units AND raw input tokens, whichever trips first. The sanity
+        # guards (1M+ tokens seen, 15+ min) keep a glitched meter or a cold
+        # counter from beheading a run at birth.
+        pol = {"cost_budget": 0.05, "token_budget": 2_600_000}
+        for tokens, age, fires in ((2_600_000, 1200, True), (1_000, 1200, False),
+                                   (2_600_000, 60, False), (900_000, 5000, False)):
+            state = {"cost": 0.001, "tokens_in": tokens, "started": _time.time() - age}
+            armed = ((float(pol["cost_budget"]) and state["cost"] >= pol["cost_budget"])
+                     or (int(pol["token_budget"]) and state["tokens_in"] >= pol["token_budget"]))
+            armed = armed and state["tokens_in"] >= 1_000_000 \
+                and _time.time() - state["started"] > 900
             self.assertEqual(armed, fires)
 
 
@@ -440,11 +442,15 @@ class TaskOverrides(unittest.TestCase):
     def test_github_tree_tops_up_the_fuel_sheet_tree_keeps_base(self):
         # aurora/11: symmetric caps spend the fattest margin (github p=4,
         # every point net-new) and the hardest ceiling (sheet p=25) alike.
-        base = {"cost_budget": 5.5, "github_cost_budget": 8.0}
+        # Two axes since T1: kernel meter units + raw input tokens.
+        base = {"cost_budget": 0.05, "github_cost_budget": 0.07,
+                "token_budget": 2_600_000, "github_token_budget": 3_750_000}
         gh = dict(base); main.apply_task_overrides(gh, ["REQ-1-1-2", "REQ-6-2-1"])
-        self.assertEqual(gh["cost_budget"], 8.0)
+        self.assertEqual(gh["cost_budget"], 0.07)
+        self.assertEqual(gh["token_budget"], 3_750_000)
         sheet = dict(base); main.apply_task_overrides(sheet, ["REQ-1-1-1", "REQ-5-3-1"])
-        self.assertEqual(sheet["cost_budget"], 5.5)
+        self.assertEqual(sheet["cost_budget"], 0.05)
+        self.assertEqual(sheet["token_budget"], 2_600_000)
         off = {"cost_budget": 0.0, "github_cost_budget": 0.0}
         main.apply_task_overrides(off, ["REQ-6-1"])
         self.assertEqual(off["cost_budget"], 0.0)      # 0 = gauge off, stays off

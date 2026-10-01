@@ -59,14 +59,18 @@ _POLICY = {
     "min_node_seconds": ("min_node_seconds", "OCTOS_ARC_MIN_NODE_SECONDS", 120),
     "final_reserve_seconds": ("final_reserve_seconds", "OCTOS_ARC_FINAL_RESERVE", 600),
     "final_repairs": ("final_repair_rounds", "OCTOS_ARC_FINAL_REPAIRS", 2),
-    # Fuel gauge: the kernel meter streams session_cost into the adapter
-    # live; at this many USD the run stops at the last verified state
-    # instead of burning to the clock. The wall bounds time; this bounds
-    # money -- what the score formula actually divides by. 0 = off.
+    # Fuel gauge, axis 1 -- KERNEL METER units, NOT dollars: the platform
+    # bills ~827x the kernel's catalog price (T1 data point: meter 0.1028
+    # == platform ¥85). Calibrated so the cap lands near the target spend.
     "cost_budget": ("platform_cost_budget_usd", "OCTOS_ARC_COST_BUDGET", 0.0),
+    # Axis 2 -- input TOKENS, the linear map to platform spend (T1: 5.6M
+    # input tokens == ¥85). More direct than the meter; whichever axis
+    # trips first stops the run at the last verified state.
+    "token_budget": ("platform_token_budget", "OCTOS_ARC_TOKEN_BUDGET", 0),
     # Asymmetric top-up for the github task (every point is net-new from
     # p=4, so buy the full tree); the base budget covers sheet. 0 = off.
     "github_cost_budget": ("platform_cost_budget_github_usd", "OCTOS_ARC_COST_BUDGET_GH", 0.0),
+    "github_token_budget": ("platform_token_budget_github", "OCTOS_ARC_TOKEN_BUDGET_GH", 0),
     # Signal-only tags (comma-separated REQ ids): their checks still run and
     # report, but a failure prints STOP -- no repair back-edge, no attempt
     # burn. For requirements known structurally unsatisfiable in one static
@@ -597,12 +601,16 @@ def find_octos() -> str:
 def apply_task_overrides(pol: dict, node_ids: list[str]) -> None:
     """Per-task policy adjustments the tree itself reveals. The github task
     (REQ-6 families) starts from p=4: every scenario is net-new score, so its
-    fuel cap tops up to buy the full tree; sheet (p=25 banked) pays only to
+    fuel caps top up to buy the full tree; sheet (p=25 banked) pays only to
     beat its ceiling (aurora/11 red-team: symmetric caps spend the fattest
     margin and the hardest ceiling identically)."""
-    if pol.get("cost_budget") and pol.get("github_cost_budget") \
-            and any(nid.startswith("REQ-6") for nid in node_ids):
+    github = any(nid.startswith("REQ-6") for nid in node_ids)
+    if not github:
+        return
+    if pol.get("cost_budget") and pol.get("github_cost_budget"):
         pol["cost_budget"] = max(float(pol["cost_budget"]), float(pol["github_cost_budget"]))
+    if pol.get("token_budget") and pol.get("github_token_budget"):
+        pol["token_budget"] = max(int(pol["token_budget"]), int(pol["github_token_budget"]))
 
 
 def main() -> int:
@@ -919,17 +927,21 @@ def wait_for_pipeline(session, state: dict, pol: dict, data_dir: Path, out: Path
                 f"in {round(summary.get('duration_ms', 0) / 1000)}s")
             return
         budget = float(pol.get("cost_budget") or 0.0)
-        # Fuel gauge: past the money budget, stop the world here. Progressive
-        # delivery has the last verified state staged and collect ships it, so
-        # a killed pipeline loses nothing that ever passed a check. The two
-        # guards make a glitched meter harmless: no run legitimately spends
-        # the budget in its first 15 minutes or on under 10M input tokens
-        # ($5 of flash tokens is ~20M+), so a meter reporting $50 at minute
-        # three with a cold token counter reads as noise and the run lives.
-        if (budget and state.get("cost", 0.0) >= budget
-                and state.get("tokens_in", 0) >= 10_000_000
+        tok_cap = int(pol.get("token_budget") or 0)
+        # Fuel gauge, two axes: the kernel meter's session_cost (METER units
+        # -- the platform bills ~827x that number, T1 measured) and raw input
+        # tokens (5.6M input tokens == ¥85, T1 measured). Whichever trips
+        # first stops the world here; progressive delivery has the last
+        # verified state staged and collect ships it. The sanity guards (1M+
+        # tokens actually seen, 15+ minutes in) keep a glitched meter or a
+        # cold counter from beheading a run at birth.
+        spent = (budget and state.get("cost", 0.0) >= budget) \
+            or (tok_cap and state.get("tokens_in", 0) >= tok_cap)
+        if (spent
+                and state.get("tokens_in", 0) >= 1_000_000
                 and time.time() - state["started"] > 900):
-            log(f"[arc] spend ${state['cost']:.2f} hit the ${budget:.2f} budget after "
+            log(f"[arc] fuel gauge: meter={state.get('cost', 0.0):.4f}/{budget or 0} "
+                f"tokens_in={state.get('tokens_in', 0)}/{tok_cap or 'off'} after "
                 f"{round(time.time() - state['started'])}s; stopping at the last verified state")
             return
         try:
