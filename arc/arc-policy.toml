@@ -50,13 +50,22 @@ verify_timeout_seconds = 2400   # OCTOS_ARC_VERIFY_TIMEOUT — one acceptance no
 max_iterations = 40             # OCTOS_MAX_ITERATIONS — tool iterations inside an implement node
 run_timeout_seconds = 3600      # OCTOS_TIME_BUDGET — whole run
 # The platform runner injects OCTOS_TIME_BUDGET=21600 (6h); the rules allow
-# 48h per task. On the platform this key overrides the injection: deepseek's
-# 20-min iteration-capped impl turns on hard nodes need the extra hours to
-# reach the formula family at all (three 6h runs died at node ~19).
-# 21600 (the 6h standard): the 12h override doubled platform burn (¥65 vs
-# the field's ¥30-50) for +1-2 nodes that all died in repair swamps, and the
-# score formula divides by spend^0.2 -- two 6h tickets beat one 12h.
-platform_run_timeout_seconds = 21600
+# 48h per task. On the platform this key overrides the injection.
+#
+# The wall is now the BACKSTOP, not the cost control: the two real spend
+# killers of the ¥65 12h runs were (1) repair marathons on hopeless nodes --
+# bounded since by the verifier's stall rule (two repair rounds that move
+# the scenario score nothing stop the node) -- and (2) the clock itself,
+# bounded by platform_cost_budget_usd below. With money capped directly,
+# extra wall only buys more requirements attempted: 10h lets a cold sheet
+# run past the 25-26 ceiling the three 6h runs hit (github's floor is
+# 900s x 47 nodes = 11.75h regardless of this key).
+platform_run_timeout_seconds = 36000
+# Fuel gauge ($5 ≈ ¥36, inside the field's ¥30-50 band): the kernel meter's
+# session_cost streams into the adapter live; at the budget the run stops at
+# the last verified state (progressive delivery has it staged). Glitch-safe:
+# it also demands 10M+ input tokens and 15+ minutes before it will fire.
+platform_cost_budget_usd = 5.0
 node_budget_seconds = 900       # OCTOS_NODE_TIME_BUDGET — floor driver: max(env, this x nodes); real-spec acceptance needs ~1200s/node (slice 2026-09-27), so 900 keeps the 24-node sheet floor at 6h, github at 11.8h (48h rule has room)
 node_tools = "read_file,write_file,edit_file,glob,grep,list_dir"  # OCTOS_ARC_NODE_TOOLS
 # Put on every worker node as reasoning_effort (the kernel maps it per model:

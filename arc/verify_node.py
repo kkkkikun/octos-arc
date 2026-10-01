@@ -292,6 +292,8 @@ def run_specs(app: Path, work: Path, root: Path, pw: str, env: dict,
             stop(srv)
         if rc and NO_BROWSER in log and install_browser(pw, root, run_env):
             rc, log = one()
+        counts = re.findall(r"(\d+) passed", log)
+        _write_score(f"{counts[-1] if counts else 0}p")
         return rc, log
     # Per-test boots multiply: a wall budget keeps the loop inside the node's
     # own timeout (the class of wedge the >20 cutoff already guards against).
@@ -340,6 +342,7 @@ def run_specs(app: Path, work: Path, root: Path, pw: str, env: dict,
             logs.append(tlog)
             break
     log = "\n".join(logs) + f"\n[verify] {passed} passed of {len(ids)} scenario(s), each from the seeded state"
+    _write_score(f"{passed}/{len(ids)}")
     return rc, log
 
 
@@ -525,6 +528,52 @@ def keep_best(out: Path, rc: int) -> None:
     print(f"[verify] best full-suite state so far: {PASSED['count']} passed (kept)")
 
 
+def _write_score(text: str) -> None:
+    """The run's scenario score, as a file note_attempt() can diff between
+    repair rounds. Written only when the specs actually ran this attempt;
+    every other failure path (build, syntax, port) leaves yesterday's file
+    gone -- main() unlinks it before each check -- so a non-spec failure
+    never masquerades as `no movement`."""
+    (Path.cwd() / ".arc-score").write_text(text, encoding="utf-8")
+
+
+def note_attempt(tag: str, opts: dict) -> tuple[int, str | None]:
+    """Count this FAILED attempt for `tag`; return (attempt, stop reason or
+    None). The flat caps (attempts/deadline/repair-window) bound the ladder;
+    the signature rule cuts the waste they cannot see: a repair round that
+    leaves the scenario score unchanged moved nothing, and two of those in a
+    row mean the model is rewriting the same file into the same hole. Those
+    stalls were the biggest token sink of the 12h platform runs (a hopeless
+    requirement burned its full implement re-execution round, ~¥2 of tokens,
+    for nothing). The legacy orchestrator's stall_limit=2, ported into the
+    verifier."""
+    counter = Path.cwd() / ".arc-attempts" / tag
+    counter.parent.mkdir(exist_ok=True)
+    attempts = int(counter.read_text() or 0) + 1 if counter.is_file() else 1
+    counter.write_text(str(attempts))
+    first = counter.with_suffix(".first")          # when this requirement first failed
+    if not first.is_file():
+        first.write_text(str(time.time()))
+    sig_file = Path.cwd() / ".arc-score"
+    sig = sig_file.read_text().strip() if sig_file.is_file() else ""
+    stall = counter.with_suffix(".stall")
+    try:
+        prior = json.loads(stall.read_text()) if stall.is_file() else {}
+    except ValueError:                              # truncated by a kill: start over
+        prior = {}
+    stalls = prior.get("n", 0) + 1 if sig and sig == prior.get("sig") else 0
+    stall.write_text(json.dumps({"sig": sig, "n": stalls}))
+    if attempts >= int(opts.get("attempts", 6)):
+        return attempts, f"attempt {attempts}"
+    if time.time() >= float(opts.get("deadline", "inf")):
+        return attempts, "run deadline"
+    if time.time() - float(first.read_text()) >= float(opts.get("repair-window", "inf")):
+        return attempts, "repair window spent"
+    if stalls >= 2:
+        return attempts, f"{stalls} repair rounds moved nothing"
+    return attempts, None
+
+
 def main(argv: list[str]) -> int:
     if argv[:1] == ["--seed"]:
         return seed(Path(argv[1]))
@@ -571,6 +620,7 @@ def main(argv: list[str]) -> int:
                   f"{len(extra)} spec(s) of earlier requirements; a failure there is a "
                   "regression to fix now")
             specs = [*specs, *extra]
+    (Path.cwd() / ".arc-score").unlink(missing_ok=True)   # stale score == no signature
     rc = check(Path(argv[0]).resolve(), int(argv[1]), specs)
     if "best" in opts:
         keep_best(Path.cwd(), rc)
@@ -584,17 +634,9 @@ def main(argv: list[str]) -> int:
         (Path.cwd() / ".arc-status").mkdir(exist_ok=True)
         (Path.cwd() / ".arc-status" / opts["tag"]).write_text(str(rc))
     if rc and "tag" in opts:
-        counter = Path.cwd() / ".arc-attempts" / opts["tag"]
-        counter.parent.mkdir(exist_ok=True)
-        attempts = int(counter.read_text() or 0) + 1 if counter.is_file() else 1
-        counter.write_text(str(attempts))
-        first = counter.with_suffix(".first")          # when this requirement first failed
-        if not first.is_file():
-            first.write_text(str(time.time()))
-        spent = time.time() - float(first.read_text())
-        if (attempts >= int(opts.get("attempts", 6)) or time.time() >= float(opts.get("deadline", "inf"))
-                or spent >= float(opts.get("repair-window", "inf"))):
-            print(f"{STOP}: attempt {attempts} for {opts['tag']}; moving on")
+        attempts, why = note_attempt(opts["tag"], opts)
+        if why:
+            print(f"{STOP}: {why} for {opts['tag']}; moving on")
     return rc
 
 

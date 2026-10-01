@@ -59,6 +59,11 @@ _POLICY = {
     "min_node_seconds": ("min_node_seconds", "OCTOS_ARC_MIN_NODE_SECONDS", 120),
     "final_reserve_seconds": ("final_reserve_seconds", "OCTOS_ARC_FINAL_RESERVE", 600),
     "final_repairs": ("final_repair_rounds", "OCTOS_ARC_FINAL_REPAIRS", 2),
+    # Fuel gauge: the kernel meter streams session_cost into the adapter
+    # live; at this many USD the run stops at the last verified state
+    # instead of burning to the clock. The wall bounds time; this bounds
+    # money -- what the score formula actually divides by. 0 = off.
+    "cost_budget": ("platform_cost_budget_usd", "OCTOS_ARC_COST_BUDGET", 0.0),
     # Every Nth acceptance node also re-runs the specs of earlier requirements
     # that passed, so a regression is repaired while its cause is fresh
     # rather than all at once at the end. 0 = off.
@@ -889,6 +894,20 @@ def wait_for_pipeline(session, state: dict, pol: dict, data_dir: Path, out: Path
             log(f"[arc] pipeline finished: success={summary.get('success')} "
                 f"nodes_executed={summary.get('nodes_executed')} "
                 f"in {round(summary.get('duration_ms', 0) / 1000)}s")
+            return
+        budget = float(pol.get("cost_budget") or 0.0)
+        # Fuel gauge: past the money budget, stop the world here. Progressive
+        # delivery has the last verified state staged and collect ships it, so
+        # a killed pipeline loses nothing that ever passed a check. The two
+        # guards make a glitched meter harmless: no run legitimately spends
+        # the budget in its first 15 minutes or on under 10M input tokens
+        # ($5 of flash tokens is ~20M+), so a meter reporting $50 at minute
+        # three with a cold token counter reads as noise and the run lives.
+        if (budget and state.get("cost", 0.0) >= budget
+                and state.get("tokens_in", 0) >= 10_000_000
+                and time.time() - state["started"] > 900):
+            log(f"[arc] spend ${state['cost']:.2f} hit the ${budget:.2f} budget after "
+                f"{round(time.time() - state['started'])}s; stopping at the last verified state")
             return
         try:
             frame = session._notifications.get(timeout=5.0)

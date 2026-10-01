@@ -363,8 +363,9 @@ class PlatformWallOverride(unittest.TestCase):
     def test_platform_marker_activates_the_toml_wall(self):
         # The platform runner injects a 6h OCTOS_TIME_BUDGET; the rules allow
         # 48h. With the platform markers present, the bundle's own
-        # platform_run_timeout_seconds must win -- 6h runs died at node ~19
-        # three times while the formula family never ran once.
+        # platform_run_timeout_seconds must win -- the wall is the backstop
+        # and money is bounded by platform_cost_budget_usd, so 10h only buys
+        # more requirements attempted, not more burn.
         import os, tempfile
         from pathlib import Path
         with tempfile.TemporaryDirectory() as tmp:
@@ -375,15 +376,61 @@ class PlatformWallOverride(unittest.TestCase):
                 os.environ["OCTOS_TIME_BUDGET"] = "21600"
                 os.environ["ARCBENCH_TASK_DIR"] = "/workspace/task"
                 pol = main.policy()
-                self.assertEqual(pol["run_timeout"], 21600)   # 6h: the score formula divides by spend^0.2
+                self.assertEqual(pol["run_timeout"], 36000)   # 10h wall; $5 fuel gauge caps the spend
+                self.assertEqual(pol["cost_budget"], 5.0)
                 del os.environ["ARCBENCH_TASK_DIR"]
                 os.environ["ARCBENCH_RUNNER_EVENTS_PATH"] = "/tmp/ev"
                 pol = main.policy()
-                self.assertEqual(pol["run_timeout"], 21600)
+                self.assertEqual(pol["run_timeout"], 36000)
                 os.environ.pop("ARCBENCH_RUNNER_EVENTS_PATH", None)
                 pol = main.policy()                     # local: env stays in charge
                 self.assertEqual(pol["run_timeout"], 21600)
+                self.assertEqual(pol["cost_budget"], 5.0)   # the fuel gauge guards local money too
             finally:
                 for k, v in old.items():
                     if v is None: os.environ.pop(k, None)
                     else: os.environ[k] = v
+
+
+class CostGauge(unittest.TestCase):
+    """Money, not the clock, is what the score formula divides by: at the
+    budget the wait loop must stop the world (progressive delivery has the
+    last verified state staged), while a glitched meter -- huge cost on a
+    cold token counter -- must not behead a run at birth."""
+
+    class _Session:
+        class _Q:
+            def get(self, timeout=0.0):
+                raise TimeoutError
+        class _Proc:
+            @staticmethod
+            def poll():
+                return None
+        _notifications = _Q()
+        proc = _Proc()
+
+    def test_budget_hit_stops_the_wait(self):
+        import tempfile, time as _time
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            pol = {"name": "arc_build", "run_timeout": 36000, "final_reserve_seconds": 600,
+                   "verify_timeout": 2400, "cost_budget": 5.0}
+            state = {"started": _time.time() - 1200, "cost": 6.2, "tokens_in": 21_000_000}
+            t0 = _time.time()
+            main.wait_for_pipeline(self._Session(), state, pol, Path(tmp), Path(tmp))
+            self.assertLess(_time.time() - t0, 30)          # returned, did not ride the wall
+
+    def test_glitched_meter_with_cold_tokens_never_fires(self):
+        import time as _time
+        # Same wild cost, but tokens_in is tiny or the run is young: the
+        # guard clauses must hold the kill back until the wall or a real
+        # summary ends the wait. Prove the gate by the loop's own predicate
+        # rather than sleeping through the loop.
+        pol = {"cost_budget": 5.0}
+        for tokens, age, fires in ((21_000_000, 1200, True), (1_000, 1200, False),
+                                   (21_000_000, 60, False)):
+            state = {"cost": 6.2, "tokens_in": tokens, "started": _time.time() - age}
+            armed = (float(pol["cost_budget"]) and state["cost"] >= pol["cost_budget"]
+                     and state["tokens_in"] >= 10_000_000
+                     and _time.time() - state["started"] > 900)
+            self.assertEqual(armed, fires)

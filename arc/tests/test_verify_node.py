@@ -294,3 +294,66 @@ class IsolationAlwaysAtCheckTime(unittest.TestCase):
         src = inspect.getsource(verify_node.run_specs)
         self.assertNotIn("> 20", src)
         self.assertIn("budget", src)
+
+
+class StallLimit(unittest.TestCase):
+    """The 12h platform runs' biggest token sink: a hopeless requirement
+    burned its full repair ladder (implement re-executions, ~¥2 of tokens
+    each) while the scenario score never moved. Two repair rounds with an
+    unchanged signature stop the node; any movement resets the count."""
+
+    OPTS = {"attempts": "6", "deadline": "inf", "repair-window": "inf"}
+
+    def test_two_rounds_that_move_nothing_stop_the_node(self):
+        import os, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            prev = os.getcwd()
+            os.chdir(tmp)
+            try:
+                (Path(".arc-score")).write_text("3/9")
+                _, why = verify_node.note_attempt("REQ-1", self.OPTS)
+                self.assertIsNone(why)                      # first failure: repair may fire
+                _, why = verify_node.note_attempt("REQ-1", self.OPTS)
+                self.assertIsNone(why)                      # 1st no-movement round: one more chance
+                attempts, why = verify_node.note_attempt("REQ-1", self.OPTS)
+                self.assertEqual(attempts, 3)
+                self.assertIn("moved nothing", why or "")
+            finally:
+                os.chdir(prev)
+
+    def test_a_changed_signature_resets_the_stall(self):
+        import os, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            prev = os.getcwd()
+            os.chdir(tmp)
+            try:
+                for score in ("1/9", "1/9", "3/9", "3/9"):  # movement between the pairs
+                    Path(".arc-score").write_text(score)
+                    _, why = verify_node.note_attempt("REQ-1", self.OPTS)
+                    self.assertIsNone(why)
+            finally:
+                os.chdir(prev)
+
+    def test_a_round_where_specs_never_ran_is_not_a_stall(self):
+        # Build/syntax/port failures leave no fresh .arc-score (main unlinks
+        # it before the check); an empty signature must reset, not count, so
+        # infrastructure hiccups never eat a node's repair budget.
+        import os, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            prev = os.getcwd()
+            os.chdir(tmp)
+            try:
+                for _ in range(4):
+                    _, why = verify_node.note_attempt("REQ-1", self.OPTS)
+                    self.assertIsNone(why)
+            finally:
+                os.chdir(prev)
+
+    def test_run_specs_records_the_score_it_stops_on(self):
+        import inspect
+        # The signature source: both return paths of run_specs write the
+        # scenario score note_attempt() diffs.
+        self.assertIn("_write_score", inspect.getsource(verify_node.run_specs))
