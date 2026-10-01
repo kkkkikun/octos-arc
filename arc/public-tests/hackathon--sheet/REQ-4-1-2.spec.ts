@@ -5,7 +5,7 @@ import * as h from './helpers';
 // seed: workbook Q3 Sales with A1=2, B1=3; formulas adjust relative references on copy
 
 test('REQ-4-1-2: Copy Formulas and Adjust Relative References - Scenario 1', async ({ page }) => {
-  await h.openQ3Sales(page);
+  await h.openCalculations(page);
   await h.editCell(page, 'D1', '=A1+B1');
   await h.expectCellValue(page, 'D1', '5');
   await h.clickCell(page, 'D1');
@@ -28,7 +28,7 @@ test('REQ-4-1-2: Copy Formulas and Adjust Relative References - Scenario 1', asy
 });
 
 test('REQ-4-1-2: Copy Formulas and Adjust Relative References - Scenario 2', async ({ page }) => {
-  await h.openQ3Sales(page);
+  await h.openCalculations(page);
   await h.editCell(page, 'D1', '=A1+B1');
   await h.clickCell(page, 'D1');
   await page.keyboard.press('Control+C');

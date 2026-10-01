@@ -1,0 +1,1019 @@
+id: ROOT
+name: Core Requirements for an Online Spreadsheet Data Workspace
+type: FOLDER
+dependencies: []
+description: 'A streamlined online spreadsheet application with an interface modeled after Google Sheets,
+  covering workbook and worksheet management, spreadsheet data editing, formula calculation, sorting and
+  filtering, data validation, and basic pivot analysis. Sharing and collaboration, version-history restoration,
+  advanced visual styling, charts, macros, real-time collaborative cursors, and integrations with external
+  office suites are outside the core scope.
+
+  '
+children:
+- id: REQ-3
+  name: Cell and Range Editing
+  type: FOLDER
+  dependencies: []
+  description: 'Supports data entry, bulk paste, copy and cut, and undo and redo for cells and contiguous
+    ranges in the current active worksheet. Each operation either completely updates the target grid,
+    formula results, and related validation behavior and persists after refresh, or displays an error
+    while the current and other worksheets continue to show the pre-operation state.
+
+    '
+  children:
+  - id: REQ-3-1
+    name: Direct Data Entry
+    type: FOLDER
+    dependencies: []
+    description: 'Supports entering data through the current worksheet grid, the text box labeled "Formula
+      bar", or the external clipboard. The grid, formula bar, and selection state must show consistent
+      content for the same cell; ordinary values and original formulas persist after refresh. Double-clicking
+      a grid cell displays an inline text box with the accessible name "Edit <cell coordinate>".
+
+      '
+    children:
+    - id: REQ-3-1-1
+      name: Edit a Cell Through the Grid or Formula Bar
+      type: ATOMIC
+      description: 'After selecting a cell in the current active worksheet, users can modify its content
+        directly in the grid or formula bar. Cells support text, numbers, boolean-like values, date text,
+        and formulas beginning with an equals sign. Pressing Enter or clicking another cell commits the
+        change; pressing Escape cancels an uncommitted change. Ordinary cells show the same input in the
+        grid and formula bar; formula cells show the calculated result in the grid and the original submitted
+        formula in the formula bar. After a source value is committed, directly and indirectly dependent
+        formulas update their results. Values, original formulas, and results persist after refresh. If
+        a commit fails, an error is displayed, the grid and formula bar continue to show the last successful
+        value or formula, and dependent results remain unchanged.
+
+        '
+      dependencies:
+      - REQ-1-1-1
+      scenarios:
+      - name: REQ-3-1-1 -the requested workflow,the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow,the requested workflow with concrete values `East`, `1200`, `North`,
+            and `800`. Every value is entered through a visible, labelled control; no implementation-specific
+            navigation, API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow,the requested
+            workflow" using the same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2`
+            containing `Item/Qty` and `Pen/4`, and target range `D1:E2`); validation or permission failures
+            are shown beside the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-1-1 -Escape the requested workflow,the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and escape the requested workflow,the requested workflow with concrete values `East`, `1200`,
+            `North`, and `800`. Every value is entered through a visible, labelled control; no implementation-specific
+            navigation, API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "Escape the requested workflow,the
+            requested workflow" using the same seeded names and values (the seeded workbook `Q3 Sales`,
+            range `A1:B2` containing `Item/Qty` and `Pen/4`, and target range `D1:E2`); validation or
+            permission failures are shown beside the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-1-1 -the requested workflow, the requested workflow, the requested workflow, the requested
+          workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow, the requested workflow, the requested workflow, the requested
+            workflow with concrete values `East`, `1200`, `North`, and `800`. Every value is entered through
+            a visible, labelled control; no implementation-specific navigation, API, database id, or internal
+            implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow, the requested
+            workflow, the requested workflow, the requested workflow" using the same seeded names and
+            values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty` and `Pen/4`, and
+            target range `D1:E2`); validation or permission failures are shown beside the named control
+            and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-1-1 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty`
+            and `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+    - id: REQ-3-1-2
+      name: Paste Two-Dimensional Table Data
+      type: ATOMIC
+      dependencies:
+      - REQ-3-1-1
+      description: 'Users paste text containing tab-separated columns and newline-separated rows into
+        a starting cell in the current active worksheet. The system applies the entire rectangle, preserves
+        empty fields, and overwrites only the target rectangle; formulas within the target are replaced
+        by the new content and related formulas display recalculated results. The full paste either updates
+        every cell in the rectangle and persists after refresh, or displays an error while all target
+        cells retain their original values; when a 0-to-100 numeric validation rule rejects the paste,
+        that error is "Please enter a number from 0 to 100". Silently dropping only some values is not
+        allowed. The grid context menu provides a command using the ARIA menuitem role with the accessible
+        name "Paste", and Ctrl+V pastes the same external clipboard content.
+
+        '
+      scenarios:
+      - name: REQ-3-1-2 -the requested workflow B2 the requested workflow,the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow b2 the requested workflow,the requested workflow with concrete
+            values `East`, `1200`, `North`, and `800`. Every value is entered through a visible, labelled
+            control; no implementation-specific navigation, API, database id, or internal implementation
+            detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow B2 the requested
+            workflow,the requested workflow" using the same seeded names and values (the seeded workbook
+            `Q3 Sales`, range `A1:B2` containing `Item/Qty` and `Pen/4`, and target range `D1:E2`); validation
+            or permission failures are shown beside the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-1-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty`
+            and `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-1-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty`
+            and `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-1-2 -the requested workflow A1 the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow a1 the requested workflow with concrete values `East`, `1200`,
+            `North`, and `800`. Every value is entered through a visible, labelled control; no implementation-specific
+            navigation, API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow A1 the requested
+            workflow" using the same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2`
+            containing `Item/Qty` and `Pen/4`, and target range `D1:E2`); validation or permission failures
+            are shown beside the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-1-2 -the requested workflow C3 the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow c3 the requested workflow with concrete values `East`, `1200`,
+            `North`, and `800`. Every value is entered through a visible, labelled control; no implementation-specific
+            navigation, API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow C3 the requested
+            workflow" using the same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2`
+            containing `Item/Qty` and `Pen/4`, and target range `D1:E2`); validation or permission failures
+            are shown beside the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+    - id: REQ-3-1-3
+      name: Select a Rectangular Cell Range
+      type: ATOMIC
+      dependencies:
+      - REQ-1-1-1
+      description: 'Users can click to select a single cell or drag from one corner of a rectangular region
+        to the diagonally opposite cell to select a contiguous rectangle. The active worksheet must visibly
+        indicate the complete selection; the grid exposes aria-multiselectable="true"; every gridcell
+        inside the rectangle exposes aria-selected="true", while every gridcell outside it exposes aria-selected="false".
+        Subsequent range operations use exactly this rectangle and must not implicitly expand to adjacent
+        existing data. Selecting another cell or range replaces the previous selection and updates the
+        ARIA state accordingly. Each worksheet must persist the complete rectangle from its most recent
+        successful selection, not just its top-left corner: after refreshing or reopening the workbook
+        and returning to that active worksheet, aria-selected states inside and outside the rectangle
+        must exactly match the saved state; switching to another worksheet must not overwrite the original
+        worksheet’s selection.
+
+        '
+      scenarios:
+      - name: REQ-3-1-3 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty`
+            and `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-1-3 -the requested workflow,the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow,the requested workflow with concrete values `East`, `1200`, `North`,
+            and `800`. Every value is entered through a visible, labelled control; no implementation-specific
+            navigation, API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow,the requested
+            workflow" using the same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2`
+            containing `Item/Qty` and `Pen/4`, and target range `D1:E2`); validation or permission failures
+            are shown beside the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+  - id: REQ-3-2
+    name: Range Transfer and Operation Recovery
+    type: FOLDER
+    dependencies: []
+    description: 'Supports transferring data between ranges in the current active worksheet and using
+      undo and redo to restore grid values, formulas, rule ranges, and row/column structure. The visible
+      state after each undo or redo persists after refresh.
+
+      '
+    children:
+    - id: REQ-3-2-1
+      name: Copy, Cut, and Paste Cell Ranges
+      type: ATOMIC
+      dependencies:
+      - REQ-3-1-1
+      - REQ-3-1-3
+      description: 'Users select a rectangular range by dragging from one corner to another in the current
+        active worksheet, then copy or cut it and select a target location to paste; only operations within
+        the same worksheet are supported. After copy, the source range remains unchanged; after cut, the
+        source range is cleared only after the target range has been displayed completely. Values and
+        formulas preserve their two-dimensional layout; when formulas are copied, relative references
+        adjust according to the target offset while absolute references remain unchanged, and the formula
+        bar displays the adjusted original formula. The source range, target range, and affected formulas
+        must either all update and persist after refresh or all remain in their original state; when a
+        target 0-to-100 numeric validation rule rejects the operation, the page displays "Please enter
+        a number from 0 to 100". Cells outside these ranges must not change.
+
+
+        Page reference:
+
+        ![image](reference/copy-paste-range.png)
+
+        '
+      scenarios:
+      - name: REQ-3-2-1 -the requested workflow A1:B2 the requested workflow D1:E2,the requested workflow,
+          the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow a1:b2 the requested workflow d1:e2,the requested workflow, the
+            requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every value is
+            entered through a visible, labelled control; no implementation-specific navigation, API, database
+            id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow A1:B2 the
+            requested workflow D1:E2,the requested workflow, the requested workflow" using the same seeded
+            names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty` and
+            `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside the
+            named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-2-1 -the requested workflow A1:B2 the requested workflow D1:E2,the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow a1:b2 the requested workflow d1:e2,the requested workflow with
+            concrete values `East`, `1200`, `North`, and `800`. Every value is entered through a visible,
+            labelled control; no implementation-specific navigation, API, database id, or internal implementation
+            detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow A1:B2 the
+            requested workflow D1:E2,the requested workflow" using the same seeded names and values (the
+            seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty` and `Pen/4`, and target range
+            `D1:E2`); validation or permission failures are shown beside the named control and do not
+            create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-2-1 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty`
+            and `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-2-1 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty`
+            and `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+    - id: REQ-3-2-2
+      name: Undo and Redo Recent Operations
+      type: ATOMIC
+      dependencies:
+      - REQ-2-2-1
+      - REQ-2-2-2
+      - REQ-3-1-1
+      - REQ-3-1-2
+      - REQ-3-2-1
+      description: 'Users can undo recent cell edits, bulk pastes, range moves, and row/column structure
+        changes in the current workbook session. The toolbar provides buttons with the accessible names
+        "Undo" and "Redo"; Ctrl+Z and Ctrl+Y perform the same operations. Undo restores the grid values,
+        original formulas, row/column structure, rule ranges, pivot-result validity, and calculation results
+        from before the operation; consecutive undo operations restore changes in reverse order, and redo
+        reapplies the complete operation that was just undone. Undo in one workbook must not modify another
+        workbook. The state after each undo or redo persists after refresh; the history itself only needs
+        to exist within the current session and may be empty after reopening. If a new modification is
+        made after an undo, the "Redo" button becomes disabled and Ctrl+Y cannot restore the old branch.
+
+        '
+      scenarios:
+      - name: REQ-3-2-2 -the requested workflow,the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow,the requested workflow with concrete values `East`, `1200`, `North`,
+            and `800`. Every value is entered through a visible, labelled control; no implementation-specific
+            navigation, API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow,the requested
+            workflow" using the same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2`
+            containing `Item/Qty` and `Pen/4`, and target range `D1:E2`); validation or permission failures
+            are shown beside the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-2-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty`
+            and `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-2-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty`
+            and `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-2-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty`
+            and `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-2-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty`
+            and `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-2-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty`
+            and `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+      - name: REQ-3-2-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, range `A1:B2` containing
+            `Item/Qty` and `Pen/4`, and target range `D1:E2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, range `A1:B2` containing `Item/Qty`
+            and `Pen/4`, and target range `D1:E2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, range `A1:B2`, values `Item/Qty`
+            and `Pen/4`, target `D1:E2` remain persisted; on failure, the original seeded state remains
+            unchanged.
+- id: REQ-4
+  name: Formula Calculation
+  type: FOLDER
+  dependencies: []
+  description: 'Supports basic formula calculation, relative and absolute references, dependency recalculation,
+    and error handling within the current active worksheet. The grid displays formula results or errors,
+    while the formula bar displays the expression submitted by the user; copy, paste, row/column changes,
+    and source-value edits follow the same reference-adjustment and recalculation rules. After reopening
+    the workbook, formula expressions and correct results calculated from the current source values remain
+    visible.
+
+    '
+  children:
+  - id: REQ-4-1
+    name: Formula Input and Functions
+    type: FOLDER
+    description: 'Supports entering basic expressions and aggregate functions through the grid and "Formula
+      bar" from REQ-3-1-1 and copying formulas through REQ-3-2-1. The formula bar always displays the
+      original formula, the grid displays results consistent with the current source data, and both persist
+      after refresh.
+
+      '
+    dependencies: []
+    children:
+    - id: REQ-4-1-1
+      name: Calculate Basic Expressions and Aggregate Functions
+      type: ATOMIC
+      description: 'Users enter formulas beginning with an equals sign through the grid or formula bar
+        in REQ-3-1-1. Formulas must support at least numeric constants, parentheses, addition, subtraction,
+        multiplication, division, A1-style references within the same worksheet, and SUM, AVERAGE, COUNT,
+        MIN, and MAX over contiguous ranges; cross-worksheet references are not required. The grid displays
+        results calculated from the current source data, and when a formula cell is selected the formula
+        bar displays the original expression entered by the user; both persist after refresh. Function
+        names are case-insensitive; aggregate functions ignore empty cells, COUNT counts only numeric
+        cells, and SUM/AVERAGE/MIN/MAX use only numeric cells and do not treat blanks as zero.
+
+        Page reference:
+
+        ![image](reference/basic-formulas.png)
+
+        '
+      dependencies:
+      - REQ-3-1-1
+      scenarios:
+      - name: REQ-4-1-1 -the requested workflow,the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow,the requested workflow with concrete values `East`, `1200`, `North`,
+            and `800`. Every value is entered through a visible, labelled control; no implementation-specific
+            navigation, API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow,the requested
+            workflow" using the same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`,
+            `B1=3`, and formulas `=A1+B1` and `=C1*2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+      - name: REQ-4-1-1 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`, and formulas
+            `=A1+B1` and `=C1*2`); validation or permission failures are shown beside the named control
+            and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+      - name: REQ-4-1-1 -the requested workflow, the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow, the requested workflow with concrete values `East`, `1200`, `North`,
+            and `800`. Every value is entered through a visible, labelled control; no implementation-specific
+            navigation, API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow, the requested
+            workflow" using the same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`,
+            `B1=3`, and formulas `=A1+B1` and `=C1*2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+      - name: REQ-4-1-1 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`, and formulas
+            `=A1+B1` and `=C1*2`); validation or permission failures are shown beside the named control
+            and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+      - name: REQ-4-1-1 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`, and formulas
+            `=A1+B1` and `=C1*2`); validation or permission failures are shown beside the named control
+            and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+    - id: REQ-4-1-2
+      name: Copy Formulas and Adjust Relative References
+      type: ATOMIC
+      description: 'When a formula cell is copied through REQ-3-2-1 to another location in the same worksheet,
+        relative row and column references in the target formula bar change according to the target offset
+        while absolute references remain unchanged; the source formula and result remain unchanged, the
+        target grid displays the result based on the new references, and the state persists after refresh.
+        If the offset moves a relative reference outside the worksheet bounds, the target formula bar
+        displays =#REF! and the grid displays #REF!.
+
+        '
+      dependencies:
+      - REQ-4-1-1
+      - REQ-3-2-1
+      - REQ-4-2-2
+      scenarios:
+      - name: REQ-4-1-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`, and formulas
+            `=A1+B1` and `=C1*2`); validation or permission failures are shown beside the named control
+            and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+      - name: REQ-4-1-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`, and formulas
+            `=A1+B1` and `=C1*2`); validation or permission failures are shown beside the named control
+            and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+  - id: REQ-4-2
+    name: Dependency Updates and Error Handling
+    type: FOLDER
+    description: 'Supports dependency recalculation after source data changes and isolation of formula
+      errors. After REQ-3 value edits, pastes, and moves or REQ-2 row/column changes, all affected formulas
+      display results consistent with the current source data; one erroneous formula does not affect unrelated
+      cells.
+
+      '
+    dependencies: []
+    children:
+    - id: REQ-4-2-1
+      name: Recalculate Dependent Formulas After Source Data Changes
+      type: ATOMIC
+      description: 'After a source-value edit, bulk paste, range move, or row/column structure change
+        succeeds, all directly and indirectly dependent formulas update in dependency order; each formula
+        bar continues to display its original formula while the grid displays the new result or error.
+        After refresh or reopening, results remain consistent with the current source values and must
+        not show pre-change results; formulas in other worksheets that do not reference these source cells
+        remain unchanged.
+
+        '
+      dependencies:
+      - REQ-2-2-1
+      - REQ-2-2-2
+      - REQ-3-1-1
+      - REQ-3-1-2
+      - REQ-3-2-1
+      - REQ-4-1-1
+      scenarios:
+      - name: REQ-4-2-1 -the requested workflow,the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow,the requested workflow with concrete values `East`, `1200`, `North`,
+            and `800`. Every value is entered through a visible, labelled control; no implementation-specific
+            navigation, API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow,the requested
+            workflow" using the same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`,
+            `B1=3`, and formulas `=A1+B1` and `=C1*2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+      - name: REQ-4-2-1 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`, and formulas
+            `=A1+B1` and `=C1*2`); validation or permission failures are shown beside the named control
+            and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+      - name: REQ-4-2-1 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`, and formulas
+            `=A1+B1` and `=C1*2`); validation or permission failures are shown beside the named control
+            and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+    - id: REQ-4-2-2
+      name: Display and Fix Formula Errors
+      type: ATOMIC
+      description: 'Formula errors use stable visible values: division by zero displays #DIV/0!, an invalid
+        reference displays #REF!, an unsupported function displays #NAME?, a malformed expression displays
+        #ERROR!, and a direct or indirect circular reference displays #REF!. When an error cell is selected,
+        the formula bar displays the original formula submitted by the user; after refresh, both the error
+        value and original formula persist. An error cell does not block viewing, editing, or recalculating
+        other cells. After the user changes it to a valid formula through REQ-3-1-1, the grid displays
+        the new result, the formula bar displays the new formula, related dependent results update, and
+        the error no longer appears after refresh.
+
+        '
+      dependencies:
+      - REQ-4-1-1
+      scenarios:
+      - name: REQ-4-2-2 -the requested workflow,the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow,the requested workflow with concrete values `East`, `1200`, `North`,
+            and `800`. Every value is entered through a visible, labelled control; no implementation-specific
+            navigation, API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow,the requested
+            workflow" using the same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`,
+            `B1=3`, and formulas `=A1+B1` and `=C1*2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+      - name: REQ-4-2-2 -the requested workflow,the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow,the requested workflow with concrete values `East`, `1200`, `North`,
+            and `800`. Every value is entered through a visible, labelled control; no implementation-specific
+            navigation, API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow,the requested
+            workflow" using the same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`,
+            `B1=3`, and formulas `=A1+B1` and `=C1*2`); validation or permission failures are shown beside
+            the named control and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+      - name: REQ-4-2-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`, and formulas
+            `=A1+B1` and `=C1*2`); validation or permission failures are shown beside the named control
+            and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+      - name: REQ-4-2-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`, and formulas
+            `=A1+B1` and `=C1*2`); validation or permission failures are shown beside the named control
+            and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.
+      - name: REQ-4-2-2 -the requested workflow
+        steps:
+        - keyword: GIVEN
+          content: The visitor starts at the application home page in a fresh unauthenticated browser
+            session. The evaluation seed contains the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`,
+            and formulas `=A1+B1` and `=C1*2`.
+        - keyword: WHEN
+          content: The user opens the workbook home page, clicks the visible `Q3 Sales` workbook entry,
+            and the requested workflow with concrete values `East`, `1200`, `North`, and `800`. Every
+            value is entered through a visible, labelled control; no implementation-specific navigation,
+            API, database id, or internal implementation detail is assumed.
+        - keyword: THEN
+          content: The application exposes the observable result for "the requested workflow" using the
+            same seeded names and values (the seeded workbook `Q3 Sales`, cells `A1=2`, `B1=3`, and formulas
+            `=A1+B1` and `=C1*2`); validation or permission failures are shown beside the named control
+            and do not create a partial record.
+        - keyword: THEN
+          content: After the user refreshes the page or reopens the visible destination from the application
+            entry point, the successful result and workbook `Q3 Sales`, cells `A1=2`, `B1=3`, formulas
+            `=A1+B1` and `=C1*2` remain persisted; on failure, the original seeded state remains unchanged.

@@ -58,6 +58,13 @@ Rules:
   load. Before finishing, re-read every GIVEN step's backticked value and
   confirm the shipped initial data contains it -- a greenfield app without
   its seeded users/records fails every scenario at step one.
+- Conflicting worlds ship as separate workbooks: the doc's module families
+  each describe "a workbook" with their own cell contents (one family's GIVEN
+  wants A1 `Region`, another's `Item`, another's `2`), and the acceptance
+  example opens the one it means (`Inventory`, `Calculations`). Seed YOUR
+  requirement's records into the workbook the example opens -- never
+  overwrite the cells of a workbook an earlier requirement seeded with
+  different content. A new seeded workbook is cheap; a poisoned world is not.
 - Hidden overlays must actually unrender: a `.hidden`/closed-modal utility
   must not be beaten by a later `display:flex/grid` rule in the cascade
   (declare it `!important` or place it after the display rules). A transparent

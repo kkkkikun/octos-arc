@@ -5,7 +5,7 @@ import * as h from './helpers';
 // seed: workbook Q3 Sales; toolbar provides Undo and Redo buttons
 
 test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 1', async ({ page }) => {
-  await h.openQ3Sales(page);
+  await h.openInventory(page);
   await h.editCell(page, 'B2', '7');
   await h.clickNamed(page, 'Undo');
   await h.expectCellValue(page, 'B2', '4');
@@ -14,7 +14,7 @@ test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 1', async ({ page })
 });
 
 test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 2', async ({ page }) => {
-  await h.openQ3Sales(page);
+  await h.openInventory(page);
   await h.editCell(page, 'B2', '7');
   await page.keyboard.press('Control+Z');
   await h.expectCellValue(page, 'B2', '4');
@@ -23,7 +23,7 @@ test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 2', async ({ page })
 });
 
 test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 3', async ({ page }) => {
-  await h.openQ3Sales(page);
+  await h.openInventory(page);
   await h.setClipboard(page, 'P\tQ\nR\tS');
   await h.pasteAt(page, 'D1', false);
   await h.expectCellValue(page, 'D1', 'P');
@@ -32,7 +32,7 @@ test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 3', async ({ page })
 });
 
 test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 4', async ({ page }) => {
-  await h.openQ3Sales(page);
+  await h.openInventory(page);
   await h.openRowMenu(page, '3');
   await h.clickNamed(page, 'Insert 1 row above');
   await h.expectCellValue(page, 'A4', 'North');
@@ -42,7 +42,7 @@ test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 4', async ({ page })
 });
 
 test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 5', async ({ page }) => {
-  await h.openQ3Sales(page);
+  await h.openInventory(page);
   await h.editCell(page, 'B2', '7');
   await h.editCell(page, 'A1', 'Alpha');
   await h.clickNamed(page, 'Undo');
@@ -52,7 +52,7 @@ test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 5', async ({ page })
 });
 
 test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 6', async ({ page }) => {
-  await h.openQ3Sales(page);
+  await h.openInventory(page);
   await h.editCell(page, 'B2', '7');
   await h.clickNamed(page, 'Undo');
   await h.editCell(page, 'A1', 'Alpha');
@@ -60,7 +60,7 @@ test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 6', async ({ page })
 });
 
 test('REQ-3-2-2: Undo and Redo Recent Operations - Scenario 7', async ({ page }) => {
-  await h.openQ3Sales(page);
+  await h.openInventory(page);
   await h.editCell(page, 'B2', '7');
   await h.clickNamed(page, 'Undo');
   await h.reload(page);
