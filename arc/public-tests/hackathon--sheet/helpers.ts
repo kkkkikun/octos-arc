@@ -260,10 +260,13 @@ export async function createPivot(
   opts: { source?: [string, string]; rows: string; columns?: string; values: string; summary?: string; sheet?: string },
 ): Promise<void> {
   await selectRange(page, opts.source?.[0] ?? 'A1', opts.source?.[1] ?? 'C6');
+  const range = `${opts.source?.[0] ?? 'A1'}:${opts.source?.[1] ?? 'C6'}`;
   await openDataMenu(page, 'Create pivot table');
   const dialog = dialogNamed(page, 'Create pivot table');
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText(/Source range:.*A1:C6/i)).toBeVisible();
+  // "<cell range>" is whatever source this caller selected, not always A1:C6
+  // (REQ-2-1-4 Sc2 passes A1:B2 and the hardcoded match failed it forever).
+  await expect(dialog.getByText(new RegExp(`Source range:.*${range}`, 'i'))).toBeVisible();
   await clickNamed(dialog, 'New worksheet');
   await clickNamed(dialog, 'Create');
   await expect(tab(page, opts.sheet ?? 'Pivot1')).toBeVisible();

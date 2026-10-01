@@ -30,8 +30,16 @@ test('REQ-6-1: Protect Branches with Review and Status-Check Requirements - Scen
   await h.registerAccount(page, user, user + '@example.test', h.SEED.alice.password);
   await h.signInOnPage(page, user + '@example.test', h.SEED.alice.password);
   await h.openRepo(page, h.SEED.repo);
-  await h.clickNamed(page, 'Settings');
-  await h.clickNamed(page, 'Branches');
+  // "even if Settings or Branches remain accessible": a compliant app may
+  // hide either link for a non-Admin -- guard the clicks, assert the entry.
+  const settings = page.getByRole('link', { name: h.rx('Settings') }).first();
+  if (await settings.isVisible().catch(() => false)) {
+    await settings.click();
+    const branches = page.getByRole('link', { name: h.rx('Branches') }).first();
+    if (await branches.isVisible().catch(() => false)) {
+      await branches.click();
+    }
+  }
   await h.expectAbsent(page, 'Add branch protection rule');
 });
 

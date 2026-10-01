@@ -8,7 +8,11 @@ test('REQ-1-2-2: Rename a Workbook - Scenario 1', async ({ page }) => {
   const newName = 'Q3 Sales Renamed ' + h.uniqueSuffix();
   await h.openQ3Sales(page);
   await h.clickNamed(page, 'Rename workbook');
-  const dialog = h.dialogNamed(page, 'Rename');
+  // The doc names only the button ("Rename workbook") and the field
+  // ("Workbook name") -- resolve the dialog by its field, not an
+  // invented exact-match name an app naming it "Rename workbook" fails.
+  const dialog = page.getByRole('dialog')
+    .filter({ has: page.getByRole('textbox', { name: h.rx('Workbook name') }) }).first();
   await h.fillField(dialog, 'Workbook name', newName);
   await h.clickNamed(dialog, 'Save');
   await h.expectVisible(page, newName);
@@ -21,7 +25,11 @@ test('REQ-1-2-2: Rename a Workbook - Scenario 1', async ({ page }) => {
 test('REQ-1-2-2: Rename a Workbook - Scenario 2', async ({ page }) => {
   await h.openQ3Sales(page);
   await h.clickNamed(page, 'Rename workbook');
-  const dialog = h.dialogNamed(page, 'Rename');
+  // The doc names only the button ("Rename workbook") and the field
+  // ("Workbook name") -- resolve the dialog by its field, not an
+  // invented exact-match name an app naming it "Rename workbook" fails.
+  const dialog = page.getByRole('dialog')
+    .filter({ has: page.getByRole('textbox', { name: h.rx('Workbook name') }) }).first();
   await h.fillField(dialog, 'Workbook name', '   ');
   await h.clickNamed(dialog, 'Save');
   await h.expectVisible(page, 'Workbook name cannot be empty');

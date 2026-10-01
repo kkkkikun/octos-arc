@@ -20,6 +20,18 @@ test('REQ-6-5: Merge an Eligible Pull Request - Scenario 1', async ({ page }) =>
 
 test('REQ-6-5: Merge an Eligible Pull Request - Scenario 2', async ({ page }) => {
   await h.signIn(page);
+  // The blocked state is created in-scenario: the doc restores each seed
+  // state independently ("separate Open PRs ... restored independently before
+  // reuse"), but one static world ships no pre-blocked PR -- so require
+  // 1 approval + test on main (REQ-6-1's own form), which this unapproved,
+  // still-pending PR then fails: "Review required by branch protection".
+  await h.openRepoSettings(page, h.SEED.repo);
+  await h.clickNamed(page, 'Branches');
+  await h.clickNamed(page, 'Add branch protection rule');
+  await h.fillField(page, 'Branch name pattern', h.SEED.branchMain);
+  await h.setCheckbox(page, 'Require 1 approval', true);
+  await h.setCheckbox(page, 'Require status check test', true);
+  await h.clickNamed(page, 'Create');
   await h.openPullRequest(page, h.SEED.prOpen);
   const merge = page.getByRole('button', { name: h.rx('Merge pull request') }).first();
   await expect(merge).toBeDisabled();

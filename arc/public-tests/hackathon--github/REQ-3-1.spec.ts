@@ -10,7 +10,8 @@ import * as h from './helpers';
 test('REQ-3-1: Search for and Locate Repositories - Scenario 1', async ({ page }) => {
   await h.openHome(page);
   await h.searchGlobal(page, h.SEED.repo);
-  await expect(page.getByRole('searchbox', { name: h.rx('Search') })).toHaveValue(h.SEED.repo);
+  // (no query-retention assertion here: keeping the exact query in the box
+  // is REQ-4-2-3's clause; a compliant implementation may clear the box)
   await h.expectVisible(page, h.SEED.repo);
   await h.expectVisible(page, 'Public');
   await h.expectVisible(page, h.SEED.alice.username);

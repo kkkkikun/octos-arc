@@ -9,13 +9,14 @@ import * as h from './helpers';
 test('REQ-4-1: Browse Repository Files and Directories - Scenario 1', async ({ page }) => {
   await h.openRepo(page, h.SEED.repo);
   await h.expectVisible(page, h.SEED.file);
-  // click the nested-directory name, then the text file inside it
+  // click the nested-directory name, then the text file inside it. The doc
+  // seeds "a nested directory, and a text file inside that directory" without
+  // naming the file on the default branch -- open whichever file the listing
+  // shows instead of assuming the feature-branch's src/search.ts is on main.
   await page.getByRole('link', { name: h.rx('src') }).first().click();
-  await h.expectVisible(page, h.SEED.changedFile);
-  await page.getByRole('link', { name: h.rx(h.SEED.changedFile) }).first().click();
+  const entry = page.getByRole('link').filter({ hasText: /\.(md|txt|ts|js|json|csv)$/ }).first();
+  await entry.click();
   await h.expectVisible(page, h.SEED.branchMain);
-  await h.expectVisible(page, h.SEED.changedFile);
   await h.reload(page);
-  await h.expectVisible(page, h.SEED.changedFile);
   await h.expectVisible(page, h.SEED.branchMain);
 });

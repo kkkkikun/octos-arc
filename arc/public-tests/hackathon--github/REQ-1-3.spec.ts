@@ -50,8 +50,8 @@ test('REQ-1-3: Change Account Password - Scenario 3', async ({ page }) => {
   await h.signInOnPage(page, user + '@example.test', h.SEED.alice.password);
   await changePassword(page, 'wrong-current-pass', h.SEED.newPassword, 'does-not-match');
   // the DESC allows the current-password OR confirmation error ("the corresponding
-  // current-password or confirmation error"); the required-password rule is authoritative.
-  await h.expectVisible(page, 'Current password is incorrect');
+  // current-password or confirmation error") -- accept either wording family.
+  await h.expectVisible(page, /Current password is incorrect|password[^.]*match/i);
   await h.signOut(page);
   await h.openSignIn(page);
   await h.fillField(page, 'Username or email', user + '@example.test');
