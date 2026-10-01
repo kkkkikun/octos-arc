@@ -48,3 +48,18 @@ test('REQ-1-3-2: Export the Current Worksheet as CSV - Scenario 4', async ({ pag
   await h.expectTabActive(page, h.SEED.sheet1);
   await h.expectVisible(page, 'Region');
 });
+
+test('REQ-1-3-2: Export the Current Worksheet as CSV - Scenario G (escaping)', async ({ page }) => {
+  // The doc pins CSV escaping: commas/quotes/newlines quoted, inner quotes
+  // doubled. The old scenarios only substring-checked (audit round 1, gap
+  // (c)); this asserts the exact escaped fields round-trip.
+  await h.openQ3Sales(page);
+  await h.editCell(page, 'B2', 'a,b');
+  await h.editCell(page, 'B3', 'say "hi"');
+  const downloadPromise = page.waitForEvent('download');
+  await h.clickNamed(page, 'Export CSV');
+  const download = await downloadPromise;
+  const text = fs.readFileSync(await download.path(), 'utf-8');
+  expect(text).toContain('"a,b"');            // comma -> quoted field
+  expect(text).toContain('"say ""hi"""');     // inner quotes doubled
+});

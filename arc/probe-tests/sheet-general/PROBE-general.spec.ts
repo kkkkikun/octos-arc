@@ -9,13 +9,9 @@ import * as h from './helpers';
 // concrete failure mode; T2's prompt knives then target exactly these.
 
 test('PROBE blank-world: edit + formula + recalc', async ({ page }) => {
-  const name = 'probe-blank-' + h.uniqueSuffix();
   await h.openHome(page);
   await h.clickNamed(page, 'New blank workbook');
-  const dialog = page.getByRole('dialog').filter({ has: page.getByRole('textbox', { name: h.rx('Workbook name') }) }).first();
-  await dialog.getByRole('textbox', { name: h.rx('Workbook name') }).fill(name);
-  await h.clickNamed(dialog, 'Create');
-  await h.expectVisible(page, name);
+  await h.clickNamed(page, 'Create');          // official flow: no name field
   await h.editCell(page, 'A1', '7');
   await h.editCell(page, 'B1', '3');
   await h.expectCellValue(page, 'A1', '7');
@@ -45,7 +41,7 @@ test('PROBE import-world: sort + filter on imported data', async ({ page }) => {
   const sort = h.dialogNamed(page, 'Sort range');
   await expect(sort).toBeVisible();
   await h.chooseComboboxOption(sort, 'Sort by', 'Sales');
-  await h.clickNamed(sort, 'Ascending');
+  await h.chooseComboboxOption(sort, 'Order', 'Ascending');   // Order combobox, not a button
   await h.clickNamed(sort, 'Sort');
   await expect(await h.rowYOf(page, '700')).toBeLessThan(await h.rowYOf(page, '800'));
   await expect(await h.rowYOf(page, '800')).toBeLessThan(await h.rowYOf(page, '1200'));
@@ -60,14 +56,15 @@ test('PROBE import-world: second sheet + rename + switch', async ({ page }) => {
     name: name + '.csv', mimeType: 'text/csv', buffer: Buffer.from('A,B\n1,2', 'utf-8'),
   });
   await h.clickNamed(dlg, 'Confirm import');
-  await page.getByRole('link', { name: h.rx(name) }).first().click();
+  // import enters the editor already (doc: "import operations all enter the
+  // same editor page") -- no extra open-click, it double-navigates.
   await h.expectVisible(page, name);
   await h.clickNamed(page, 'Add worksheet');          // REQ-2-1-1 in this world
   await h.expectCellSelected(page, 'A1', true);
   await h.openTabMenu(page, 'Sheet2');
-  await h.clickNamed(page, 'Rename worksheet');       // REQ-2-1-3 in this world
-  const rd = page.getByRole('dialog').first();
-  await rd.getByRole('textbox').first().fill('Data');
+  await h.clickNamed(page, 'Rename');                 // REQ-2-1-3's own wording
+  const rd = h.dialogNamed(page, 'Rename worksheet');
+  await h.fillField(rd, 'Worksheet name', 'Data');
   await h.clickNamed(rd, 'Save');
   await h.expectVisible(page, 'Data');
   await h.clickNamed(page, 'Sheet1');                 // REQ-2-1-2 switch back
@@ -75,13 +72,9 @@ test('PROBE import-world: second sheet + rename + switch', async ({ page }) => {
 });
 
 test('PROBE blank-world: pivot on typed table', async ({ page }) => {
-  const name = 'probe-pivot-' + h.uniqueSuffix();
   await h.openHome(page);
   await h.clickNamed(page, 'New blank workbook');
-  const dialog = page.getByRole('dialog').filter({ has: page.getByRole('textbox', { name: h.rx('Workbook name') }) }).first();
-  await dialog.getByRole('textbox', { name: h.rx('Workbook name') }).fill(name);
-  await h.clickNamed(dialog, 'Create');
-  await h.expectVisible(page, name);
+  await h.clickNamed(page, 'Create');          // official flow: no name field
   await h.editCell(page, 'A1', 'Region');
   await h.editCell(page, 'B1', 'Sales');
   await h.editCell(page, 'A2', 'East');

@@ -64,3 +64,19 @@ test('REQ-4-1-1: Calculate Basic Expressions and Aggregate Functions - Scenario 
   await h.clickCell(page, 'D1');
   await h.expectFormulaBar(page, '=A1+B1');
 });
+
+test('REQ-4-1-1: Calculate Basic Expressions and Aggregate Functions - Scenario G (preseeded =C1*2)', async ({ page }) => {
+  // The doc's REQ-4 seed names TWO formulas: =A1+B1 and =C1*2. The second
+  // was never asserted (audit round 1, gap (c)): it must ship evaluated.
+  await h.openCalculations(page);
+  await h.editCell(page, 'A1', '2');
+  await h.editCell(page, 'B1', '3');
+  await h.editCell(page, 'C1', '=A1+B1');
+  await h.expectCellValue(page, 'C1', '5');
+  await h.editCell(page, 'D1', '=C1*2');
+  await h.expectCellValue(page, 'D1', '10');
+  // recalc through the chain (the doc's own pair): change B1, both move
+  await h.editCell(page, 'B1', '8');
+  await h.expectCellValue(page, 'C1', '10');
+  await h.expectCellValue(page, 'D1', '20');
+});

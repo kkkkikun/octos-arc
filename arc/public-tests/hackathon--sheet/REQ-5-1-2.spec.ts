@@ -115,3 +115,32 @@ test('REQ-5-1-2: Filter Rows by Value or Condition - Scenario 5', async ({ page 
   await h.reload(page);
   await h.expectVisible(page, 'East');
 });
+
+test('REQ-5-1-2: Filter Rows by Value or Condition - Scenario G (Before + Is empty)', async ({ page }) => {
+  // The doc names "Before" and "Is empty" among the conditions; neither had
+  // a scenario (audit round 1, gap (c)). Dates are typed into the Status
+  // column of the seeded world; "Is empty" runs on a cleared cell.
+  await h.openQ3Sales(page);
+  await h.editCell(page, 'C2', '2024-01-15');
+  await h.editCell(page, 'C3', '2024-06-30');
+  await h.editCell(page, 'C4', '2023-12-01');
+  await h.openDataMenu(page, 'Create filter');
+  await h.clickNamed(page, 'Filter Status');
+  const d1 = h.dialogNamed(page, 'Filter Status');
+  await expect(d1).toBeVisible();
+  await h.chooseComboboxOption(d1, 'Condition', 'Before');
+  await h.fillField(d1, 'Value', '2024-06-01');
+  await h.clickNamed(d1, 'Apply');
+  await h.expectVisible(page, '2023-12-01');
+  await h.expectAbsent(page, '2024-06-30');
+  await h.clickNamed(page, 'Clear filter');
+  // Is empty: clear one Status cell, filter Status on it
+  await h.editCell(page, 'C4', '');
+  await h.openDataMenu(page, 'Create filter');
+  await h.clickNamed(page, 'Filter Status');
+  const d2 = h.dialogNamed(page, 'Filter Status');
+  await h.chooseComboboxOption(d2, 'Condition', 'Is empty');
+  await h.clickNamed(d2, 'Apply');
+  await h.expectVisible(page, 'South');
+  await h.expectAbsent(page, 'East');
+});

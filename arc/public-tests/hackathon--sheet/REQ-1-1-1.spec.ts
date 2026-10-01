@@ -10,6 +10,10 @@ test('REQ-1-1-1: View and Open a Workbook - Scenario 1', async ({ page }) => {
   await h.expectVisible(page, 'Last updated:');
   await page.getByRole('link', { name: h.rx(h.SEED.workbook) }).first().click();
   await h.expectVisible(page, h.SEED.workbook);
+  // the doc: "After the user clicks the link, the editor displays the SAME
+  // 'Last updated: <value>'" -- the editor copy, not only the home listing
+  // (audit round 1, gap (c)).
+  await h.expectVisible(page, 'Last updated:');
   await h.expectVisible(page, h.SEED.sheet1);
   await h.expectVisible(page, 'Region');
   await h.expectVisible(page, 'Formula bar');
