@@ -104,6 +104,17 @@ Rules:
 - A check failure showing a `GET /... 404` for a script or stylesheet while
   the page still renders means the server's static mounts do not cover that
   route -- fix the server's file mapping, not the page's markup.
+- A 404 only on a nested route (the index loads, a sub-page's assets or
+  fetches fail) usually means the page referenced them with a RELATIVE path
+  (`src="app.js"` under `/invoices/42` resolves to `/invoices/42/app.js`):
+  reference scripts, stylesheets and API endpoints root-absolute
+  (`/app.js`, `/api/...`) so every route depth resolves to the same file.
+- When a stateful flow passes its first scenario and fails the second one
+  against the same server (a row created twice, a balance that moved, an
+  item that vanished), the server was NOT restored between scenarios -- a
+  spec's GIVEN assumes the seed snapshot. Re-check how the server state is
+  reset between tests (re-seed or restart, don't carry mutations over);
+  never fix it by relaxing the second scenario's assertions.
 - When Playwright times out waiting for a control and the server log shows
   no matching request, the backend was not ready or the route never fired:
   check startup readiness and the handler wiring before touching markup.
