@@ -78,6 +78,10 @@ platform_cost_budget_github_usd = 8.0
 # Signal-only tags: checks run and report, failures never repair. Ships
 # EMPTY -- filled only if a local run proves a family structurally hopeless
 # (the sheet REQ-3/4 mutex broke open with multi-world workbooks, arch-20).
+# T2 morning decision (aurora/12 §3): if arch-22 leaves the REQ-4 formula
+# family structurally red, fill with `4-1-1,4-1-2,4-2-1,4-2-2`; an all-green
+# arch-22 keeps this empty. REQ-3 must NOT be listed (unlocked, arch-20).
+# quarantine_tags = "4-1-1,4-1-2,4-2-1,4-2-2"
 quarantine_tags = ""
 node_budget_seconds = 900       # OCTOS_NODE_TIME_BUDGET — floor driver: max(env, this x nodes); real-spec acceptance needs ~1200s/node (slice 2026-09-27), so 900 keeps the 24-node sheet floor at 6h, github at 11.8h (48h rule has room)
 node_tools = "read_file,write_file,edit_file,glob,grep,list_dir"  # OCTOS_ARC_NODE_TOOLS
