@@ -14,7 +14,7 @@ class PortedPromptRulesTests(unittest.TestCase):
 
     def test_should_keep_the_seed_first_load_rule(self):
         self.assertIn("Ship the evaluation seed as the shipped initial state", self.prompt)
-        self.assertIn("`Q3 Sales`", self.prompt)
+        self.assertIn("taken from THIS document's GIVEN steps", self.prompt)
 
     def test_should_keep_the_hidden_overlay_cascade_rule(self):
         self.assertIn("Hidden overlays must actually unrender", self.prompt)
