@@ -133,6 +133,13 @@ Rules:
   open first); after registering a new account, the chosen username becomes
   visible the moment the session starts. A username the grader cannot see
   without clicking fails the scenario.
+- The scenario text is a literal contract: every backticked value in the
+  GIVEN/WHEN/THEN steps is exact -- seed data ships verbatim (names, emails,
+  passwords, titles), controls carry exactly the quoted accessible names,
+  and success or error messages render exactly the quoted string, character
+  for character. Scenarios may build on state earlier scenarios created in
+  the same suite: every change a scenario makes must genuinely persist, and
+  flows must also work from a fresh session on the shipped seed.
 - Navigation completeness: every entry point this requirement names (links,
   tabs, menu items, buttons) must exist on the page the requirement puts it
   on, be visible, and lead to a real route -- no dead entries.
