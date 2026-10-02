@@ -469,6 +469,27 @@ class BootGate(unittest.TestCase):
             self.assertFalse(main.boot_gate(Path(tmp), 45999, soak=1))
 
 
+class StageTestsIsolation(unittest.TestCase):
+    def test_stage_tree_never_gets_the_original_world_specs(self):
+        # The stage docs pre-provision their own seed world (nora-demo,
+        # Acme Demo, scenario-named accounts); the bundled github proxies
+        # assert the ORIGINAL doc's world. A stage run held to those specs
+        # reds every check on a compliant app. Stage trees -> no bundled
+        # specs; aria_lint synthesizes from the stage doc itself.
+        import os
+        from pathlib import Path
+        old = os.environ.get("ARCBENCH_TASK_DIR")
+        try:
+            tree = {"id": "REQ-1-1-1", "name": "n", "type": "ATOMIC", "children": []}
+            os.environ["ARCBENCH_TASK_DIR"] = "/workspace/github-stage-1"
+            self.assertIsNone(main.locate_tests(tree))
+            os.environ["ARCBENCH_TASK_DIR"] = "/workspace/requirements-source"
+            self.assertIsNotNone(main.locate_tests(tree))
+        finally:
+            if old is None: os.environ.pop("ARCBENCH_TASK_DIR", None)
+            else: os.environ["ARCBENCH_TASK_DIR"] = old
+
+
 class ExamplePrecedence(unittest.TestCase):
     def test_implement_prompt_declares_the_prose_the_requirement(self):
         # The shipped acceptance examples are LOCAL PROXIES written from the

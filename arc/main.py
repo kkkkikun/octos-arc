@@ -181,7 +181,23 @@ def locate_tests(tree: dict) -> Path | None:
     Since 2026-09-26 the platform runner mounts nothing (upstream #246: six
     official runs logged `tests at None`; keep scored 4/32 blind against
     22/32 with specs) -- the shipped specs are the platform's own public
-    practice material, and the synthesized lint stays the last resort."""
+    practice material, and the synthesized lint stays the last resort.
+    STAGE tasks (progressive github: the runner hands a stage-1/2/3 tree)
+    match the ORIGINAL task's spec dir by id overlap -- but those specs
+    assert the original doc's seed world (alice-dev, acme-docs) while the
+    stage doc pre-provisions its own (nora-demo, Acme Demo, scenario-named
+    accounts): a stage run held to the old world reds every check and burns
+    its repair ladder on a world the doc forbids. Stage trees therefore get
+    NO bundled specs -- aria_lint synthesizes world-correct checks from the
+    stage doc's own literal-pinned text instead."""
+    req_dir = str(Path(os.environ.get("ARCBENCH_TASK_DIR") or ".").resolve()).lower()
+    if "stage" in req_dir:
+        for cand in filter(None, [os.environ.get("ARCBENCH_TESTS_DIR"), "/workspace/tests",
+                                  "/workspace/public-tests", "/app/tests"]):
+            p = Path(cand)
+            if p.is_dir() and any(p.rglob("*.spec.ts")):
+                return p.resolve()      # an explicit mount still wins
+        return None                     # ...but never the wrong-world bundle
     for cand in filter(None, [os.environ.get("ARCBENCH_TESTS_DIR"), "/workspace/tests",
                               "/workspace/public-tests", "/app/tests"]):
         p = Path(cand)
