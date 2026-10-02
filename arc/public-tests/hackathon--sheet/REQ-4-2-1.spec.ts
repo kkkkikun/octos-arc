@@ -5,7 +5,7 @@ import * as h from './helpers';
 // seed: workbook Q3 Sales with numeric cells A1=2, B1=3
 
 test('REQ-4-2-1: Recalculate Dependent Formulas After Source Data Changes - Scenario 1', async ({ page }) => {
-  await h.openCalculations(page);
+  await h.openQ3Sales(page);
   await h.editCell(page, 'D1', '=A1+B1');
   await h.expectCellValue(page, 'D1', '5');
   await h.editCell(page, 'A1', '10');
@@ -15,7 +15,7 @@ test('REQ-4-2-1: Recalculate Dependent Formulas After Source Data Changes - Scen
 });
 
 test('REQ-4-2-1: Recalculate Dependent Formulas After Source Data Changes - Scenario 2', async ({ page }) => {
-  await h.openCalculations(page);
+  await h.openQ3Sales(page);
   await h.editCell(page, 'D1', '=A1+B1');
   await h.editCell(page, 'E1', '=D1*2');
   await h.expectCellValue(page, 'E1', '10');
@@ -35,7 +35,7 @@ test('REQ-4-2-1: Recalculate Dependent Formulas After Source Data Changes - Scen
 });
 
 test('REQ-4-2-1: Recalculate Dependent Formulas After Source Data Changes - Scenario 3', async ({ page }) => {
-  await h.openCalculations(page);
+  await h.openQ3Sales(page);
   await h.editCell(page, 'D1', '=A1+B1');
   await h.editCell(page, 'A1', '10');
   await h.reload(page);

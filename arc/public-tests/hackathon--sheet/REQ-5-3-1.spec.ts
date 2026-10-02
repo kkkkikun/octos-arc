@@ -33,10 +33,13 @@ test('REQ-5-3-1: Create and Refresh a Basic Pivot Table - Scenario 2', async ({ 
 test('REQ-5-3-1: Create and Refresh a Basic Pivot Table - Scenario 3', async ({ page }) => {
   await h.openQ3Sales(page);
   // a record whose value field is empty counts as 0 under COUNT. Clear via
-  // the documented edit path (Enter commit): the requirements bind no
-  // Delete key, so pressing it only works on implementations that added an
-  // undocumented binding (deepseek 2nd-scan, optional).
-  await h.editCell(page, 'B4', '');
+  // the formula bar: the doc binds "modify its content directly in the grid
+  // or formula bar" (REQ-3-1-1), so emptying through it is a documented edit.
+  // A no-keystroke grid edit + Enter is a no-op on implementations that only
+  // commit changed content (doc does not pin empty-commit semantics).
+  await h.clickCell(page, 'B4');
+  await h.formulaBar(page).fill('');
+  await page.keyboard.press('Enter');
   await h.expectCellValue(page, 'B4', '');
   await h.createPivot(page, { rows: 'Region', values: 'Sales', summary: 'COUNT' });
   await h.expectCellValue(page, 'B1', 'COUNT of Sales');

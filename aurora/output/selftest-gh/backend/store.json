@@ -1,0 +1,226 @@
+{
+  "accounts": {
+    "alice-dev": {
+      "username": "alice-dev",
+      "email": "alice.dev@example.test",
+      "password": "Valid-password-123!",
+      "emailVerified": true,
+      "available": true
+    },
+    "bob-reviewer": {
+      "username": "bob-reviewer",
+      "email": "bob.reviewer@example.test",
+      "password": "Valid-password-123!",
+      "emailVerified": true,
+      "available": true
+    }
+  },
+  "repos": {
+    "acme-docs": {
+      "name": "acme-docs",
+      "owner": "alice-dev"
+    },
+    "secret-research": {
+      "name": "secret-research",
+      "owner": "alice-dev"
+    }
+  },
+  "personalRepos": {
+    "alice-dev": {
+      "repos": {
+        "secret-research": {
+          "name": "secret-research",
+          "description": "Secret research",
+          "visibility": "private",
+          "defaultBranch": "main",
+          "creator": "alice-dev",
+          "updatedAt": "2024-01-02T00:00:00Z"
+        },
+        "acme-docs-fork": {
+          "name": "acme-docs-fork",
+          "description": "Acme documentation",
+          "visibility": "public",
+          "defaultBranch": "main",
+          "creator": "alice-dev",
+          "updatedAt": "2024-01-03T00:00:00Z",
+          "forkedFrom": "acme-docs",
+          "files": {
+            "README.md": "# Acme Docs\n\nDocumentation for the Acme project.\n\nThe search flow is documented below.",
+            "src/search.ts": "export function search(query: string): string[] {\n  // The search flow implementation.\n  return [];\n}\n"
+          }
+        }
+      }
+    }
+  },
+  "organizations": {
+    "Acme Demo": {
+      "name": "Acme Demo",
+      "repos": {
+        "acme-docs": {
+          "name": "acme-docs",
+          "description": "Acme documentation",
+          "visibility": "public",
+          "defaultBranch": "main",
+          "files": {
+            "README.md": "# Acme Docs\n\nDocumentation for the Acme project.\n\nThe search flow is documented below.",
+            "src/search.ts": "export function search(query: string): string[] {\n  // The search flow implementation.\n  return [];\n}\n"
+          },
+          "branches": {
+            "main": {
+              "head": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1",
+              "files": {
+                "README.md": "# Acme Docs\n\nDocumentation for the Acme project.\n\nThe search flow is documented below.",
+                "src/search.ts": "export function search(query: string): string[] {\n  // The search flow implementation.\n  return [];\n}\n"
+              }
+            },
+            "feature-search": {
+              "head": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1",
+              "files": {
+                "README.md": "# Acme Docs\n\nDocumentation for the Acme project.\n\nThe search flow is documented below.\n\nFeature-search branch content.",
+                "main-only.md": "# Main Only\n\nThis file exists only on the feature-search branch."
+              }
+            },
+            "release": {
+              "head": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+              "files": {
+                "README.md": "# Acme Docs\n\nDocumentation for the Acme project.\n\nThe search flow is documented below.\n\nRelease branch content."
+              }
+            }
+          },
+          "commits": [
+            {
+              "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+              "message": "Initial documentation",
+              "author": "alice-dev",
+              "date": "2024-01-01T00:00:00Z",
+              "parent": null,
+              "files": ["README.md"]
+            },
+            {
+              "id": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1",
+              "message": "Document search flow",
+              "author": "alice-dev",
+              "date": "2024-01-02T00:00:00Z",
+              "parent": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+              "files": ["README.md", "src/search.ts"],
+              "diffs": {
+                "README.md": { "additions": 2, "deletions": 1, "lines": [
+                  { "type": "context", "text": "# Acme Docs" },
+                  { "type": "context", "text": "" },
+                  { "type": "context", "text": "Documentation for the Acme project." },
+                  { "type": "add", "text": "The search flow is documented below." },
+                  { "type": "add", "text": "See src/search.ts for the implementation." },
+                  { "type": "del", "text": "Old documentation line." }
+                ] },
+                "src/search.ts": { "additions": 5, "deletions": 0, "lines": [
+                  { "type": "add", "text": "export function search(query: string): string[] {" },
+                  { "type": "add", "text": "  return [];" },
+                  { "type": "add", "text": "}" },
+                  { "type": "add", "text": "" },
+                  { "type": "add", "text": "// Search flow documentation." }
+                ] }
+              }
+            }
+          ],
+          "issues": [
+            {
+              "number": 1,
+              "title": "Improve onboarding",
+              "body": "Describe the onboarding improvement.",
+              "state": "open",
+              "author": "alice-dev",
+              "assignees": ["alice-dev"],
+              "labels": ["bug", "documentation"],
+              "milestone": "Q3 launch",
+              "updatedAt": "2024-01-05T00:00:00Z",
+              "comments": [
+                {
+                  "id": "c1",
+                  "author": "bob-reviewer",
+                  "body": "I can help with the onboarding copy.",
+                  "createdAt": "2024-01-04T00:00:00Z"
+                }
+              ]
+            },
+            {
+              "number": 2,
+              "title": "Legacy welcome text",
+              "body": "The welcome text is outdated. Improve onboarding by updating the copy.",
+              "state": "closed",
+              "author": "alice-dev",
+              "assignees": ["alice-dev"],
+              "labels": ["bug"],
+              "updatedAt": "2024-01-06T00:00:00Z",
+              "comments": [
+                {
+                  "id": "c2",
+                  "author": "alice-dev",
+                  "body": "Fixed in the latest update.",
+                  "createdAt": "2024-01-06T00:00:00Z"
+                }
+              ]
+            },
+            {
+              "number": 3,
+              "title": "Original issue title",
+              "body": "This issue's title can be edited.",
+              "state": "open",
+              "author": "alice-dev",
+              "assignees": [],
+              "labels": [],
+              "updatedAt": "2024-01-07T00:00:00Z",
+              "comments": []
+            }
+          ],
+          "updatedAt": "2024-01-01T00:00:00Z"
+        },
+        "secret-research": {
+          "name": "secret-research",
+          "description": "Secret research",
+          "visibility": "private",
+          "defaultBranch": "main",
+          "files": {
+            "README.md": "# Secret Research\n\nConfidential findings for the Acme project.\n\nThe search flow is confidential."
+          },
+          "updatedAt": "2024-01-02T00:00:00Z"
+        }
+      },
+      "members": ["bob-reviewer"],
+      "owners": ["alice-dev"],
+      "teams": ["platform-team", "frontend-team", "frontend-child"]
+    }
+  },
+  "grants": {},
+  "teams": {
+    "platform-team": {
+      "id": "platform-team",
+      "org": "Acme Demo",
+      "name": "platform-team",
+      "description": "",
+      "parent": null,
+      "creator": "alice-dev",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "members": []
+    },
+    "frontend-team": {
+      "id": "frontend-team",
+      "org": "Acme Demo",
+      "name": "frontend-team",
+      "description": "",
+      "parent": "platform-team",
+      "creator": "alice-dev",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "members": []
+    },
+    "frontend-child": {
+      "id": "frontend-child",
+      "org": "Acme Demo",
+      "name": "frontend-child",
+      "description": "",
+      "parent": "frontend-team",
+      "creator": "alice-dev",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "members": []
+    }
+  }
+}

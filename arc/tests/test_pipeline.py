@@ -376,13 +376,13 @@ class PlatformWallOverride(unittest.TestCase):
                 os.environ["OCTOS_TIME_BUDGET"] = "21600"
                 os.environ["ARCBENCH_TASK_DIR"] = "/workspace/task"
                 pol = main.policy()
-                self.assertEqual(pol["run_timeout"], 86400)  # 24h wall; the fuel gauge caps the spend
+                self.assertEqual(pol["run_timeout"], 82800)  # 23h: the platform soft-kills at 24h with no eval
                 self.assertEqual(pol["cost_budget"], 0.05)   # METER units (T1: 0.1028 == platform ¥85)
                 self.assertEqual(pol["token_budget"], 2_600_000)
                 del os.environ["ARCBENCH_TASK_DIR"]
                 os.environ["ARCBENCH_RUNNER_EVENTS_PATH"] = "/tmp/ev"
                 pol = main.policy()
-                self.assertEqual(pol["run_timeout"], 86400)
+                self.assertEqual(pol["run_timeout"], 82800)
                 os.environ.pop("ARCBENCH_RUNNER_EVENTS_PATH", None)
                 pol = main.policy()                     # local: env stays in charge
                 self.assertEqual(pol["run_timeout"], 21600)

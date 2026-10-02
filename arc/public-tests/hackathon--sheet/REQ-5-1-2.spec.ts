@@ -16,7 +16,7 @@ test('REQ-5-1-2: Filter Rows by Value or Condition - Scenario 1', async ({ page 
   await expect(dialog).toBeVisible();
   await h.setCheckboxIn(dialog, 'East', false);
   await h.clickNamed(dialog, 'Apply');
-  await h.expectAbsent(page, 'East');
+  await h.expectHiddenNotDeleted(page, 'East');
   await h.expectVisible(page, 'North');
   await h.expectVisible(page, 'South');
   // nonmatching rows are hidden only, neither deleted nor reordered
@@ -37,7 +37,7 @@ test('REQ-5-1-2: Filter Rows by Value or Condition - Scenario 2', async ({ page 
   await h.chooseComboboxOption(dialog, 'Condition', 'Greater than');
   await h.fillField(dialog, 'Value', '750');
   await h.clickNamed(dialog, 'Apply');
-  await h.expectAbsent(page, 'South');
+  await h.expectHiddenNotDeleted(page, 'South');
   await h.expectVisible(page, 'East');
   await h.expectVisible(page, 'North');
   // the "Text contains" condition on the same dialog
@@ -47,8 +47,8 @@ test('REQ-5-1-2: Filter Rows by Value or Condition - Scenario 2', async ({ page 
   await h.fillField(dialog2, 'Value', '80');
   await h.clickNamed(dialog2, 'Apply');
   await h.expectVisible(page, 'North');
-  await h.expectAbsent(page, 'East');
-  await h.expectAbsent(page, 'South');
+  await h.expectHiddenNotDeleted(page, 'East');
+  await h.expectHiddenNotDeleted(page, 'South');
   // the "Is not empty" condition requires no value
   await h.clickNamed(page, 'Filter Sales');
   const dialog3 = h.dialogNamed(page, 'Filter Sales');
@@ -75,8 +75,8 @@ test('REQ-5-1-2: Filter Rows by Value or Condition - Scenario 3', async ({ page 
   await h.clickNamed(salesDialog, 'Apply');
   // conditions on different columns combine with AND: only North passes both
   await h.expectVisible(page, 'North');
-  await h.expectAbsent(page, 'East');
-  await h.expectAbsent(page, 'South');
+  await h.expectHiddenNotDeleted(page, 'East');
+  await h.expectHiddenNotDeleted(page, 'South');
 });
 
 test('REQ-5-1-2: Filter Rows by Value or Condition - Scenario 4', async ({ page }) => {
@@ -86,7 +86,7 @@ test('REQ-5-1-2: Filter Rows by Value or Condition - Scenario 4', async ({ page 
   const dialog = h.dialogNamed(page, 'Filter Region');
   await h.setCheckboxIn(dialog, 'East', false);
   await h.clickNamed(dialog, 'Apply');
-  await h.expectAbsent(page, 'East');
+  await h.expectHiddenNotDeleted(page, 'East');
   await h.expectVisible(page, 'North');
   const downloadPromise = page.waitForEvent('download');
   await h.clickNamed(page, 'Export CSV');
@@ -103,7 +103,7 @@ test('REQ-5-1-2: Filter Rows by Value or Condition - Scenario 5', async ({ page 
   const dialog = h.dialogNamed(page, 'Filter Region');
   await h.setCheckboxIn(dialog, 'East', false);
   await h.clickNamed(dialog, 'Apply');
-  await h.expectAbsent(page, 'East');
+  await h.expectHiddenNotDeleted(page, 'East');
   await h.clickNamed(page, 'Clear filter');
   await h.expectVisible(page, 'East');
   await h.expectVisible(page, 'North');
@@ -132,15 +132,18 @@ test('REQ-5-1-2: Filter Rows by Value or Condition - Scenario G (Before + Is emp
   await h.fillField(d1, 'Value', '2024-06-01');
   await h.clickNamed(d1, 'Apply');
   await h.expectVisible(page, '2023-12-01');
-  await h.expectAbsent(page, '2024-06-30');
+  await h.expectHiddenNotDeleted(page, '2024-06-30');
   await h.clickNamed(page, 'Clear filter');
-  // Is empty: clear one Status cell, filter Status on it
-  await h.editCell(page, 'C4', '');
+  // Is empty: clear one Status cell (formula-bar edit, a doc-bound path),
+  // filter Status on it
+  await h.clickCell(page, 'C4');
+  await h.formulaBar(page).fill('');
+  await page.keyboard.press('Enter');
   await h.openDataMenu(page, 'Create filter');
   await h.clickNamed(page, 'Filter Status');
   const d2 = h.dialogNamed(page, 'Filter Status');
   await h.chooseComboboxOption(d2, 'Condition', 'Is empty');
   await h.clickNamed(d2, 'Apply');
   await h.expectVisible(page, 'South');
-  await h.expectAbsent(page, 'East');
+  await h.expectHiddenNotDeleted(page, 'East');
 });

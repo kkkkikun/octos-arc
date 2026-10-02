@@ -2,24 +2,15 @@ import { expect, Locator, Page } from '@playwright/test';
 
 type Match = string | RegExp;
 
-// Seed data fixed by the requirements.yaml of this exercise.
+// Seed data fixed by the requirements.yaml of this exercise. Every spec opens
+// `Q3 Sales`: grade-docworld.py re-seeds the family's GIVEN world into the
+// store before each test (REQ-3's Item/Qty range, REQ-4's 2/3+formulas, the
+// Region table for the rest) -- the per-family worlds never ship as extra
+// workbooks any more.
 export const SEED = {
   workbook: 'Q3 Sales',
-  // Multi-world seeding: the doc gives each module family "a workbook" of its
-  // own (REQ-3's world is A1:B2 Item/Qty Pen/4; REQ-4's is A1=2/B1=3 plus
-  // formulas) without naming them. One static app cannot satisfy those in the
-  // SAME workbook as REQ-1/5's Region table, so every conflicting world ships
-  // as its own workbook and each family's specs open theirs. The hidden tests
-  // re-seed per scenario, so extra seeded workbooks are invisible to grading;
-  // these exist to keep the in-run checks satisfiable.
-  workbook3: 'Inventory',      // REQ-3 world: A1:B2 Item/Qty with Pen/4 (paste/copy land per spec)
-  workbook4: 'Calculations',   // REQ-4 world: A1=2, B1=3, formulas =A1+B1 and =C1*2
   sheet1: 'Sheet1',
   sheet2: 'Sheet2',
-  // editing-module seed: range A1:B2 containing Item/Qty and Pen/4, target D1:E2
-  // formula-module seed: A1=2, B1=3, formulas =A1+B1 and =C1*2
-  // sort/filter/validation/pivot-module seed: A1:C6 headers Region/Sales/Status,
-  // rows East/1200/Open, North/800/Closed, South/700/Open
   headers: ['Region', 'Sales', 'Status'],
   rowEast: ['East', '1200', 'Open'],
   rowNorth: ['North', '800', 'Closed'],
@@ -99,6 +90,19 @@ export async function expectAbsent(scope: Page | Locator, value: Match): Promise
   await expect(scope.getByRole('option', { name: pattern }).first()).toBeHidden();
 }
 
+export async function expectHiddenNotDeleted(page: Page, value: Match): Promise<void> {
+  // REQ-5-1-2 pins "nonmatching rows are hidden only and are neither deleted
+  // nor reordered". The observable halves are: not visible now (toBeHidden),
+  // and restorable -- Sc5 proves non-deletion at the data level by asserting
+  // Clear filter restores every record in original order with original
+  // values. Whether the implementation hides the row's DOM node or omits it
+  // from the rendered window is not pinned by the doc, so no assertion is
+  // made on DOM retention here.
+  const pattern = rxContains(value);
+  const loc = grid(page).getByText(pattern).first();
+  await expect(loc).toBeHidden();
+}
+
 export async function fillField(scope: Page | Locator, label: Match, value: string): Promise<void> {
   const pattern = rxContains(label);
   const field = await firstVisible([
@@ -126,14 +130,6 @@ export async function openWorkbook(page: Page, name: string = SEED.workbook): Pr
 
 export async function openQ3Sales(page: Page): Promise<void> {
   await openWorkbook(page, SEED.workbook);
-}
-
-export async function openInventory(page: Page): Promise<void> {
-  await openWorkbook(page, SEED.workbook3);
-}
-
-export async function openCalculations(page: Page): Promise<void> {
-  await openWorkbook(page, SEED.workbook4);
 }
 
 // --- Grid interaction ---------------------------------------------------

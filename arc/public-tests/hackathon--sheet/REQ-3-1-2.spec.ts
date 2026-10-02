@@ -5,7 +5,7 @@ import * as h from './helpers';
 // seed: workbook Q3 Sales, range A1:B2 containing Item/Qty and Pen/4, target range D1:E2
 
 test('REQ-3-1-2: Paste Two-Dimensional Table Data - Scenario 1', async ({ page }) => {
-  await h.openInventory(page);
+  await h.openQ3Sales(page);
   await h.setClipboard(page, 'X\tY\nZ\tW');
   await h.pasteAt(page, 'B2', true);
   await h.expectCellValue(page, 'B2', 'X');
@@ -16,7 +16,7 @@ test('REQ-3-1-2: Paste Two-Dimensional Table Data - Scenario 1', async ({ page }
 });
 
 test('REQ-3-1-2: Paste Two-Dimensional Table Data - Scenario 2', async ({ page }) => {
-  await h.openInventory(page);
+  await h.openQ3Sales(page);
   await h.setClipboard(page, 'N1\tN2\nN3\tN4');
   await h.pasteAt(page, 'A1', true);
   await h.expectCellValue(page, 'A1', 'N1');
@@ -26,7 +26,7 @@ test('REQ-3-1-2: Paste Two-Dimensional Table Data - Scenario 2', async ({ page }
 });
 
 test('REQ-3-1-2: Paste Two-Dimensional Table Data - Scenario 3', async ({ page }) => {
-  await h.openInventory(page);
+  await h.openQ3Sales(page);
   // a dependent formula recalculates from the pasted content
   await h.editCell(page, 'C4', '=B2*2');
   await h.expectCellValue(page, 'C4', '8');
@@ -42,7 +42,7 @@ test('REQ-3-1-2: Paste Two-Dimensional Table Data - Scenario 3', async ({ page }
 });
 
 test('REQ-3-1-2: Paste Two-Dimensional Table Data - Scenario 4', async ({ page }) => {
-  await h.openInventory(page);
+  await h.openQ3Sales(page);
   await h.setClipboard(page, '\tX\nY\t');
   await h.pasteAt(page, 'A1', false);
   await h.expectCellValue(page, 'A1', '');
@@ -52,7 +52,7 @@ test('REQ-3-1-2: Paste Two-Dimensional Table Data - Scenario 4', async ({ page }
 });
 
 test('REQ-3-1-2: Paste Two-Dimensional Table Data - Scenario 5', async ({ page }) => {
-  await h.openInventory(page);
+  await h.openQ3Sales(page);
   await h.setClipboard(page, 'East2\t1500\nWest\t900');
   await h.pasteAt(page, 'C3', true);
   await h.expectCellValue(page, 'C3', 'East2');

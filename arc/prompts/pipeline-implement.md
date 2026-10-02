@@ -128,6 +128,11 @@ Rules:
   for a field that already has one (duplicate `Email` inputs make strict
   locators ambiguous). Every interactive element you render must actually
   perform its named action when activated.
+- After any sign-in, the signed-in username stays VISIBLE in the page
+  header on every page (not only inside a closed account menu a test must
+  open first); after registering a new account, the chosen username becomes
+  visible the moment the session starts. A username the grader cannot see
+  without clicking fails the scenario.
 - Navigation completeness: every entry point this requirement names (links,
   tabs, menu items, buttons) must exist on the page the requirement puts it
   on, be visible, and lead to a real route -- no dead entries.

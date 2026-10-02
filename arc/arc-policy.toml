@@ -59,11 +59,11 @@ run_timeout_seconds = 3600      # OCTOS_TIME_BUDGET — whole run
 # bounded by platform_cost_budget_usd below. With money capped directly,
 # extra wall only buys more requirements attempted.
 #
-# 86400 (24h) since the deadline moved to 10-03: two 24h tickets per task
-# (T1 tonight, T2 on 10-02 evening) beat one 48h ticket -- run 2 carries
-# run 1's lessons in its bundle, and a bad-luck ticket only costs half the
-# remaining window. github's floor is 900s x 47 nodes = 11.75h regardless.
-platform_run_timeout_seconds = 86400
+# 82800 (23h) NOT 86400: the platform soft-kills (SoftTimeLimitExceeded)
+# at exactly 24h with no final evaluation -- github-T1 died at REQ-6-2-2 with
+# the whole run unscored. One hour of margin buys collect + boot gate + the
+# platform's own eval phase. Stage tasks finish naturally far below this.
+platform_run_timeout_seconds = 82800
 # Fuel gauge, TWO axes (T1 postmortem: the platform bills ~827x the kernel
 # meter's catalog price -- meter said 0.1028 while the platform charged ¥85,
 # so a $5.5 threshold could never fire):
