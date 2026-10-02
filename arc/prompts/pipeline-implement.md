@@ -33,7 +33,10 @@ Layout (already scaffolded, keep it):
 
 Rules:
 - Implement for general valid inputs and preserve behaviour already built by
-  earlier requirements. Never hardcode the values the acceptance example uses.
+  earlier requirements. Never hardcode the values the acceptance example uses
+  into BEHAVIOUR: seeds are data, not logic -- shipping the GIVEN values as
+  the initial state is required, but every feature must still work for
+  arbitrary values the example never shows.
 - Use the exact labels, accessible names and test ids the requirement names.
 - For persistent data, seed only a brand-new store; later startups must keep
   user edits and deletions.
@@ -51,13 +54,15 @@ Rules:
   port working code to the library mid-run; that rewrites behaviour earlier
   requirements rely on.
 - Ship the evaluation seed as the shipped initial state: the scenario GIVEN
-  steps name records and values in backticks (workbook `Q3 Sales`, account
-  `alice-dev`, org `acme-corp`, ranges `Region/Sales/Status` with rows
-  `East/1200/Open`); those exact records must exist as PERSISTED data (a store
-  file the app loads, never in-memory-only literals) and be visible on first
-  load. Before finishing, re-read every GIVEN step's backticked value and
-  confirm the shipped initial data contains it -- a greenfield app without
-  its seeded users/records fails every scenario at step one.
+  steps name records and values in backticks (the shapes vary per task --
+  workbooks and cells, accounts and organizations, repositories and
+  branches); those exact records -- taken from THIS document's GIVEN steps,
+  never from memory or another task's examples -- must exist as PERSISTED
+  data (a store file the app loads, never in-memory-only literals) and be
+  visible on first load. Before finishing, re-read every GIVEN step's
+  backticked value and confirm the shipped initial data contains it -- a
+  greenfield app without its seeded users/records fails every scenario at
+  step one.
 - Conflicting worlds ship as separate workbooks: the doc's module families
   each describe "a workbook" with their own cell contents (one family's GIVEN
   wants A1 `Region`, another's `Item`, another's `2`), and the acceptance
@@ -133,13 +138,16 @@ Rules:
   open first); after registering a new account, the chosen username becomes
   visible the moment the session starts. A username the grader cannot see
   without clicking fails the scenario.
-- The scenario text is a literal contract: every backticked value in the
-  GIVEN/WHEN/THEN steps is exact -- seed data ships verbatim (names, emails,
-  passwords, titles), controls carry exactly the quoted accessible names,
-  and success or error messages render exactly the quoted string, character
-  for character. Scenarios may build on state earlier scenarios created in
-  the same suite: every change a scenario makes must genuinely persist, and
-  flows must also work from a fresh session on the shipped seed.
+- The scenario text of THIS document is a literal contract: every backticked
+  value in the GIVEN/WHEN/THEN steps is exact -- seed data ships verbatim
+  (names, emails, passwords, titles), controls carry exactly the quoted
+  accessible names, and success or error messages render exactly the quoted
+  string, character for character. (The acceptance example below the
+  description is a local transcription of these same steps; where it and the
+  text ever disagree, the text wins.) Scenarios may build on state earlier
+  scenarios created in the same suite: every change a scenario makes must
+  genuinely persist, and flows must also work from a fresh session on the
+  shipped seed.
 - Navigation completeness: every entry point this requirement names (links,
   tabs, menu items, buttons) must exist on the page the requirement puts it
   on, be visible, and lead to a real route -- no dead entries.
