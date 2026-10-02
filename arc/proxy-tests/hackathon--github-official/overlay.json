@@ -1,0 +1,7 @@
+{
+  "accounts": {
+    "org-owner": {"username": "org-owner", "email": "org-owner@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "repo-admin": {"username": "repo-admin", "email": "repo-admin@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true}
+  },
+  "__org_patch": {"org": "Acme Demo", "owners_add": ["org-owner", "repo-admin"], "members_add": ["org-owner"]}
+}

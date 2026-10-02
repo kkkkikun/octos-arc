@@ -227,11 +227,22 @@ export async function signInAs(page: Page, user: SeedUser): Promise<void> {
 // --- Navigation --------------------------------------------------------
 
 export async function searchGlobal(page: Page, query: string): Promise<void> {
+  // The official runner starts every scenario from the application home page;
+  // reproduce that here (a bare page has no searchbox to drive), and fall
+  // back to home from pages that carry no Search control (e.g. the file
+  // editor, which scopes its own controls).
+  if (page.url() === 'about:blank') await openHome(page);
   const t = target(page);
-  const box = await firstVisible([
+  const ladder = () => [
     t.getByRole('searchbox', { name: rx('Search') }),
     t.getByRole('textbox', { name: rx('Search') }),
-  ]);
+  ];
+  let box = await firstVisible(ladder());
+  const present = await box.isVisible({ timeout: 300 }).catch(() => false);
+  if (!present) {
+    await openHome(page);
+    box = await firstVisible(ladder());
+  }
   await box.fill(query);
   await box.press('Enter');
 }

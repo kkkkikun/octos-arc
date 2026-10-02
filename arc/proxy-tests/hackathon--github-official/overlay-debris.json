@@ -1,0 +1,21 @@
+{
+  "accounts": {
+    "pw-viewer-0k3f8a": {"username": "pw-viewer-0k3f8a", "email": "pw-viewer-0k3f8a@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-viewer-1m2x9b": {"username": "pw-viewer-1m2x9b", "email": "pw-viewer-1m2x9b@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-viewer-2n4y0c": {"username": "pw-viewer-2n4y0c", "email": "pw-viewer-2n4y0c@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-viewer-3o5z1d": {"username": "pw-viewer-3o5z1d", "email": "pw-viewer-3o5z1d@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-viewer-4p6a2e": {"username": "pw-viewer-4p6a2e", "email": "pw-viewer-4p6a2e@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-viewer-5q7b3f": {"username": "pw-viewer-5q7b3f", "email": "pw-viewer-5q7b3f@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-user-k2j9h": {"username": "pw-user-k2j9h", "email": "pw-user-k2j9h@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-user-l3k0i": {"username": "pw-user-l3k0i", "email": "pw-user-l3k0i@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-recover-m4n1j": {"username": "pw-recover-m4n1j", "email": "pw-recover-m4n1j@example.test", "password": "R3covered-pass!", "emailVerified": true, "available": true},
+    "pw-recover-n5o2k": {"username": "pw-recover-n5o2k", "email": "pw-recover-n5o2k@example.test", "password": "R3covered-pass!", "emailVerified": true, "available": true},
+    "pw-member-o6p3l": {"username": "pw-member-o6p3l", "email": "pw-member-o6p3l@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-member-p7q4m": {"username": "pw-member-p7q4m", "email": "pw-member-p7q4m@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-viewer-6r8c4g": {"username": "pw-viewer-6r8c4g", "email": "pw-viewer-6r8c4g@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-viewer-7s9d5h": {"username": "pw-viewer-7s9d5h", "email": "pw-viewer-7s9d5h@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-viewer-8t0e6i": {"username": "pw-viewer-8t0e6i", "email": "pw-viewer-8t0e6i@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true},
+    "pw-viewer-9u1f7j": {"username": "pw-viewer-9u1f7j", "email": "pw-viewer-9u1f7j@example.test", "password": "Valid-password-123!", "emailVerified": true, "available": true}
+  },
+  "__org_patch": {"org": "Acme Demo", "owners_add": [], "members_add": ["pw-member-o6p3l", "pw-member-p7q4m"]}
+}

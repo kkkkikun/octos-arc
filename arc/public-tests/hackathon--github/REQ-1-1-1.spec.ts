@@ -39,10 +39,12 @@ test('REQ-1-1-1: Register a New GitHub Account - Scenario 2', async ({ page }) =
   await h.fillField(page, /^Password$/, 'short');
   await h.fillField(page, 'Confirm password', 'different');
   await h.clickNamed(page, 'Create account');
-  await h.expectVisible(page, 'Username format is invalid');
-  await h.expectVisible(page, 'Email format is invalid');
-  await h.expectVisible(page, 'Password requirements are not satisfied');
-  await h.expectVisible(page, 'Agree to terms is required');
+  // direct-text assertions: the expectVisible role ladder burns ~2.4s per
+  // pure-text probe, which alone busts this suite's 10s per-test clock
+  await expect(page.getByText('Username format is invalid', { exact: true })).toBeVisible();
+  await expect(page.getByText('Email format is invalid', { exact: true })).toBeVisible();
+  await expect(page.getByText('Password requirements are not satisfied', { exact: true })).toBeVisible();
+  await expect(page.getByText('Agree to terms is required', { exact: true })).toBeVisible();
   const username = page.getByLabel(h.rxContains('Username')).first();
   await expect(username).toHaveValue(/invalid-user/);
   const email = page.getByLabel(h.rxContains('Email')).first();
@@ -53,6 +55,26 @@ test('REQ-1-1-1: Register a New GitHub Account - Scenario 2', async ({ page }) =
   await h.fillField(page, 'Password', h.SEED.alice.password);
   await page.getByRole('button', { name: h.rx('Sign in') }).first().click();
   await h.expectVisible(page, 'Invalid credentials');
+});
+
+test('REQ-1-1-1: Register a New GitHub Account - Scenario 4', async ({ page }) => {
+  // doc pins the duplicate branch: "A duplicate username paired with a
+  // different unused email displays 'Username already exists' and retains
+  // both attempted values" (all other fields valid, so the duplicate check
+  // is the only failing rule). Own scenario: the multi-field flow already
+  // fills this suite's 10s per-test clock.
+  await h.openHome(page);
+  await h.clickNamed(page, 'Sign in');
+  await h.clickNamed(page, 'Create an account');
+  await h.fillField(page, 'Username', h.SEED.alice.username);
+  await h.fillField(page, 'Email', 'dup-check-' + h.uniqueSuffix() + '@example.test');
+  await h.fillField(page, /^Password$/, h.SEED.alice.password);
+  await h.fillField(page, 'Confirm password', h.SEED.alice.password);
+  await h.setCheckbox(page, 'Agree to the terms', true);
+  await h.clickNamed(page, 'Create account');
+  await expect(page.getByText('Username already exists', { exact: true })).toBeVisible();
+  await expect(page.getByLabel(h.rxContains('Username')).first()).toHaveValue(h.SEED.alice.username);
+  await expect(page.getByLabel(h.rxContains('Email')).first()).toHaveValue(/dup-check-/);
 });
 
 test('REQ-1-1-1: Register a New GitHub Account - Scenario 3', async ({ page }) => {

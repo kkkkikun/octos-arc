@@ -110,7 +110,22 @@ export async function resolveNamed(scope: Scope, value: Match): Promise<Locator>
 }
 
 export async function openHome(page: Page): Promise<void> {
-  await page.goto('/');
+  // This WSL2 workload occasionally aborts the very first navigation
+  // (net::ERR_ABORTED before any request reaches the app). The official
+  // channel's 60s agent budget shrugs such transients off; retry here so the
+  // local gate measures the app, not the host. Real app failures still throw.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await page.goto('/');
+      return;
+    } catch (err) {
+      const text = String(err);
+      if (attempt >= 2 || (!text.includes('ERR_ABORTED') && !text.includes('ERR_CONNECTION_RESET'))) {
+        throw err;
+      }
+      await page.waitForTimeout(200);
+    }
+  }
 }
 
 export async function clickNamed(scope: Scope, value: Match): Promise<void> {
@@ -174,7 +189,8 @@ export async function setCheckbox(scope: Scope, name: Match, checked: boolean): 
   else await box.uncheck();
 }
 
-// Native selects in this product expose the combobox role with the stated label.
+// Native selects answer selectOption; the product's custom listbox comboboxes
+// are opened with a click and their options are ordinary role=option elements.
 export async function selectLabeled(scope: Scope, label: Match, optionLabel: string): Promise<void> {
   const t = target(scope);
   const pattern = label instanceof RegExp ? label : rxContains(label);
@@ -186,9 +202,11 @@ export async function selectLabeled(scope: Scope, label: Match, optionLabel: str
     await control.selectOption({ label: optionLabel });
     return;
   } catch {
-    // custom listbox combobox: fall back to clicking the option
+    // custom listbox combobox: open it, then click the option
   }
-  await clickNamed(scope, optionLabel);
+  await control.click();
+  // Exact name: a loose "Member" would also hit the "Add member" button.
+  await t.getByRole('option', { name: optionLabel, exact: true }).first().click();
 }
 
 // Filter controls may be a native select or a text input depending on the page.

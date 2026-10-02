@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import * as h from './helpers';
 
 // requirement: REQ-1-3 Change Account Password
@@ -6,9 +6,22 @@ import * as h from './helpers';
 // password-change-invalid, password-change-required (each
 // <username>@example.test with current password Valid-password-123!);
 // candidate new passwords New-password-456! and Required-password-789!.
+//
+// Official-runner semantics: after sign-in the "Settings" target must be
+// directly visible in the page header (the account menu stays closed for this
+// flow), so this spec navigates without opening the menu.
+
+async function openPasswordSettingsDirect(page: any) {
+  // Strict single match: the header exposes exactly one visible Settings link.
+  await expect(page.getByRole('link', { name: h.rx('Settings') })).toHaveCount(1);
+  await page.getByRole('link', { name: h.rx('Settings') }).click();
+  await h.expectVisible(page, 'Settings');
+  await page.getByRole('link', { name: 'Password and authentication' }).click();
+  await h.expectVisible(page, 'Password and authentication');
+}
 
 async function changePassword(page: any, current: string, next: string, confirm: string) {
-  await h.openPasswordSettings(page);
+  await openPasswordSettingsDirect(page);
   await h.fillField(page, 'Current password', current);
   await h.fillField(page, 'New password', next);
   await h.fillField(page, 'Confirm password', confirm);

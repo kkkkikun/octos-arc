@@ -14,13 +14,19 @@ test('REQ-2-2-1: Create an Organization Team - Scenario 1', async ({ page }) => 
   await h.expectVisible(page, 'Acme Demo/' + h.SEED.newTeam);
   await h.reload(page);
   await h.expectVisible(page, h.SEED.newTeam);
-  // a duplicated name generates no team
+  // a duplicated name generates no team: the doc pins "no team is generated",
+  // so the team listing must not gain a second entry with that name
   await h.openOrganization(page);
   await h.clickNamed(page, 'Teams');
+  const before = await page.getByText(h.SEED.newTeam).count();
   await h.clickNamed(page, 'New team');
   await h.fillField(page, 'Team name', h.SEED.newTeam);
   await h.clickNamed(page, 'Create team');
   await h.expectVisible(page, 'Create team');
+  await h.openOrganization(page);
+  await h.clickNamed(page, 'Teams');
+  const after = await page.getByText(h.SEED.newTeam).count();
+  expect(after).toBe(before);
 });
 
 test('REQ-2-2-1: Create an Organization Team - Scenario 2', async ({ page }) => {

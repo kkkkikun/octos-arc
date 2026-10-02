@@ -12,6 +12,8 @@ test('REQ-1-1-3: Recover Account Access Through a Verified Email - Scenario 1', 
   await expect(page.getByText(h.rx(h.SEED.recoveryCode))).toBeVisible();
   await h.expectVisible(page, 'Verification code');
   await h.expectVisible(page, 'New password');
+  // Strict single match: the header carries the only "Sign in" link.
+  await expect(page.getByRole('link', { name: h.rx('Sign in') })).toHaveCount(1);
   // The same reset step is reached for an unknown email.
   await h.openResetStep(page, h.SEED.unknownEmail);
   await expect(page.getByText(h.rx(h.SEED.recoveryCode))).toBeVisible();
@@ -36,6 +38,15 @@ test('REQ-1-1-3: Recover Account Access Through a Verified Email - Scenario 2', 
 
 test('REQ-1-1-3: Recover Account Access Through a Verified Email - Scenario 3', async ({ page }) => {
   await h.openResetStep(page, h.SEED.recoverySuccess.email);
+  // Shared-form flow: a wrong code first (mirrors the official runner
+  // re-entering the same combined form for another address), then the
+  // correct code without leaving the page.
+  await h.fillField(page, 'Verification code', h.SEED.wrongRecoveryCode);
+  await h.fillField(page, 'New password', h.SEED.recoveryPassword);
+  await h.fillField(page, 'Confirm password', h.SEED.recoveryPassword);
+  await h.clickNamed(page, 'Reset password');
+  await expect(page.getByText('Verification code is invalid', { exact: true })).toBeVisible();
+  await h.fillField(page, 'Email', h.SEED.recoverySuccess.email);
   await h.fillField(page, 'Verification code', h.SEED.recoveryCode);
   await h.fillField(page, 'New password', h.SEED.recoveryPassword);
   await h.fillField(page, 'Confirm password', h.SEED.recoveryPassword);

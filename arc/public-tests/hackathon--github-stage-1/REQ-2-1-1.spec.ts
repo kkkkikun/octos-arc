@@ -22,7 +22,11 @@ test('REQ-2-1-1: Browse Organization Repositories - Scenario 1', async ({ page }
 test('REQ-2-1-1: Browse Organization Repositories - Scenario 2', async ({ page }) => {
   await h.openOrganizationAsVisitor(page, h.SEED.org);
   await h.clickNamed(page, 'Repositories');
+  // The denial is on the page even before filtering: the private repository
+  // is never listed to a visitor.
+  await h.expectVisible(page, 'Access denied');
   await h.fillField(page, 'Find a repository', h.SEED.privateRepo);
   // Filtering by the private repository name never exposes its link.
   await expect(page.getByRole('link', { name: h.rx(h.SEED.privateRepo) }).first()).toBeHidden();
+  await h.expectVisible(page, 'Access denied');
 });

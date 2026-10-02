@@ -5,6 +5,10 @@ import * as h from './helpers';
 // seed: team-maintainer / team-maintainer@example.test / Valid-password-123!
 // (Owner authorized to manage frontend-team in Acme Demo); registered member
 // bob-reviewer not in frontend-team; parent platform-team; child frontend-child.
+//
+// Official-runner semantics: "Add member" is clicked by exact name with
+// strict single-match resolution -- the opener (closed form) and the submit
+// button (open form) must therefore never coexist as visible matches.
 
 async function openTeam(page: any, team: string): Promise<void> {
   await h.signIn(page, h.SEED.teamMaintainer.username);
@@ -14,6 +18,8 @@ async function openTeam(page: any, team: string): Promise<void> {
 }
 
 async function selectedParentLabel(page: any): Promise<string> {
+  // The Parent team control is a native <select> (the official channel drives
+  // it with selectOption); its value is the selected option's label.
   const box = page.getByRole('combobox', { name: h.rx('Parent team') }).first();
   return box.evaluate((el: any) => {
     if (el.selectedOptions && el.selectedOptions.length) {
@@ -26,9 +32,14 @@ async function selectedParentLabel(page: any): Promise<string> {
 test('REQ-2-2-2: Manage Organization Team Members and Hierarchy - Scenario 1', async ({ page }) => {
   await openTeam(page, h.SEED.team);
   await h.clickNamed(page, 'Members');
-  await h.clickNamed(page, 'Add member');
+  // Opening the form retires the opener: exactly one "Add member" button at
+  // any moment, so the official strict click cannot collide.
+  const addMember = page.getByRole('button', { name: 'Add member', exact: true });
+  await expect(addMember).toHaveCount(1);
+  await addMember.click();
+  await expect(addMember).toHaveCount(1);
   await h.fillField(page, 'Username', h.SEED.bobReviewer);
-  await page.getByRole('button', { name: h.rx('Add member') }).last().click();
+  await addMember.click();
   // After adding, the member is visible in the list.
   await h.expectVisible(page, h.SEED.bobReviewer);
   await h.clickNamed(page, 'Remove ' + h.SEED.bobReviewer);

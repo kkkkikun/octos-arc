@@ -27,7 +27,10 @@ test('REQ-1-1-2: Sign In with an Existing Account - Scenario 2', async ({ page }
   await h.signIn(page, h.SEED.alice.username);
   await h.openAccountMenu(page);
   await h.expectVisible(page, h.SEED.alice.username);
+  // REQ-1-1-1 pins "the resulting signed-in username remains visible after
+  // reload" -- visible in the signed-in state, not only inside the opened menu
   await h.reload(page);
+  await expect(page.getByText(h.SEED.alice.username, { exact: true }).first()).toBeVisible();
   await h.expectVisible(page, 'Account menu');
 });
 

@@ -5,11 +5,26 @@ import * as h from './helpers';
 // seed: repo-admin / repo-admin@example.test / Valid-password-123! with Admin
 // permission on acme-docs; team frontend-team with no direct grant on it;
 // team access-role-team with exactly one direct Write grant on it.
+//
+// Official-runner semantics: the repository is opened from the directly
+// visible "acme-docs" link on the signed-in workspace (no global search), and
+// the repository page exposes exactly one "Settings" target (its own tab; the
+// global account-settings link is not rendered there).
+
+async function openManageAccess(page: any) {
+  const repoLink = page.getByRole('link', { name: h.rx(h.SEED.repo) });
+  await expect(repoLink.first()).toBeVisible();
+  await repoLink.first().click();
+  await h.expectVisible(page, h.rxContains(h.SEED.repo));
+  await expect(page.getByRole('link', { name: h.rx('Settings') })).toHaveCount(1);
+  await page.getByRole('link', { name: h.rx('Settings') }).click();
+  await page.getByRole('link', { name: 'Manage access' }).click();
+  await h.expectVisible(page, 'Manage access');
+}
 
 test('REQ-2-3: Grant Repository Access to People and Teams - Scenario 1', async ({ page }) => {
   await h.signIn(page, h.SEED.repoAdmin.username);
-  await h.openRepoSettings(page, h.SEED.repo);
-  await h.clickNamed(page, 'Manage access');
+  await openManageAccess(page);
   await h.clickNamed(page, 'Add people or teams');
   await h.fillField(page, 'Search', h.SEED.team);
   await h.clickNamed(page, h.SEED.team);
@@ -24,8 +39,7 @@ test('REQ-2-3: Grant Repository Access to People and Teams - Scenario 1', async 
 
 test('REQ-2-3: Grant Repository Access to People and Teams - Scenario 2', async ({ page }) => {
   await h.signIn(page, h.SEED.repoAdmin.username);
-  await h.openRepoSettings(page, h.SEED.repo);
-  await h.clickNamed(page, 'Manage access');
+  await openManageAccess(page);
   const row = page.locator('tr, li, [role="row"]').filter({ hasText: h.SEED.accessRoleTeam }).first();
   await expect(row).toBeVisible();
   // Verify the current role is Write before changing it.

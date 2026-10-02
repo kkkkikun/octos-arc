@@ -6,15 +6,29 @@ import * as h from './helpers';
 // new-member@example.test / Valid-password-123!; ungranted private repository
 // secret-research; already-member existing-member; unknown username
 // unknown-reviewer.
+//
+// Official-runner semantics: strict single-match "Add member" clicks, and the
+// private-repository search reports "Access denied" as soon as the query is
+// typed (no Enter key required).
+
+async function addOrgMember(page: any, login: string, role: string) {
+  const addMember = page.getByRole('button', { name: 'Add member', exact: true });
+  await expect(addMember).toHaveCount(1);
+  await addMember.click();
+  await expect(addMember).toHaveCount(1);
+  await h.fillField(page, 'Username or email', login);
+  await h.selectLabeled(page, 'Role', role);
+  await addMember.click();
+}
 
 test('REQ-2-2-3: Directly Add a User as an Organization Member - Scenario 1', async ({ page, browser }) => {
+  // Two full sign-in sessions plus multiple strict-resolution scans; the
+  // official channel allows 60s per test, so match that here.
+  test.setTimeout(60000);
   await h.signIn(page, h.SEED.orgOwner.username);
   await h.openOrganization(page, h.SEED.org);
   await h.clickNamed(page, 'People');
-  await h.clickNamed(page, 'Add member');
-  await h.fillField(page, 'Username or email', h.SEED.newMember.username);
-  await h.selectLabeled(page, 'Role', 'Member');
-  await page.getByRole('button', { name: h.rx('Add member') }).last().click();
+  await addOrgMember(page, h.SEED.newMember.username, 'Member');
   // Member role, no pending-invitation state, persisted after reload.
   await h.expectVisible(page, h.SEED.newMember.username);
   await h.expectVisible(page, h.rx('Member'));
@@ -29,11 +43,21 @@ test('REQ-2-2-3: Directly Add a User as an Organization Member - Scenario 1', as
     await h.signIn(page2, h.SEED.newMember.email, h.SEED.newMember.password);
     await h.openYourOrganizations(page2);
     await h.expectVisible(page2, h.SEED.org);
-    await h.searchGlobal(page2, h.SEED.privateRepo);
-    const link = page2.getByRole('link', { name: h.rx(h.SEED.privateRepo) }).first();
-    if (await link.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await link.click();
-    }
+    // The denial is stated on the org's Repositories page WITHOUT any
+    // filtering: the ungranted repository is never listed.
+    await page2.getByRole('link', { name: h.rx(h.SEED.org) }).first().click();
+    await h.clickNamed(page2, 'Repositories');
+    await h.expectVisible(page2, 'Access denied');
+    await expect(page2.getByRole('link', { name: h.rx(h.SEED.privateRepo) })).toHaveCount(0);
+    // Filtering by the private repository name keeps the denial and still
+    // reveals nothing.
+    await h.fillField(page2, 'Find a repository', h.SEED.privateRepo);
+    await h.expectVisible(page2, 'Access denied');
+    await expect(page2.getByRole('link', { name: h.rx(h.SEED.privateRepo) })).toHaveCount(0);
+    // The header search reports the same denial (live and on the results page).
+    await h.fillField(page2, 'Search', h.SEED.privateRepo);
+    await h.expectVisible(page2, 'Access denied');
+    await page2.keyboard.press('Enter');
     await h.expectVisible(page2, 'Access denied');
   } finally {
     await context2.close();
@@ -44,13 +68,14 @@ test('REQ-2-2-3: Directly Add a User as an Organization Member - Scenario 2', as
   await h.signIn(page, h.SEED.orgOwner.username);
   await h.openOrganization(page, h.SEED.org);
   await h.clickNamed(page, 'People');
-  await h.clickNamed(page, 'Add member');
+  const addMember = page.getByRole('button', { name: 'Add member', exact: true });
+  await addMember.click();
   await h.fillField(page, 'Username or email', h.SEED.existingMember);
-  await page.getByRole('button', { name: h.rx('Add member') }).last().click();
+  await addMember.click();
   await expect(page.getByText('Account is already a member', { exact: true })).toBeVisible();
   // The same field, an unknown username.
   await h.fillField(page, 'Username or email', h.SEED.unknownReviewer);
-  await page.getByRole('button', { name: h.rx('Add member') }).last().click();
+  await addMember.click();
   await expect(page.getByText('Account not found', { exact: true })).toBeVisible();
   // Exactly one visible occurrence of the existing member.
   const rows = page.locator('tr, li, [role="row"]').filter({ hasText: h.SEED.existingMember });

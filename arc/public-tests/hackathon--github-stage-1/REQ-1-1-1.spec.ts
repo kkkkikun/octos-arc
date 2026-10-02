@@ -47,6 +47,8 @@ test('REQ-1-1-1: Register a New GitHub Account - Scenario 2', async ({ page }) =
   // The registration page stays open (no redirect to the sign-in page).
   await h.expectVisible(page, 'Create account');
   await h.expectAbsent(page, 'Username or email');
+  // Strict single match: the header carries the only "Sign in" link.
+  await expect(page.getByRole('link', { name: h.rx('Sign in') })).toHaveCount(1);
   // No account is created: the attempted username cannot sign in.
   await h.openSignIn(page);
   await h.fillField(page, 'Username or email', h.SEED.registerInvalidUsername);

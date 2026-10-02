@@ -10,6 +10,8 @@ test('REQ-1-1-2: Sign In with an Existing Account - Scenario 1', async ({ page }
   // "exactly one visible link named 'Sign in' is available"
   await expect(page.getByRole('link', { name: h.rx('Sign in') })).toHaveCount(1);
   await h.clickNamed(page, 'Sign in');
+  // The account-access page keeps the same strict single-match guarantee.
+  await expect(page.getByRole('link', { name: h.rx('Sign in') })).toHaveCount(1);
   await h.fillField(page, 'Username or email', h.SEED.alice.username);
   await h.fillField(page, 'Password', h.SEED.alice.password);
   await page.getByRole('button', { name: h.rx('Sign in') }).first().click();
