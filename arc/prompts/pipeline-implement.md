@@ -128,6 +128,13 @@ Rules:
   for a field that already has one (duplicate `Email` inputs make strict
   locators ambiguous). Every interactive element you render must actually
   perform its named action when activated.
+- Navigation completeness: every entry point this requirement names (links,
+  tabs, menu items, buttons) must exist on the page the requirement puts it
+  on, be visible, and lead to a real route -- no dead entries.
+- Seed data: provision every account, organization, team, repository and
+  relationship the requirement's scenarios name, with the exact names,
+  roles, ownership and visibility the requirement states. Every seeded
+  account must be able to sign in with the stated credential.
 - Reference shared assets with root-absolute paths ("/app.js",
   "/style.css"): the server rewrites nested routes (/workbook/<id>) to the
   same HTML document, so a relative "app.js" there resolves to

@@ -114,7 +114,11 @@ done
 # 2500: +task-asymmetric fuel (apply_task_overrides: the github tree tops the
 # cap up) and the quarantine fuse (quarantined(): signal-only tags whose
 # failures print STOP without burning repairs). Same class: predicates.
-LIMIT_PY=2500
+# 2600: +the delivery boot gate (upstream bee265d1 ported as boot_gate():
+# grader-style install+build+boot+soak before shipping, rollback to the last
+# accepted state on failure) and the two-axis fuel recalibration. Orchestrated
+# subprocesses around existing primitives, no new loops in the glue.
+LIMIT_PY=2600
 PYLINES=$(find "$PKG" -name '*.py' -exec cat {} + | wc -l | tr -d ' ')
 echo "打包内容：$(find "$PKG" -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/null || ls "$PKG" | tr '\n' ' ')"
 echo "包内 Python 行数：$PYLINES"

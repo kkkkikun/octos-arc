@@ -456,6 +456,19 @@ class TaskOverrides(unittest.TestCase):
         self.assertEqual(off["cost_budget"], 0.0)      # 0 = gauge off, stays off
 
 
+class BootGate(unittest.TestCase):
+    def test_non_app_dir_fails_the_gate_fast(self):
+        # Upstream bee265d1 ported: the gate boots the deliverable the way
+        # the grader will. A dir with no package.json must fail at the
+        # install step -- never pass by accident.
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "frontend").mkdir()
+            (Path(tmp) / "backend").mkdir()
+            self.assertFalse(main.boot_gate(Path(tmp), 45999, soak=1))
+
+
 class ExamplePrecedence(unittest.TestCase):
     def test_implement_prompt_declares_the_prose_the_requirement(self):
         # The shipped acceptance examples are LOCAL PROXIES written from the

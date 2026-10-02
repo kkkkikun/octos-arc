@@ -11,7 +11,7 @@ acceptance runner. That policy lives in arc-policy.toml and prompts/.
 """
 from __future__ import annotations
 
-import argparse, functools, json, os, re, shlex, shutil, subprocess, sys, tempfile, time
+import argparse, functools, json, os, re, shlex, shutil, signal, subprocess, sys, tempfile, time
 try:
     import tomllib
 except ModuleNotFoundError:                                # Python < 3.11 (local WSL)
@@ -598,6 +598,63 @@ def find_octos() -> str:
 
 
 
+def boot_gate(out: Path, port: int, soak: int = 30) -> bool:
+    """Grader-style delivery gate (upstream bee265d1, ported): boot the
+    deliverable EXACTLY the way evaluation will -- fresh temp dir, npm
+    install + build, npm start on a free port -- then soak-probe GET / for
+    `soak` seconds. A crash, a refused connection or an exited process
+    fails the gate; the caller then rolls back to the last accepted state
+    instead of shipping an app that dies at boot."""
+    import socket
+    if not (out / "frontend" / "package.json").is_file():
+        return False                    # no app to gate: fail fast, no npm
+    with socket.socket() as s:
+        if s.connect_ex(("127.0.0.1", port)) == 0:
+            log(f"[arc] boot gate: port {port} busy; refusing to gate against a stranger")
+            return False
+    app = Path(tempfile.mkdtemp(prefix="arc-gate-"))
+    try:
+        for part in ("frontend", "backend"):
+            if (out / part).is_dir():
+                shutil.copytree(out / part, app / part,
+                                ignore=shutil.ignore_patterns("node_modules", "dist"))
+        env = os.environ.copy()
+        for cwd, step in ((app / "frontend", "npm install --no-audit --no-fund --no-package-lock && npm run build"),
+                          (app / "backend", "npm install --no-audit --no-fund --no-package-lock")):
+            r = subprocess.run(step, cwd=cwd, env=env, shell=True, capture_output=True, text=True, timeout=420)
+            if r.returncode:
+                log(f"[arc] boot gate: {cwd.name} step failed rc={r.returncode}")
+                return False
+        srv = subprocess.Popen("npm run start", cwd=app / "backend", env=dict(env, PORT=str(port)),
+                               shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                               text=True, preexec_fn=os.setsid)
+        try:
+            import urllib.request
+            deadline, ok = time.time() + soak, False
+            while time.time() < deadline:
+                if srv.poll() is not None:
+                    log("[arc] boot gate: server process exited during soak")
+                    return False
+                try:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2) as resp:
+                        if resp.status < 500:
+                            ok = True
+                except OSError:
+                    time.sleep(0.5)
+                    continue
+                time.sleep(0.5)
+            log(f"[arc] boot gate: {'ok' if ok else 'no successful probe'}")
+            return ok
+        finally:
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(os.getpgid(srv.pid), sig); srv.wait(timeout=5); break
+                except (OSError, subprocess.TimeoutExpired):
+                    continue
+    finally:
+        shutil.rmtree(app, ignore_errors=True)
+
+
 def apply_task_overrides(pol: dict, node_ids: list[str]) -> None:
     """Per-task policy adjustments the tree itself reveals. The github task
     (REQ-6 families) starts from p=4: every scenario is net-new score, so its
@@ -771,6 +828,20 @@ def main() -> int:
         session.close()
 
     run_dir = collect_app(data_dir, out, pol["name"])
+    # Delivery gate (upstream bee265d1, ported): never ship an app that dies
+    # at boot. On failure roll back to the last accepted state and gate that.
+    gate_port = ports[0] + 7          # never the grading port nor the app's own
+    booted = boot_gate(out, gate_port, soak=30) if (out / "frontend").is_dir() else False
+    if not booted and run_dir and (run_dir / ".arc-good" / "app" / "frontend").is_dir():
+        log("[arc] deliverable failed the boot gate; rolling back to the last accepted state")
+        good = run_dir / ".arc-good" / "app"
+        for part in ("frontend", "backend"):
+            if (good / part).is_dir():
+                shutil.rmtree(out / part, ignore_errors=True)
+                shutil.copytree(good / part, out / part,
+                                ignore=shutil.ignore_patterns("node_modules"))
+        booted = boot_gate(out, gate_port, soak=30)
+    log(f"[arc] boot gate: {'ok' if booted else 'FAILED (shipped best available)'}")
     summary = pipeline_summary(data_dir, pol) or {}
     # Each acceptance node records its last verdict; the regression pass (tag
     # ALL) overrides them, since it is the state that actually ships.
