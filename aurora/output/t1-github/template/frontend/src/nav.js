@@ -51,7 +51,11 @@
       document.addEventListener("keydown", function (ev) {
         if (ev.key === "Escape") menu.hidden = true;
       });
-      host.appendChild(menuBtn);
+      var nameTag = document.createElement("span");
+      nameTag.textContent = user;
+      nameTag.className = "nav-username";
+      host.appendChild(nameTag);   // signed-in username stays VISIBLE in the
+      host.appendChild(menuBtn);   // header, not only inside a closed menu
       host.appendChild(menu);
     } else {
       var signIn = document.createElement("a");

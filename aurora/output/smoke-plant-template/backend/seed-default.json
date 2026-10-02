@@ -1,0 +1,581 @@
+{
+ "users": [
+  {
+   "username": "alice-dev",
+   "email": "alice.dev@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "org-owner",
+   "email": "org-owner@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "org-member",
+   "email": "org-member@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "team-maintainer",
+   "email": "team-maintainer@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "repo-admin",
+   "email": "repo-admin@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "password-change-success",
+   "email": "password-change-success@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "password-change-invalid",
+   "email": "password-change-invalid@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "password-change-required",
+   "email": "password-change-required@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "recovery-visibility",
+   "email": "recovery-visibility@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "recovery-invalid-code",
+   "email": "recovery-invalid-code@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "recovery-success",
+   "email": "recovery-success@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "new-member",
+   "email": "new-member@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "existing-member",
+   "email": "existing-member@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "protected-member",
+   "email": "protected-member@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "bob-reviewer",
+   "email": "bob-reviewer@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "repo-owner",
+   "email": "repo-owner@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "fork-user",
+   "email": "fork-user@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "visibility-admin",
+   "email": "visibility-admin@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "collaborator",
+   "email": "collaborator@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "branch-contributor",
+   "email": "branch-contributor@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "default-branch-admin",
+   "email": "default-branch-admin@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "default-branch-viewer",
+   "email": "default-branch-viewer@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "file-contributor",
+   "email": "file-contributor@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  }
+ ],
+ "sessions": {},
+ "orgs": [
+  {
+   "slug": "acme-demo",
+   "name": "Acme Demo",
+   "description": "Demo organization for the Acme teams",
+   "createdAt": "2026-01-05T09:00:00.000Z"
+  }
+ ],
+ "memberships": [
+  {
+   "org": "acme-demo",
+   "username": "org-owner",
+   "role": "Owner",
+   "addedAt": "2026-01-05T09:00:00.000Z"
+  },
+  {
+   "org": "acme-demo",
+   "username": "org-member",
+   "role": "Member",
+   "addedAt": "2026-01-06T09:00:00.000Z"
+  },
+  {
+   "org": "acme-demo",
+   "username": "team-maintainer",
+   "role": "Owner",
+   "addedAt": "2026-01-07T09:00:00.000Z"
+  },
+  {
+   "org": "acme-demo",
+   "username": "existing-member",
+   "role": "Member",
+   "addedAt": "2026-01-08T09:00:00.000Z"
+  },
+  {
+   "org": "acme-demo",
+   "username": "protected-member",
+   "role": "Member",
+   "addedAt": "2026-01-09T09:00:00.000Z"
+  },
+  {
+   "org": "acme-demo",
+   "username": "bob-reviewer",
+   "role": "Member",
+   "addedAt": "2026-01-10T09:00:00.000Z"
+  }
+ ],
+ "teams": [
+  {
+   "org": "acme-demo",
+   "name": "platform-team",
+   "parent": null
+  },
+  {
+   "org": "acme-demo",
+   "name": "frontend-team",
+   "parent": "platform-team"
+  },
+  {
+   "org": "acme-demo",
+   "name": "frontend-child",
+   "parent": "frontend-team"
+  },
+  {
+   "org": "acme-demo",
+   "name": "access-role-team",
+   "parent": null
+  }
+ ],
+ "teamMembers": [],
+ "repos": [
+  {
+   "name": "acme-docs",
+   "org": "acme-demo",
+   "visibility": "public",
+   "description": "Documentation for the Acme platform",
+   "updatedAt": "2026-09-20T10:00:00.000Z",
+   "ownerType": "org",
+   "owner": "acme-demo",
+   "defaultBranch": "main",
+   "creator": "org-owner",
+   "forkSource": null
+  },
+  {
+   "name": "secret-research",
+   "org": "acme-demo",
+   "visibility": "private",
+   "description": "Internal research notes",
+   "updatedAt": "2026-09-25T10:00:00.000Z",
+   "ownerType": "org",
+   "owner": "acme-demo",
+   "defaultBranch": "main",
+   "creator": "org-owner",
+   "forkSource": null
+  },
+  {
+   "name": "visibility-demo",
+   "org": "acme-demo",
+   "ownerType": "org",
+   "owner": "acme-demo",
+   "visibility": "private",
+   "description": "Visibility change demo",
+   "updatedAt": "2026-10-01T03:00:00.000Z",
+   "defaultBranch": "main",
+   "creator": "visibility-admin",
+   "forkSource": null
+  },
+  {
+   "name": "branch-switch-demo",
+   "org": "acme-demo",
+   "ownerType": "org",
+   "owner": "acme-demo",
+   "visibility": "public",
+   "description": "Branch switching demo",
+   "updatedAt": "2026-10-01T05:00:00.000Z",
+   "defaultBranch": "main",
+   "creator": "org-owner",
+   "forkSource": null
+  },
+  {
+   "name": "default-branch-demo",
+   "org": "acme-demo",
+   "ownerType": "org",
+   "owner": "acme-demo",
+   "visibility": "public",
+   "description": "Default branch demo",
+   "updatedAt": "2026-10-01T07:00:00.000Z",
+   "defaultBranch": "main",
+   "creator": "org-owner",
+   "forkSource": null
+  },
+  {
+   "name": "file-management-demo",
+   "org": "acme-demo",
+   "ownerType": "org",
+   "owner": "acme-demo",
+   "visibility": "public",
+   "description": "Web file management demo",
+   "updatedAt": "2026-10-01T09:00:00.000Z",
+   "defaultBranch": "main",
+   "creator": "org-owner",
+   "forkSource": null
+  },
+  {
+   "name": "acme-docs-fork",
+   "org": null,
+   "ownerType": "user",
+   "owner": "fork-user",
+   "visibility": "public",
+   "description": "Fork of acme-docs",
+   "updatedAt": "2026-10-01T11:00:00.000Z",
+   "defaultBranch": "main",
+   "creator": "fork-user",
+   "forkSource": "acme-docs"
+  }
+ ],
+ "grants": [
+  {
+   "repo": "acme-docs",
+   "subject": "user",
+   "id": "repo-admin",
+   "role": "Admin",
+   "updatedAt": "2026-01-05T10:00:00.000Z"
+  },
+  {
+   "repo": "acme-docs",
+   "subject": "team",
+   "id": "access-role-team",
+   "role": "Write",
+   "updatedAt": "2026-01-06T10:00:00.000Z"
+  },
+  {
+   "repo": "visibility-demo",
+   "subject": "user",
+   "id": "visibility-admin",
+   "role": "Admin",
+   "updatedAt": "2026-10-01T13:00:00.000Z"
+  },
+  {
+   "repo": "visibility-demo",
+   "subject": "user",
+   "id": "collaborator",
+   "role": "Write",
+   "updatedAt": "2026-10-01T13:00:00.000Z"
+  },
+  {
+   "repo": "branch-switch-demo",
+   "subject": "user",
+   "id": "branch-contributor",
+   "role": "Write",
+   "updatedAt": "2026-10-01T13:00:00.000Z"
+  },
+  {
+   "repo": "default-branch-demo",
+   "subject": "user",
+   "id": "default-branch-admin",
+   "role": "Admin",
+   "updatedAt": "2026-10-01T13:00:00.000Z"
+  },
+  {
+   "repo": "default-branch-demo",
+   "subject": "user",
+   "id": "default-branch-viewer",
+   "role": "Write",
+   "updatedAt": "2026-10-01T13:00:00.000Z"
+  },
+  {
+   "repo": "file-management-demo",
+   "subject": "user",
+   "id": "file-contributor",
+   "role": "Write",
+   "updatedAt": "2026-10-01T13:00:00.000Z"
+  }
+ ],
+ "branches": [
+  {
+   "repo": "acme-docs",
+   "name": "main",
+   "head": "b7c3d18"
+  },
+  {
+   "repo": "secret-research",
+   "name": "main",
+   "head": "9aa1f04"
+  },
+  {
+   "repo": "visibility-demo",
+   "name": "main",
+   "head": "5de8c21"
+  },
+  {
+   "repo": "branch-switch-demo",
+   "name": "main",
+   "head": "2f6be90"
+  },
+  {
+   "repo": "branch-switch-demo",
+   "name": "feature-search",
+   "head": "71c9aa4"
+  },
+  {
+   "repo": "default-branch-demo",
+   "name": "main",
+   "head": "c40d117"
+  },
+  {
+   "repo": "default-branch-demo",
+   "name": "release",
+   "head": "e28b5f3"
+  },
+  {
+   "repo": "file-management-demo",
+   "name": "main",
+   "head": "af19c62"
+  },
+  {
+   "repo": "acme-docs-fork",
+   "name": "main",
+   "head": "b7c3d18"
+  }
+ ],
+ "commits": [
+  {
+   "id": "b7c3d18",
+   "repo": "acme-docs",
+   "branch": "main",
+   "message": "Document search flow",
+   "author": "alice-dev",
+   "timestamp": "2026-10-02T07:00:00.000Z",
+   "parent": "4ed90cb",
+   "changes": [
+    {
+     "path": "src/search.ts",
+     "prior": null,
+     "content": "export function searchFlow(query) {\n  return query.trim().toLowerCase();\n}\n"
+    }
+   ]
+  },
+  {
+   "id": "4ed90cb",
+   "repo": "acme-docs",
+   "branch": "main",
+   "message": "Initial commit",
+   "author": "alice-dev",
+   "timestamp": "2026-10-02T05:00:00.000Z",
+   "parent": null,
+   "changes": [
+    {
+     "path": "src/README.md",
+     "prior": null,
+     "content": "# acme-docs\n\nDocument search flow\n\nThis repository documents the simplified GitHub search flow.\n"
+    }
+   ]
+  },
+  {
+   "id": "9aa1f04",
+   "repo": "secret-research",
+   "branch": "main",
+   "message": "Initial commit",
+   "author": "org-owner",
+   "timestamp": "2026-09-30T17:00:00.000Z",
+   "parent": null,
+   "changes": [
+    {
+     "path": "notes.md",
+     "prior": null,
+     "content": "Internal research notes.\n"
+    }
+   ]
+  },
+  {
+   "id": "5de8c21",
+   "repo": "visibility-demo",
+   "branch": "main",
+   "message": "Initial commit",
+   "author": "visibility-admin",
+   "timestamp": "2026-10-01T03:00:00.000Z",
+   "parent": null,
+   "changes": [
+    {
+     "path": "README.md",
+     "prior": null,
+     "content": "Visibility demo repository.\n"
+    }
+   ]
+  },
+  {
+   "id": "2f6be90",
+   "repo": "branch-switch-demo",
+   "branch": "main",
+   "message": "Initial commit",
+   "author": "org-owner",
+   "timestamp": "2026-10-01T05:00:00.000Z",
+   "parent": null,
+   "changes": [
+    {
+     "path": "index.md",
+     "prior": null,
+     "content": "# branch-switch-demo\n\nMain branch content.\n"
+    }
+   ]
+  },
+  {
+   "id": "71c9aa4",
+   "repo": "branch-switch-demo",
+   "branch": "feature-search",
+   "message": "Add main-only.md",
+   "author": "org-owner",
+   "timestamp": "2026-10-01T06:00:00.000Z",
+   "parent": "2f6be90",
+   "changes": [
+    {
+     "path": "main-only.md",
+     "prior": null,
+     "content": "This file exists only on the feature-search branch.\n"
+    }
+   ]
+  },
+  {
+   "id": "c40d117",
+   "repo": "default-branch-demo",
+   "branch": "main",
+   "message": "Initial commit",
+   "author": "default-branch-admin",
+   "timestamp": "2026-10-01T07:00:00.000Z",
+   "parent": null,
+   "changes": [
+    {
+     "path": "README.md",
+     "prior": null,
+     "content": "# default-branch-demo\n\nMain branch.\n"
+    }
+   ]
+  },
+  {
+   "id": "e28b5f3",
+   "repo": "default-branch-demo",
+   "branch": "release",
+   "message": "Prepare release",
+   "author": "default-branch-admin",
+   "timestamp": "2026-10-01T08:00:00.000Z",
+   "parent": "c40d117",
+   "changes": [
+    {
+     "path": "RELEASE.md",
+     "prior": null,
+     "content": "Release notes live here.\n"
+    }
+   ]
+  },
+  {
+   "id": "af19c62",
+   "repo": "file-management-demo",
+   "branch": "main",
+   "message": "Initial commit",
+   "author": "org-owner",
+   "timestamp": "2026-10-01T09:00:00.000Z",
+   "parent": null,
+   "changes": [
+    {
+     "path": "README.md",
+     "prior": null,
+     "content": "# file-management-demo\n\nWeb file editing demo.\n"
+    }
+   ]
+  },
+  {
+   "id": "b7c3d18",
+   "repo": "acme-docs-fork",
+   "branch": "main",
+   "message": "Document search flow",
+   "author": "alice-dev",
+   "timestamp": "2026-10-02T07:00:00.000Z",
+   "parent": "4ed90cb",
+   "changes": [
+    {
+     "path": "src/search.ts",
+     "prior": null,
+     "content": "export function searchFlow(query) {\n  return query.trim().toLowerCase();\n}\n"
+    }
+   ]
+  },
+  {
+   "id": "4ed90cb",
+   "repo": "acme-docs-fork",
+   "branch": "main",
+   "message": "Initial commit",
+   "author": "alice-dev",
+   "timestamp": "2026-10-02T05:00:00.000Z",
+   "parent": null,
+   "changes": [
+    {
+     "path": "src/README.md",
+     "prior": null,
+     "content": "# acme-docs\n\nDocument search flow\n\nThis repository documents the simplified GitHub search flow.\n"
+    }
+   ]
+  }
+ ]
+}

@@ -1,7 +1,6 @@
 # 外聘 Agent 提示词：直接构建 GitHub 赛题产物并用自测通道迭代至全绿
 
-> 使用方法：整段复制给编码 Agent。把 `<工作目录>` 替换为你为它建的子目录名（建议 `github-app/`）。
-> 它对本仓库其余部分只读；产物全部落在 `<工作目录>` 内。
+> <工作目录> 为  `/home/kikun/MyProject/octos-arc/aurora/output/new-github`
 
 ---
 
@@ -51,6 +50,8 @@ CMD ["sh", "-c", "cd backend && exec node server.js"]
 
 ## 2. 已实锤的官方测试习性（血泪换来的，逐条遵守）
 
+**A. 文档层（WHAT）**
+
 1. **登录后用户名必须直接可见**：header 常驻显示当前用户名（不能藏在需要点击才展开的菜单里），刷新后仍在。注册流程按文档：注册成功 → 打开登录页 → 登录 → workspace 显示用户名。
 2. **种子数据逐字预置**：文档 GIVEN 反引号里的每个账号/组织/团队/仓库/分支/issue/PR 都要作为持久化数据存在且首屏可见。Stage-1 已知种子：预置账号 `org-owner`、`org-member`、`team-maintainer`、`repo-admin`、`password-change-success`、`password-change-invalid`、`password-change-required`、`recovery-invalid-code`（各配文档给的邮箱与 `Valid-password-123!` 密码）、组织 `Acme Demo`；注册场景用户 `nora-demo`/`nora.demo@example.test`。
 3. **消息文案逐字**：THEN 里引号/反引号里的消息就是断言串——`Username already exists`、`Password updated`、`Current password is required`、`Current password is incorrect`、`Verification code is invalid` 等。一个字都不能差。
@@ -59,14 +60,27 @@ CMD ["sh", "-c", "cd backend && exec node server.js"]
 6. **导航完整性**：文档点名的入口必须存在于指定页面、可见、指向真实路由；无死链。
 7. 权限矩阵：文档说某角色"看不到"某控件时，实现上隐藏或移除皆可，但绝不能只是禁用。
 
+**B. Runner 隐层（HOW——文档不写、八轮官方上传实证）**
+
+8. **严格单匹配覆盖任意 DOM 状态**：runner 在全页做 exact 匹配，与菜单开合无关——header 和展开菜单里各一个同名入口 = strict violation 直接死；关闭的表单残留、`display:flex` 压过 `[hidden]` 的面板同样算数；**关闭的原生 `<select>` 的 `<option>` 文本也会被 getByText 命中**，option 不得复制页面可见文案。
+9. **THEN 断言文本全页唯一**：`getByText('Member', {exact:true})` 要求全页恰好一个裸 "Member"——设计周边 UI 时让状态词不在别处逐字重复（如其余成员显示 "Member since 日期" 而非裸 "Member"）。
+10. **双通道入口**：文档说"从 account menu 进入 settings"，runner 却直接在页面上找名为 Settings 的可见导航目标——文档路径可达 + 页面直接可见，两个都要。
+11. **交互方式矩阵**："selects X" → 必须原生 `<select>`（自定义控件 selectOption 直接 FATAL）；点击式选择器 → DOM 内 listbox/menu（原生 select 的 OS 弹层会让 runner 卡死）；目标值是合法默认值时就预选它（选值失败无害化的唯一途径）。
+12. **无导航原则**：动作成功后原地切换内容，绝不 `location.href` 跳转——redirect 与 runner 紧跟的下一步/goBack 竞争（ERR_ABORTED）。文档本身要求导航的流程除外。
+13. **成功态终结性**：runner 会重击按钮——二次提交不得摧毁成功态（幂等或守卫）。
+14. **并行共享一个应用实例**：场景并行跑在同一个 app 上——删除操作全局复活/消灭另一场景 GIVEN 依赖的记录会打穿它（REQ-2-2-4 删除 vs REQ-2-2-3 "已是成员"GIVEN 全局互斥的教训：会话作用域覆盖层，删除断 cookie 不断存储）。
+15. **keepAliveTimeout**：Node 默认 5s 是所有 ERR_ABORTED 类抖动的总根因——server.js 里调到 30s+。
+16. **边缘形态就是主路径**：空邮箱重置（服务端记 pending）、组织页空态断言、建仓后 Owner 权限判断——THEN 在非常规路径上等着。
+
 ## 3. 工作循环（每阶段）
 
 1. 通读该阶段 requirements.yaml，列出：节点清单、每场景的 GIVEN 种子 / WHEN 步骤 / THEN 断言（做成你自己的检查单）。
 2. 实现到 `<工作目录>/app`（后段阶段在上一阶段产物上**增量**实现，绝不能弄坏已绿场景——每轮改动后先本地重跑上一阶段套件）。
-3. 本地验证：`python3 arc/grade-local.py <工作目录>/app hackathon--github-stage-N <端口>` → 修到全绿。
-4. 官方确认：打自测 zip → 上传 https://arcbench-selftest-web.vercel.app → 读逐条报错 → 修复 → 重复。
+3. 本地验证：`python3 arc/grade-local.py <工作目录>/app hackathon--github-stage-N <端口>` → 修到全绿（必要时加 `ARC_GRADE_TIMEOUT_MS=40000` 与 harness 检查钟对齐；重场景恰超 10s 默认钟不是 app 的错）。
+4. 官方确认：打自测 zip → 上传 https://arcbench-selftest-web.vercel.app → 读逐条报错 → **必须同时取回失败截图**（原生 select 卡死、表单态类问题只有截图能定位，页面状态 = 缺失的线索）→ 修复 → 重复。
    **额度纪律：每日 10 次、北京时间 8 点重置。** 本地全绿才准上传；一次上传尽量吸收多轮修复。
-5. 该阶段官方全绿（Stage-1 = 30/30）→ 停下汇报结果，等确认再进下一阶段。
+5. **语义回写**：每次官方失败揭示的新 runner 语义，必须同时回写两处——`arc/public-tests/hackathon--github-stage-N/` 对应 spec（严格计数、跨上下文不变量、exact 匹配）与本文件 §2B。spec 是可校准文件，不是一次性转录。
+6. 该阶段官方全绿（Stage-1 = 30/30）→ 停下汇报结果，等确认再进下一阶段。
 
 ## 4. 边界
 

@@ -1,0 +1,196 @@
+{
+ "users": [
+  {
+   "username": "alice-dev",
+   "email": "alice.dev@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "org-owner",
+   "email": "org-owner@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "org-member",
+   "email": "org-member@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "team-maintainer",
+   "email": "team-maintainer@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "repo-admin",
+   "email": "repo-admin@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "password-change-success",
+   "email": "password-change-success@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "password-change-invalid",
+   "email": "password-change-invalid@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "password-change-required",
+   "email": "password-change-required@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "recovery-visibility",
+   "email": "recovery-visibility@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "recovery-invalid-code",
+   "email": "recovery-invalid-code@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "recovery-success",
+   "email": "recovery-success@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "new-member",
+   "email": "new-member@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "existing-member",
+   "email": "existing-member@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "protected-member",
+   "email": "protected-member@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "bob-reviewer",
+   "email": "bob-reviewer@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  }
+ ],
+ "sessions": {},
+ "orgs": [
+  {
+   "slug": "acme-demo",
+   "name": "Acme Demo",
+   "description": "Demo organization for the Acme teams",
+   "createdAt": "2026-01-05T09:00:00.000Z"
+  }
+ ],
+ "memberships": [
+  {
+   "org": "acme-demo",
+   "username": "org-owner",
+   "role": "Owner",
+   "addedAt": "2026-01-05T09:00:00.000Z"
+  },
+  {
+   "org": "acme-demo",
+   "username": "org-member",
+   "role": "Member",
+   "addedAt": "2026-01-06T09:00:00.000Z"
+  },
+  {
+   "org": "acme-demo",
+   "username": "team-maintainer",
+   "role": "Owner",
+   "addedAt": "2026-01-07T09:00:00.000Z"
+  },
+  {
+   "org": "acme-demo",
+   "username": "existing-member",
+   "role": "Member",
+   "addedAt": "2026-01-08T09:00:00.000Z"
+  },
+  {
+   "org": "acme-demo",
+   "username": "protected-member",
+   "role": "Member",
+   "addedAt": "2026-01-09T09:00:00.000Z"
+  },
+  {
+   "org": "acme-demo",
+   "username": "bob-reviewer",
+   "role": "Member",
+   "addedAt": "2026-01-10T09:00:00.000Z"
+  }
+ ],
+ "teams": [
+  {
+   "org": "acme-demo",
+   "name": "platform-team",
+   "parent": null
+  },
+  {
+   "org": "acme-demo",
+   "name": "frontend-team",
+   "parent": "platform-team"
+  },
+  {
+   "org": "acme-demo",
+   "name": "frontend-child",
+   "parent": "frontend-team"
+  },
+  {
+   "org": "acme-demo",
+   "name": "access-role-team",
+   "parent": null
+  }
+ ],
+ "teamMembers": [],
+ "repos": [
+  {
+   "name": "acme-docs",
+   "org": "acme-demo",
+   "visibility": "public",
+   "description": "Documentation for the Acme platform",
+   "updatedAt": "2026-09-20T10:00:00.000Z"
+  },
+  {
+   "name": "secret-research",
+   "org": "acme-demo",
+   "visibility": "private",
+   "description": "Internal research notes",
+   "updatedAt": "2026-09-25T10:00:00.000Z"
+  }
+ ],
+ "grants": [
+  {
+   "repo": "acme-docs",
+   "subject": "user",
+   "id": "repo-admin",
+   "role": "Admin",
+   "updatedAt": "2026-01-05T10:00:00.000Z"
+  },
+  {
+   "repo": "acme-docs",
+   "subject": "team",
+   "id": "access-role-team",
+   "role": "Write",
+   "updatedAt": "2026-01-06T10:00:00.000Z"
+  }
+ ]
+}

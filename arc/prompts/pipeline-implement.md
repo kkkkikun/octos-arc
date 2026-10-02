@@ -161,6 +161,28 @@ Rules:
   /workbook/app.js and the browser receives a 404 page where JavaScript was
   expected -- every dynamic feature dies with a SyntaxError while the static
   shell still passes markup-only checks.
+- Official grader semantics, observed on the evaluation runner (they bind the
+  app like the ARIA contract does): the grader resolves every named target
+  against the WHOLE page in ANY DOM state -- a referenced name matches exactly
+  one element whether menus are open or closed, leftover hidden form debris
+  counts, `display:flex/grid` must never override a `[hidden]`/closed utility,
+  and a closed native `<select>`'s `<option>` texts count as page text that can
+  duplicate a visible label. A literal a THEN step asserts as displayed should
+  appear as text exactly once on that page (design surrounding UI so status
+  words are not repeated verbatim elsewhere). Where the doc reaches a page
+  through a menu path, ALSO keep a directly visible entry point (header or
+  nav link) with the exact name. "Selects X" means a native `<select>` the
+  grader drives programmatically; a click-driven chooser must open a real
+  in-page listbox or menu, never an OS popup -- and when the expected value is
+  a lawful default, ship it preselected. An action whose success the doc
+  confirms on the SAME page must swap content in place, never redirect away (a
+  redirect races the grader's next step), and re-activating a succeeded action
+  must not destroy the success state. Scenarios run in parallel against one
+  shared app instance: a destructive step must not globally create, resurrect
+  or vanish records that another scenario's GIVEN relies on -- scope its
+  effect to the acting session where the doc allows. The dev server sets
+  `keepAliveTimeout` well above Node's 5s default (e.g. 30s) so slow client
+  turns do not abort in-flight requests.
 {ports}
 If an acceptance failure is shown to you below, first check which
 requirement it names: when it names YOUR requirement ({node_id} is not

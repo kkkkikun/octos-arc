@@ -1,0 +1,226 @@
+body {
+  font-family: sans-serif;
+  margin: 0;
+  padding: 16px;
+}
+h1 {
+  font-size: 20px;
+}
+.editor-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.editor-title-row h1 {
+  margin: 0;
+}
+.rename-error {
+  color: #b00020;
+  margin-top: 8px;
+}
+.rename-sheet-error {
+  color: #b00020;
+  margin-top: 8px;
+}
+.add-sheet-error {
+  color: #b00020;
+  margin-top: 8px;
+}
+.tab-context-menu {
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  padding: 4px 0;
+  z-index: 2000;
+  min-width: 140px;
+}
+.tab-context-menu [role="menuitem"] {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.tab-context-menu [role="menuitem"]:hover {
+  background: #eee;
+}
+.row-context-menu {
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  padding: 4px 0;
+  z-index: 2000;
+  min-width: 160px;
+}
+.row-context-menu [role="menuitem"] {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.row-context-menu [role="menuitem"]:hover {
+  background: #eee;
+}
+.import-error {
+  color: #b00020;
+  margin-top: 8px;
+}
+.workbook-list {
+  list-style: none;
+  padding: 0;
+}
+.workbook-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid #eee;
+}
+.workbook-list a {
+  font-size: 16px;
+}
+.last-updated {
+  color: #666;
+  font-size: 13px;
+}
+.formula-bar {
+  display: block;
+  margin: 8px 0;
+}
+.formula-bar input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px;
+}
+[role="tablist"] {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0;
+}
+[role="tab"] {
+  padding: 4px 12px;
+  border: 1px solid #ccc;
+  background: #eee;
+  cursor: pointer;
+}
+[role="tab"][aria-selected="true"] {
+  background: #fff;
+  border-bottom-color: #fff;
+}
+[role="grid"] table {
+  border-collapse: collapse;
+}
+[role="grid"] th,
+[role="grid"] td {
+  border: 1px solid #ccc;
+  padding: 4px 8px;
+  min-width: 60px;
+}
+[role="gridcell"][aria-selected="true"] {
+  background: #cce4ff;
+  outline: 2px solid #4a90d9;
+}
+.data-menu {
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  padding: 4px 0;
+  z-index: 2000;
+  min-width: 140px;
+}
+.data-menu[hidden] {
+  display: none !important;
+}
+.data-menu [role="menuitem"] {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.data-menu [role="menuitem"]:hover {
+  background: #eee;
+}
+.filter-error {
+  color: #b00020;
+  margin-top: 8px;
+}
+[role="columnheader"] button {
+  margin-left: 6px;
+  font-size: 12px;
+  padding: 1px 6px;
+}
+[role="gridcell"] {
+  position: relative;
+}
+.cell-dropdown-button {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #999;
+  background: #eee;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+}
+.cell-dropdown-button::after {
+  content: "▾";
+}
+.dropdown-list {
+  position: fixed;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  padding: 4px 0;
+  z-index: 3000;
+  min-width: 120px;
+}
+.dropdown-list [role="option"] {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.dropdown-list [role="option"]:hover {
+  background: #eee;
+}
+.validation-error {
+  color: #b00020;
+  margin-top: 8px;
+}
+[role="region"][aria-label="Pivot table editor"] {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+[role="region"][aria-label="Pivot table editor"][hidden] {
+  display: none !important;
+}
+.pivot-error {
+  color: #b00020;
+  margin-top: 8px;
+  flex-basis: 100%;
+}
