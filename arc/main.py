@@ -695,35 +695,6 @@ def apply_task_overrides(pol: dict, node_ids: list[str]) -> None:
         pol["token_budget"] = max(int(pol["token_budget"]), int(pol["github_token_budget"]))
 
 
-def plant_family_app(tree: dict, out: Path) -> None:
-    """Start a task from the bundled app of its own family when one ships.
-
-    apps/<task>/ in the bundle carries a frontend+backend that already passed
-    that family's local suites (the stage chain and the self-test channel both
-    evaluate applications, so a verified base beats a cold scaffold). The
-    family is read from the requirement text's own vocabulary -- never from a
-    directory name, which the runner does not guarantee -- and an ambiguous or
-    unmatched tree leaves the scaffold exactly as it was.
-    """
-    text = json.dumps(tree, ensure_ascii=False).lower()
-    marks = {
-        "hackathon--github": ("repository", "organization", "pull request", "issue", "branch", "commit", "team"),
-        "hackathon--sheet": ("workbook", "worksheet", "spreadsheet", "cell", "pivot", "formula", "csv"),
-    }
-    scores = {fam: sum(text.count(m) for m in ms) for fam, ms in marks.items()}
-    family = max(scores, key=lambda k: scores[k])
-    runner_up = max((v for k, v in scores.items() if k != family), default=0)
-    src = Path(__file__).resolve().parent / "apps" / family
-    if scores[family] < 10 or scores[family] < 2 * max(runner_up, 1) \
-            or not all((src / part).is_dir() for part in ("frontend", "backend")):
-        return
-    for part in ("frontend", "backend"):
-        shutil.rmtree(out / part, ignore_errors=True)
-        shutil.copytree(src / part, out / part)
-    log(f"[arc] planted bundled {family} app as the workspace (verified base, "
-        f"scores {scores})")
-
-
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("requirement_path", nargs="?")
@@ -744,7 +715,6 @@ def main() -> int:
     node_ids = [str(n["id"]) for n in nodes]
     apply_task_overrides(pol, node_ids)
     log(f"[arc] {len(nodes)} atomic nodes: {node_ids}")
-    plant_family_app(tree, out)
 
     runtime = AgentRuntime.from_env(project_dir=str(out))
     runtime.events.mark_run_started("octos-arc pipeline adapter")

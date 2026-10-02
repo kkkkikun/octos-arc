@@ -45,12 +45,6 @@ cp main.py octos_stdio.py verify_node.py arc-policy.toml requirements.txt aria_l
 cp -R prompts "$PKG/prompts"
 cp -R template "$PKG/template"
 cp -R public-tests "$PKG/public-tests"
-# Verified per-family application bases (frontend+backend only, no dist/ or
-# node_modules/): main.py's plant_family_app() installs the one matching the
-# requirement's own vocabulary, so a family's run starts from its verified
-# base instead of the cold scaffold. Optional -- a bundle without apps/ still
-# runs, every tree simply starts cold.
-[ -d apps ] && cp -R apps "$PKG/apps"
 
 # BOOTSTRAP_DIR (optional): overlay a previous run's delivered frontend/ and
 # backend/ onto the template (keep its README.md + template.yaml) so the next
@@ -124,10 +118,7 @@ done
 # grader-style install+build+boot+soak before shipping, rollback to the last
 # accepted state on failure) and the two-axis fuel recalibration. Orchestrated
 # subprocesses around existing primitives, no new loops in the glue.
-# 2700: +plant_family_app() -- content-based task-family detection that
-# installs the bundled verified app of the matching family as the workspace.
-# A predicate and two copytree calls, same glue class as the template plant.
-LIMIT_PY=2700
+LIMIT_PY=2600
 PYLINES=$(find "$PKG" -name '*.py' -exec cat {} + | wc -l | tr -d ' ')
 echo "打包内容：$(find "$PKG" -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/null || ls "$PKG" | tr '\n' ' ')"
 echo "包内 Python 行数：$PYLINES"
