@@ -33,6 +33,9 @@ test('REQ-3-2-2: Fork a Repository into Another Namespace - Scenario 2', async (
   await h.clickNamed(page, 'Fork');
   await h.fillField(page, 'Repository name', h.SEED.forkName);
   await h.clickNamed(page, 'Create fork');
+  // Official semantics: the conflict message matches /name.*(already|exists)/i
+  // and the form stays open.
+  await h.expectVisible(page, /name.*(already|exists)/i);
   await h.expectVisible(page, 'Repository name');
   await expect(page.getByRole('heading', { name: h.rxContains(h.SEED.forkName) })).toHaveCount(0);
 });

@@ -11,6 +11,10 @@ test('REQ-4-2-1: View Repository Commit History - Scenario 1', async ({ page }) 
   await h.openRepo(page, h.SEED.repo);
   await h.clickNamed(page, 'Commits');
   await h.expectVisible(page, h.SEED.commitMessage);
-  await h.expectVisible(page, h.SEED.commitAuthor);
+  // Official semantics: the author is asserted with exact text and must be
+  // unique on the page (seed authors differ across commits to keep it so).
+  const author = page.getByText(h.SEED.commitAuthor, { exact: true });
+  await expect(author).toHaveCount(1);
+  await expect(author).toBeVisible();
   await expect(page.getByText(/ago/i).first()).toBeVisible();
 });

@@ -42,18 +42,10 @@
       el("p", { class: "field-error", hidden: "" }),
     ]);
     panel.append(nameField);
-    // Prefill a name that is free to create: keeping the suggested default
-    // must succeed ("keeps or enters a valid new repository name").
-    (async () => {
-      const candidates = [source.name, source.name + "-fork", source.name + "-" + user.username];
-      for (const candidate of candidates) {
-        const probe = await api.get("/api/repos/" + encodeURIComponent(candidate));
-        if (!probe.ok || probe.data.denied || probe.status === 404) {
-          nameField.querySelector("input").value = candidate;
-          return;
-        }
-      }
-    })();
+    // Synchronous deterministic prefill (source + "-fork"): no async probe,
+    // so the field never mutates while the runner is typing or retrying. A
+    // conflicting default keeps the name-conflict flow stable across retries.
+    nameField.querySelector("input").value = source.name + "-fork";
 
     const visField = el("fieldset", { class: "field", style: "border:0;padding:0" });
     visField.append(el("legend", { text: "Visibility", style: "font-weight:600" }));

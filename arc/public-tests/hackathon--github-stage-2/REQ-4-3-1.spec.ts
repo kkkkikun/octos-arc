@@ -10,6 +10,9 @@ import * as h from './helpers';
 
 test('REQ-4-3-1: List and Switch Repository Branches - Scenario 1', async ({ page }) => {
   await h.openRepo(page, h.SEED.branchRepo);
+  // Official semantics: the selector is a unique button named
+  // "Branch <current branch name>".
+  await expect(page.getByRole('button', { name: h.rx('Branch ' + h.SEED.branchMain) })).toHaveCount(1);
   await h.clickNamed(page, 'Branch ' + h.SEED.branchMain);
   await h.fillField(page, 'Find branch', h.SEED.branchFeature);
   await page.getByRole('option', { name: h.rx(h.SEED.branchFeature) }).first().click();

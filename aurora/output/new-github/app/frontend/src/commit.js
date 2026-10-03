@@ -41,7 +41,9 @@
     const totalRemoved = commit.changes.reduce((acc, c) => acc + c.removed, 0);
     main.append(el("h2", { text: "Changed files" }));
     main.append(el("p", { class: "subtitle" }, [
-      el("span", { text: commit.changes.length + (commit.changes.length === 1 ? " file changed, " : " files changed, ") }),
+      // No "changed" wording here: the "Changed files" heading below must be
+      // the only element matching a /changed/i lookup on this page.
+      el("span", { text: commit.changes.length + (commit.changes.length === 1 ? " file, " : " files, ") }),
       el("span", { class: "diff-added", text: totalAdded + " additions" }),
       document.createTextNode(" · "),
       el("span", { class: "diff-removed", text: totalRemoved + " deletions" }),

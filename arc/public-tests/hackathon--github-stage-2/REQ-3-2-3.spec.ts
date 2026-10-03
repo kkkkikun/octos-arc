@@ -11,6 +11,8 @@ test('REQ-3-2-3: Copy a Repository Clone Value - Scenario 1', async ({ page }) =
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await h.openRepo(page, h.SEED.repo);
   await h.clickNamed(page, 'Code');
+  // Official semantics: HTTPS/SSH are tabs inside a tablist.
+  await expect(page.getByRole('tab', { name: h.rx('HTTPS') })).toHaveCount(1);
   await h.clickNamed(page, 'HTTPS');
   await h.clickNamed(page, /copy/i);
   await h.expectVisible(page, 'Copied');
@@ -21,6 +23,7 @@ test('REQ-3-2-3: Copy a Repository Clone Value - Scenario 2', async ({ page }) =
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await h.openRepo(page, h.SEED.repo);
   await h.clickNamed(page, 'Code');
+  await expect(page.getByRole('tab', { name: h.rx('SSH') })).toHaveCount(1);
   await h.clickNamed(page, 'SSH');
   await h.clickNamed(page, /copy/i);
   await h.expectVisible(page, 'Copied');

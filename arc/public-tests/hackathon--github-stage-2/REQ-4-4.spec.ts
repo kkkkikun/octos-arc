@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import * as h from './helpers';
 
 // requirement: REQ-4-4 Manage Repository Files Through the Web Interface
@@ -20,7 +20,11 @@ test('REQ-4-4: Manage Repository Files Through the Web Interface - Scenario 1', 
   await h.fillField(page, 'File contents', content);
   await h.fillField(page, 'Commit message', message);
   await h.clickNamed(page, 'Commit changes');
-  await h.expectVisible(page, content);
+  // Official semantics: the created file view shows the exact submitted
+  // content as its own node.
+  const contentNode = page.getByText(content, { exact: true });
+  await expect(contentNode).toHaveCount(1);
+  await expect(contentNode).toBeVisible();
   await h.clickNamed(page, 'Commits');
   await h.expectVisible(page, message);
 });

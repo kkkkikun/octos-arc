@@ -4,6 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>App</title>
+    <style>
+      /* A closed utility must never be revived by a later display rule:
+         overlays/modals that lose [hidden] keep intercepting pointer events. */
+      [hidden] { display: none !important; }
+    </style>
   </head>
   <body>
     <!-- Seed page: the implementation turns replace this with the

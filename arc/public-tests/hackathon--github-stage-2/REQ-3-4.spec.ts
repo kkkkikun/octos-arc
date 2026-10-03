@@ -9,6 +9,9 @@ import * as h from './helpers';
 
 test('REQ-3-4: Change Repository Visibility with Permission Checks - Scenario 1', async ({ page }) => {
   await h.signInAs(page, h.SEED.users.visibilityAdmin);
+  // Official semantics: the granted private repository is a navigation
+  // target directly on the signed-in workspace.
+  await h.expectVisible(page, h.SEED.visibilityRepo);
   await h.openRepo(page, h.SEED.visibilityRepo);
   await h.clickNamed(page, 'Settings');
   await h.clickNamed(page, 'General');

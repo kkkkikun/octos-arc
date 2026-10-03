@@ -118,6 +118,12 @@ function pathname0(req) {
   catch { return ""; }
 }
 
+// Slow graders keep connections half-open between steps; Node's 5s default
+// keep-alive aborts in-flight requests under them (ERR_ABORTED flake in both
+// local and official runs). Keep connections alive for the whole session.
+server.keepAliveTimeout = 600000;
+server.headersTimeout = 610000;
+
 server.listen(PORT, () => {
   console.log(`backend listening on port ${PORT}, serving ${DIST_DIR}`);
 });

@@ -426,13 +426,21 @@ const handlers = {
   getPublicRepos(req, res) {
     // Visitors see public repositories; signed-in users see every repository
     // they can read (private repos with grants are visible navigation
-    // targets on their workspace).
+    // targets on their workspace). Each row carries its latest commit so the
+    // workspace surfaces the commit entry as a navigation target.
     const user = currentUser(req);
     const readable = user ? reposVisibleTo(user) : store.repos.filter((r) => r.visibility === "public");
     const repos = readable
       .map((r) => {
         const org = findOrg(r.org);
-        return { name: r.name, org: r.org, orgName: org ? org.name : (r.ownerType === "user" ? r.owner : r.org), description: r.description, updatedAt: r.updatedAt, visibility: r.visibility };
+        const head = headCommit(r.name, r.defaultBranch || "main");
+        return {
+          name: r.name, org: r.org, orgName: org ? org.name : (r.ownerType === "user" ? r.owner : r.org),
+          description: r.description, updatedAt: r.updatedAt, visibility: r.visibility,
+          latestCommit: head
+            ? { id: head.id, message: head.message, author: head.author, relTime: relativeTime(head.timestamp) }
+            : null,
+        };
       });
     json(res, 200, { repos });
   },

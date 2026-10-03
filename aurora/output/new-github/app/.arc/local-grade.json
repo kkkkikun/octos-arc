@@ -1,6 +1,6 @@
 {
  "requirement": "hackathon--github-stage-2",
- "passed": 28,
+ "passed": 29,
  "total": 29,
  "tests": [
   {
@@ -37,7 +37,7 @@
   },
   {
    "title": "REQ-3-2-2: Fork a Repository into Another Namespace - Scenario 2",
-   "ok": false
+   "ok": true
   },
   {
    "title": "REQ-3-2-3: Copy a Repository Clone Value - Scenario 1",
