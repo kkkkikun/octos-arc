@@ -380,8 +380,11 @@ def inline_visual(req_dir: Path | None, out: Path, text: str) -> str:
                 target.write_text(desc, encoding="utf-8")
         if not desc:
             return m.group(0)
-        return (f"[Screenshot {ref}, described by a vision model (layout evidence; "
-                f"the requirement text above remains the contract): {desc}]")
+        return (f"[Screenshot {ref}, described by a vision model (affordance "
+                f"evidence only: borrow the conventional, unasserted UI elements "
+                f"it shows, but never copy its structure blindly -- where the "
+                f"requirement text or the grader-semantics rules later in this "
+                f"prompt demand otherwise, they win over the picture): {desc}]")
 
     return pat.sub(block, text)
 

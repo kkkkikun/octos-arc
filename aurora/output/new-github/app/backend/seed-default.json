@@ -422,14 +422,14 @@
    "repo": "acme-docs",
    "branch": "main",
    "message": "Initial commit",
-   "author": "alice-dev",
+   "author": "org-owner",
    "timestamp": "2026-10-02T05:00:00.000Z",
    "parent": null,
    "changes": [
     {
      "path": "src/README.md",
      "prior": null,
-     "content": "# acme-docs\n\nDocument search flow\n\nThis repository documents the simplified GitHub search flow.\n"
+     "content": "# acme-docs\n\nDocument search flow\n\nThis repository documents the simplified GitHub search experience.\n"
     }
    ]
   },
@@ -573,7 +573,7 @@
     {
      "path": "src/README.md",
      "prior": null,
-     "content": "# acme-docs\n\nDocument search flow\n\nThis repository documents the simplified GitHub search flow.\n"
+     "content": "# acme-docs\n\nDocument search flow\n\nThis repository documents the simplified GitHub search experience.\n"
     }
    ]
   }

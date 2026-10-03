@@ -50,7 +50,13 @@
     // "Code" element the runner resolves (nav link or button), the HTTPS/SSH
     // controls are present afterwards.
     const cloneBtn = el("button", { class: "btn", type: "button", "aria-haspopup": "true", "aria-expanded": "true", text: "Code" });
-    const forkBtn = repo.forkSource ? null : el("a", { class: "btn", href: "/fork?from=" + encodeURIComponent(repoName), text: "Fork" });
+    const forkBtn = repo.forkSource ? null : el("button", {
+      class: "btn", type: "button",
+      text: "Fork",
+    });
+    if (forkBtn) forkBtn.addEventListener("click", () => {
+      location.href = "/fork?from=" + encodeURIComponent(repoName);
+    });
 
     const toolbar = el("div", { class: "toolrow" });
     toolbar.append(cloneBtn);
@@ -80,20 +86,24 @@
     main.append(clonePanel);
 
     // Latest commit block: the commit entry is a navigation target on the
-    // overview itself (the official channel looks for it here).
-    const latestRow = el("div", { class: "toolrow", id: "latest-commit" });
-    api.get("/api/repos/" + encodeURIComponent(repoName) + "/commits?branch=" + encodeURIComponent(currentBranch())).then((res) => {
-      if (!res.ok || !res.data.commits.length) return;
-      const latest = res.data.commits[0];
-      latestRow.replaceChildren(
-        el("a", { href: "/repo/" + encodeURIComponent(repoName) + "/commit/" + encodeURIComponent(latest.id), text: latest.message }),
-        el("span", { class: "desc", text: latest.author }),
-        el("span", { class: "badge", text: latest.relTime }),
-        el("span", { style: "flex:1" }),
-        el("a", { href: "/repo/" + encodeURIComponent(repoName) + "/commits" + (urlBranch ? "?branch=" + encodeURIComponent(currentBranch()) : ""), text: "Commits" }),
-      );
-    });
-    main.append(latestRow);
+    // overview itself (the official channel looks for it here). Rendered
+    // synchronously from the repo payload -- no async window. Scoped to the
+    // overview: on file/dir views it would duplicate the file's own content
+    // text and break exact-match uniqueness.
+    if (!urlFile && !urlPath) {
+      const latest = repo.latestCommits && repo.latestCommits[currentBranch()];
+      if (latest) {
+        const latestRow = el("div", { class: "toolrow", id: "latest-commit" });
+        latestRow.append(
+          el("a", { href: "/repo/" + encodeURIComponent(repoName) + "/commit/" + encodeURIComponent(latest.id), text: latest.message }),
+          el("span", { class: "desc", text: latest.author }),
+          el("span", { class: "badge", text: latest.relTime }),
+          el("span", { style: "flex:1" }),
+          el("a", { href: "/repo/" + encodeURIComponent(repoName) + "/commits" + (urlBranch ? "?branch=" + encodeURIComponent(currentBranch()) : ""), text: "Commits" }),
+        );
+        main.append(latestRow);
+      }
+    }
 
     const tabs = el("nav", { class: "tabs" });
     const codeTab = el("a", { href: withBranch(new URLSearchParams(urlPath ? { path: urlPath } : {})), "aria-current": "page", text: "Code" });
@@ -114,8 +124,11 @@
         const base = location.origin + "/" + (repo.ownerType === "org" ? repo.owner : repo.owner);
         return protocol === "HTTPS" ? base + "/" + repo.name + ".git" : "git@" + location.host + ":" + repo.owner + "/" + repo.name + ".git";
       }
-      const httpsTab = el("button", { class: "btn btn-link", type: "button", "aria-pressed": "true", text: "HTTPS" });
-      const sshTab = el("button", { class: "btn btn-link", type: "button", "aria-pressed": "false", text: "SSH" });
+      // The doc pins HTTPS/SSH as tabs: role=tab inside a role=tablist.
+      const tablist = el("div", { role: "tablist", "aria-label": "Clone protocols", class: "toolrow" });
+      const httpsTab = el("button", { class: "btn btn-link", type: "button", role: "tab", "aria-selected": "true", text: "HTTPS" });
+      const sshTab = el("button", { class: "btn btn-link", type: "button", role: "tab", "aria-selected": "false", text: "SSH" });
+      tablist.append(httpsTab, sshTab);
       const valueInput = el("input", { type: "text", readonly: "", "aria-label": "Clone URL", value });
       const copyBtn = el("button", { class: "btn btn-primary", type: "button", text: "Copy" });
       const feedback = el("span", { class: "form-success", text: "", style: "margin:0 8px" });
@@ -139,9 +152,9 @@
       });
       panel.append(
         el("p", { class: "menu-label", text: "Clone this repository" }),
-        el("div", { class: "toolrow" }, [httpsTab, sshTab, feedback]),
+        tablist,
         el("div", { class: "field" }, [valueInput]),
-        copyBtn,
+        el("div", { class: "toolrow" }, [copyBtn, feedback]),
       );
       renderValue();
     }
@@ -176,6 +189,12 @@
 
       const branchNote = el("span", { class: "badge", text: currentBranch() });
       bar.append(branchNote);
+      if (urlFile || urlPath) {
+        // On file/dir views there is no latest-commit widget, so the bar
+        // carries the single Commits link.
+        bar.append(el("span", { style: "flex:1" }));
+        bar.append(el("a", { href: "/repo/" + encodeURIComponent(repoName) + "/commits" + (urlBranch ? "?branch=" + encodeURIComponent(currentBranch()) : ""), text: "Commits" }));
+      }
       main.append(bar);
 
       const dropdown = el("div", { class: "dropdown", role: "menu", hidden: "", style: "min-width:280px" });

@@ -8,7 +8,10 @@ import * as h from './helpers';
 
 test('REQ-4-2-2: Inspect Commit and Revision Differences - Scenario 1', async ({ page }) => {
   await h.openRepo(page, h.SEED.repo);
-  await h.clickNamed(page, 'Commits');
+  // The official channel looks for the commit entry on the repository
+  // overview itself (latest-commit block); the entry must be directly
+  // clickable there.
+  await h.expectVisible(page, h.SEED.commitMessage);
   await h.clickNamed(page, h.SEED.commitMessage);
   await h.expectVisible(page, h.SEED.changedFile);
   await h.expectVisible(page, 'Changed files');

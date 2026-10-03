@@ -614,12 +614,22 @@ const handlers = {
     const access = repoAccess(record, user);
     if (!access) { json(res, 200, { denied: true }); return; }
     const ownerLabel = record.ownerType === "user" ? record.owner : (findOrg(record.org) || { name: record.org }).name;
+    // Latest commit per branch, embedded so the overview's latest-commit
+    // block renders synchronously (no async window for target lookups).
+    const latestCommits = {};
+    for (const b of store.branches.filter((b) => b.repo === record.name)) {
+      const head = b.head ? findCommit(record.name, b.head) : null;
+      latestCommits[b.name] = head
+        ? { id: head.id, message: head.message, author: head.author, relTime: relativeTime(head.timestamp) }
+        : null;
+    }
     json(res, 200, {
       name: record.name, org: record.org, orgName: ownerLabel,
       ownerType: record.ownerType || "org", owner: record.owner || record.org,
       visibility: record.visibility, description: record.description, updatedAt: record.updatedAt,
       defaultBranch: record.defaultBranch || "main",
       forkSource: record.forkSource || null,
+      latestCommits,
       canWrite: canWrite(record, user),
       canAdmin: canAdmin(record, user),
     });
