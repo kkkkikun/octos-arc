@@ -50,18 +50,19 @@
       main.append(section);
     }
 
-    // Public repositories listed directly on the workspace so any repository
-    // name is an immediately visible navigation target.
+    // Repositories listed directly on the workspace so any repository name
+    // is an immediately visible navigation target: visitors see the public
+    // ones, signed-in users see everything they can read.
     const repos = await api.get("/api/repos/public");
     if (repos.ok && repos.data.repos.length) {
       const section = el("section", {});
-      section.append(el("h2", { text: "Public repositories" }));
+      section.append(el("h2", { text: user ? "Repositories" : "Public repositories" }));
       for (const repo of repos.data.repos) {
         const row = el("div", { class: "repo-row" });
         row.append(el("a", { href: "/repo/" + encodeURIComponent(repo.name), text: repo.name }));
         row.append(el("span", { class: "desc", text: repo.description || "" }));
         row.append(el("span", { class: "badge", text: repo.orgName }));
-        row.append(el("span", { class: "badge", text: "Public" }));
+        row.append(el("span", { class: "badge", text: repo.visibility === "private" ? "Private" : "Public" }));
         section.append(row);
       }
       main.append(section);

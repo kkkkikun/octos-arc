@@ -118,7 +118,11 @@ done
 # grader-style install+build+boot+soak before shipping, rollback to the last
 # accepted state on failure) and the two-axis fuel recalibration. Orchestrated
 # subprocesses around existing primitives, no new loops in the glue.
-LIMIT_PY=2600
+# 2700: +inline_visual() -- the requirements are image+text pairs; the glue
+# converts each reference screenshot to a layout description via the visual
+# model (cached, fail-open) so a text-only implementer still sees the
+# affordances the picture carries. Same synthesis class as aria_lint.
+LIMIT_PY=2700
 PYLINES=$(find "$PKG" -name '*.py' -exec cat {} + | wc -l | tr -d ' ')
 echo "打包内容：$(find "$PKG" -maxdepth 1 -mindepth 1 -printf '%f ' 2>/dev/null || ls "$PKG" | tr '\n' ' ')"
 echo "包内 Python 行数：$PYLINES"

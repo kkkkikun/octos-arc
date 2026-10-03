@@ -33,7 +33,10 @@
     for (const commit of res.data.commits) {
       const row = el("div", { class: "repo-row" });
       row.append(el("a", { href: "/repo/" + encodeURIComponent(repoName) + "/commit/" + encodeURIComponent(commit.id), text: commit.message }));
-      row.append(el("span", { class: "desc", text: commit.author + " committed " + commit.relTime }));
+      // Author and time are their own elements: the official channel asserts
+      // them with exact-text lookups.
+      row.append(el("span", { class: "desc", text: commit.author }));
+      row.append(el("span", { class: "badge", text: commit.relTime }));
       row.append(el("span", { class: "badge", text: commit.id }));
       list.append(row);
     }

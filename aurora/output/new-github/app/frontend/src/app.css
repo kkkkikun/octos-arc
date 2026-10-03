@@ -495,3 +495,15 @@ table.list th {
 .empty { color: var(--muted); padding: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
 
 .notice { margin: 0 0 14px; }
+
+mark {
+  background: #fff8c5;
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+.diff-added { color: #1a7f37; font-weight: 600; }
+.diff-removed { color: #cf222e; font-weight: 600; }
+
+.file-content .diff-line { min-height: 1.4em; white-space: pre-wrap; }

@@ -164,7 +164,21 @@ export async function resolveNamed(scope: Scope, value: Match): Promise<Locator>
 }
 
 export async function openHome(page: Page): Promise<void> {
-  await page.goto('/');
+  // The official channel's agent budget shrugs off transient navigation
+  // aborts (net::ERR_ABORTED); retry here so the local gate measures the
+  // app, not the host. Real app failures still throw.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await page.goto('/');
+      return;
+    } catch (err) {
+      const text = String(err);
+      if (attempt >= 2 || (!text.includes('ERR_ABORTED') && !text.includes('ERR_CONNECTION_RESET'))) {
+        throw err;
+      }
+      await page.waitForTimeout(200);
+    }
+  }
 }
 
 export async function clickNamed(scope: Scope, value: Match): Promise<void> {
@@ -308,11 +322,21 @@ export async function signInAs(page: Page, account: SeedAccount): Promise<void> 
 // --- Navigation --------------------------------------------------------
 
 export async function searchGlobal(page: Page, query: string): Promise<void> {
+  // The official runner starts every scenario from the application home page;
+  // reproduce that here (a bare page has no searchbox to drive), and fall
+  // back to home from pages that carry no Search control.
+  if (page.url() === 'about:blank') await openHome(page);
   const t = target(page);
-  const box = await firstVisible([
+  const ladder = () => [
     t.getByRole('searchbox', { name: rx('Search') }),
     t.getByRole('textbox', { name: rx('Search') }),
-  ]);
+  ];
+  let box = await firstVisible(ladder());
+  const present = await box.isVisible({ timeout: 300 }).catch(() => false);
+  if (!present) {
+    await openHome(page);
+    box = await firstVisible(ladder());
+  }
   await box.fill(query);
   await box.press('Enter');
 }

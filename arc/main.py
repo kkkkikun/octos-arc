@@ -311,7 +311,83 @@ def untemplate(text: str) -> str:
     return text.replace("{", "{{").replace("}", "}}")
 
 
-def build_pipeline(nodes, specs, tests_dir, out, pol, ports, deadline, spec_map=None) -> str:
+def _describe_image(base: str, key: str, model: str, img: Path) -> str:
+    """One visual-model call: the screenshot as a data URL, the reply as text."""
+    import base64 as b64mod
+    import urllib.request
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text":
+                "Describe this web UI screenshot for a developer who must rebuild "
+                "the page: layout regions in order (header/sidebar/main/footer), "
+                "every visible control with its exact displayed label and role "
+                "(menu/button/link/input/avatar), which element opens or navigates "
+                "to what, and any state indicators (selections, badges, empty "
+                "states). Be exhaustive about names exactly as displayed. Plain "
+                "text, under 250 words."},
+            {"type": "image_url", "image_url": {"url":
+                "data:image/png;base64," + b64mod.b64encode(img.read_bytes()).decode()}},
+        ]}],
+    }
+    for _ in range(2):
+        try:
+            req = urllib.request.Request(
+                base.rstrip("/") + "/chat/completions",
+                data=json.dumps(payload).encode(), method="POST",
+                headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
+            with urllib.request.urlopen(req, timeout=120) as r:
+                out = json.loads(r.read().decode())
+            return str(out["choices"][0]["message"]["content"]).strip()
+        except Exception:  # noqa: BLE001 -- images are additive; never block the run
+            continue
+    return ""
+
+
+def inline_visual(req_dir: Path | None, out: Path, text: str) -> str:
+    """Convert ![image](reference/x.png) links into visual-model layout
+    descriptions (once per image per run, cached under .arc/visual-cache).
+
+    The requirements are image+text pairs: the screenshot carries affordances
+    the prose never states (where the account menu lives, which chrome hosts
+    which control). A text-only implementer sees the link but not the picture,
+    so the glue turns the picture into text with the configured visual model.
+    Doc text stays the contract; the description is layout evidence. Any
+    failure (no credentials, no visual model, request error) returns the text
+    unchanged -- today's behaviour.
+    """
+    pat = re.compile(r"!\[[^\]]*\]\((reference/[^)]+\.png)\)")
+    if req_dir is None or not pat.search(text):
+        return text
+    env = os.environ
+    base, key, vis = (env.get("OPENAI_BASE_URL", ""), env.get("OPENAI_API_KEY", ""),
+                      env.get("VISUAL_MODEL", ""))
+    if not (base and key and vis):
+        return text
+    cache = out / ".arc" / "visual-cache"
+    cache.mkdir(parents=True, exist_ok=True)
+
+    def block(m: re.Match) -> str:
+        ref = m.group(1)
+        img = (req_dir / ref)
+        desc = ""
+        target = cache / (ref.replace("/", "_"))
+        if target.exists():
+            desc = target.read_text(encoding="utf-8", errors="replace")
+        elif img.is_file():
+            desc = _describe_image(base, key, vis, img)
+            if desc:
+                target.write_text(desc, encoding="utf-8")
+        if not desc:
+            return m.group(0)
+        return (f"[Screenshot {ref}, described by a vision model (layout evidence; "
+                f"the requirement text above remains the contract): {desc}]")
+
+    return pat.sub(block, text)
+
+
+def build_pipeline(nodes, specs, tests_dir, out, pol, ports, deadline, spec_map=None,
+                   req_dir=None) -> str:
     """seed -> (implement -> acceptance) per requirement in dependency order ->
     full-suite regression check with its own fix loop.
 
@@ -405,8 +481,8 @@ def build_pipeline(nodes, specs, tests_dir, out, pol, ports, deadline, spec_map=
         body = (tmpl.replace("{port}", str(ports[0]))
                     .replace("{ports}", ports_clause)
                     .replace("{node_id}", nid)
-                    .replace("{description}", untemplate(describe(node)))
-                    .replace("{spec}", spec_text or "(no public example for this requirement)"))
+                    .replace("{description}", inline_visual(req_dir, out, untemplate(describe(node))))
+                    .replace("{spec}", inline_visual(req_dir, out, spec_text) or "(no public example for this requirement)"))
         lines.append(impl_node(impl, nid, body))
         # Keep enough time for one attempt at every requirement still to come
         # plus the regression pass; a node past that line stops repairing.
@@ -792,7 +868,8 @@ def main() -> int:
         for p in sorted(tests_dir.rglob("REQ-*.spec.ts")):
             full_map.setdefault(p.stem, [p.name])
     spec_map.write_text(json.dumps(full_map), encoding="utf-8")
-    dot = build_pipeline(nodes, specs, tests_dir, out, pol, ports, started + pol["run_timeout"], spec_map)
+    dot = build_pipeline(nodes, specs, tests_dir, out, pol, ports, started + pol["run_timeout"], spec_map,
+                         req_dir=req_dir)
     (data_dir / "pipelines" / f"{pol['name']}.dot").write_text(dot, encoding="utf-8")
     (out / ".arc").mkdir(exist_ok=True)
     (out / ".arc" / "pipeline.dot").write_text(dot, encoding="utf-8")   # evidence copy

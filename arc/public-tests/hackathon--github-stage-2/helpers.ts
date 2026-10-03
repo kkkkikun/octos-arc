@@ -130,7 +130,21 @@ export async function resolveNamed(scope: Scope, value: Match): Promise<Locator>
 }
 
 export async function openHome(page: Page): Promise<void> {
-  await page.goto('/');
+  // The official channel's agent budget shrugs off transient navigation
+  // aborts (net::ERR_ABORTED); retry here so the local gate measures the
+  // app, not the host. Real app failures still throw.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await page.goto('/');
+      return;
+    } catch (err) {
+      const text = String(err);
+      if (attempt >= 2 || (!text.includes('ERR_ABORTED') && !text.includes('ERR_CONNECTION_RESET'))) {
+        throw err;
+      }
+      await page.waitForTimeout(200);
+    }
+  }
 }
 
 export async function clickNamed(scope: Scope, value: Match): Promise<void> {

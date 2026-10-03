@@ -55,7 +55,6 @@
     const matches = res.ok ? res.data.matches : [];
     if (!matches.length) {
       main.append(el("p", { class: "denied", text: "No code results" }));
-      main.append(el("p", { class: "empty", text: "No results" }));
       return;
     }
     for (const match of matches) {
@@ -64,8 +63,11 @@
         row.append(el("a", { href: "/repo/" + encodeURIComponent(repoName), text: repo.name }));
         row.append(el("span", { class: "desc", text: "Repository" }));
       } else {
+        // The query rides along so the file view keeps its highlight after
+        // reload.
+        const sp = new URLSearchParams({ branch: match.branch, file: match.path, q });
         row.append(el("a", {
-          href: "/repo/" + encodeURIComponent(repoName) + "?branch=" + encodeURIComponent(match.branch) + "&file=" + encodeURIComponent(match.path),
+          href: "/repo/" + encodeURIComponent(repoName) + "?" + sp.toString(),
           text: match.path.split("/").pop(),
         }));
         row.append(el("span", { class: "desc", text: match.path + " — " + match.snippet }));

@@ -139,56 +139,7 @@
    "verified": true
   }
  ],
- "sessions": {
-  "1b65bb1832a7f09303b8150f850d9127": {
-   "username": "repo-owner",
-   "createdAt": "2026-10-02T18:50:16.426Z"
-  },
-  "ce8f6a128efa0939d0e85d62aad9b1f4": {
-   "username": "repo-owner",
-   "createdAt": "2026-10-02T18:50:50.003Z"
-  },
-  "907ee4bc539aa0394be2e78818c10bbe": {
-   "username": "repo-owner",
-   "createdAt": "2026-10-02T18:50:55.219Z"
-  },
-  "cfb358e3358be362a6d2e9b8182dbebf": {
-   "username": "repo-owner",
-   "createdAt": "2026-10-02T18:52:17.847Z"
-  },
-  "25266bbc8edd59e58c5589c2683a3c8f": {
-   "username": "repo-owner",
-   "createdAt": "2026-10-02T18:52:28.353Z"
-  },
-  "d7d9aff83632f50818e37b0a3dd9724e": {
-   "username": "repo-owner",
-   "createdAt": "2026-10-02T18:52:33.545Z"
-  },
-  "9a63c774b4d75c5fb075523c4cfe2402": {
-   "username": "repo-owner",
-   "createdAt": "2026-10-02T18:52:45.640Z"
-  },
-  "05a974ea5b75f9eef52b2b9cb19931c1": {
-   "username": "fork-user",
-   "createdAt": "2026-10-02T18:52:45.642Z"
-  },
-  "12c50b63088561ecbac1f63912250a19": {
-   "username": "visibility-admin",
-   "createdAt": "2026-10-02T18:52:48.852Z"
-  },
-  "5dc6849230f93f22473ed5bc3f0ebfd1": {
-   "username": "branch-contributor",
-   "createdAt": "2026-10-02T18:52:58.732Z"
-  },
-  "e3117b752fdd16a24c4ecc608960cf57": {
-   "username": "default-branch-admin",
-   "createdAt": "2026-10-02T18:52:59.431Z"
-  },
-  "bdd0e289f280b76f5544932066088048": {
-   "username": "file-contributor",
-   "createdAt": "2026-10-02T18:53:02.099Z"
-  }
- },
+ "sessions": {},
  "orgs": [
   {
    "slug": "acme-demo",
@@ -288,9 +239,9 @@
    "org": "acme-demo",
    "ownerType": "org",
    "owner": "acme-demo",
-   "visibility": "public",
+   "visibility": "private",
    "description": "Visibility change demo",
-   "updatedAt": "2026-10-02T18:52:54.073Z",
+   "updatedAt": "2026-10-01T03:00:00.000Z",
    "defaultBranch": "main",
    "creator": "visibility-admin",
    "forkSource": null
@@ -315,7 +266,7 @@
    "visibility": "public",
    "description": "Default branch demo",
    "updatedAt": "2026-10-01T07:00:00.000Z",
-   "defaultBranch": "release",
+   "defaultBranch": "main",
    "creator": "org-owner",
    "forkSource": null
   },
@@ -326,7 +277,7 @@
    "owner": "acme-demo",
    "visibility": "public",
    "description": "Web file management demo",
-   "updatedAt": "2026-10-02T18:53:05.733Z",
+   "updatedAt": "2026-10-01T09:00:00.000Z",
    "defaultBranch": "main",
    "creator": "org-owner",
    "forkSource": null
@@ -342,54 +293,6 @@
    "defaultBranch": "main",
    "creator": "fork-user",
    "forkSource": "acme-docs"
-  },
-  {
-   "name": "pw-repo-murbiprlaomj",
-   "org": null,
-   "ownerType": "user",
-   "owner": "repo-owner",
-   "visibility": "private",
-   "description": "Repository created by Playwright",
-   "updatedAt": "2026-10-02T18:50:20.905Z",
-   "defaultBranch": "main",
-   "creator": "repo-owner",
-   "forkSource": null
-  },
-  {
-   "name": "pw-repo-murblt5d21et",
-   "org": null,
-   "ownerType": "user",
-   "owner": "repo-owner",
-   "visibility": "private",
-   "description": "Repository created by Playwright",
-   "updatedAt": "2026-10-02T18:52:45.250Z",
-   "defaultBranch": "main",
-   "creator": "repo-owner",
-   "forkSource": null
-  },
-  {
-   "name": "pw-fork-murblwugd8o0",
-   "org": null,
-   "ownerType": "user",
-   "owner": "fork-user",
-   "visibility": "public",
-   "description": "Documentation for the Acme platform",
-   "updatedAt": "2026-10-02T18:52:48.985Z",
-   "defaultBranch": "main",
-   "creator": "fork-user",
-   "forkSource": "acme-docs"
-  },
-  {
-   "name": "pw-repo-murblwulen22",
-   "org": null,
-   "ownerType": "user",
-   "owner": "repo-owner",
-   "visibility": "private",
-   "description": "Repository created by Playwright",
-   "updatedAt": "2026-10-02T18:52:50.149Z",
-   "defaultBranch": "main",
-   "creator": "repo-owner",
-   "forkSource": null
   }
  ],
  "grants": [
@@ -489,37 +392,12 @@
   {
    "repo": "file-management-demo",
    "name": "main",
-   "head": "ff1fb730"
+   "head": "af19c62"
   },
   {
    "repo": "acme-docs-fork",
    "name": "main",
    "head": "b7c3d18"
-  },
-  {
-   "repo": "pw-repo-murbiprlaomj",
-   "name": "main",
-   "head": "8736f172"
-  },
-  {
-   "repo": "pw-repo-murblt5d21et",
-   "name": "main",
-   "head": "ce64e46b"
-  },
-  {
-   "repo": "pw-fork-murblwugd8o0",
-   "name": "main",
-   "head": "94c6964e"
-  },
-  {
-   "repo": "pw-repo-murblwulen22",
-   "name": "main",
-   "head": "23fd9c38"
-  },
-  {
-   "repo": "branch-switch-demo",
-   "name": "pw-branch-murbm70vcgll",
-   "head": "2f6be90"
   }
  ],
  "commits": [
@@ -696,102 +574,6 @@
      "path": "src/README.md",
      "prior": null,
      "content": "# acme-docs\n\nDocument search flow\n\nThis repository documents the simplified GitHub search flow.\n"
-    }
-   ]
-  },
-  {
-   "id": "8736f172",
-   "repo": "pw-repo-murbiprlaomj",
-   "branch": "main",
-   "message": "Initial commit",
-   "author": "repo-owner",
-   "timestamp": "2026-10-02T18:50:20.905Z",
-   "parent": null,
-   "changes": [
-    {
-     "path": "README.md",
-     "prior": null,
-     "content": "# pw-repo-murbiprlaomj\n\nRepository created by Playwright\n"
-    }
-   ]
-  },
-  {
-   "id": "ce64e46b",
-   "repo": "pw-repo-murblt5d21et",
-   "branch": "main",
-   "message": "Initial commit",
-   "author": "repo-owner",
-   "timestamp": "2026-10-02T18:52:45.250Z",
-   "parent": null,
-   "changes": [
-    {
-     "path": "README.md",
-     "prior": null,
-     "content": "# pw-repo-murblt5d21et\n\nRepository created by Playwright\n"
-    }
-   ]
-  },
-  {
-   "id": "aaecbd8c",
-   "repo": "pw-fork-murblwugd8o0",
-   "branch": "main",
-   "message": "Initial commit",
-   "author": "alice-dev",
-   "timestamp": "2026-10-02T05:00:00.000Z",
-   "parent": null,
-   "changes": [
-    {
-     "path": "src/README.md",
-     "prior": null,
-     "content": "# acme-docs\n\nDocument search flow\n\nThis repository documents the simplified GitHub search flow.\n"
-    }
-   ]
-  },
-  {
-   "id": "94c6964e",
-   "repo": "pw-fork-murblwugd8o0",
-   "branch": "main",
-   "message": "Document search flow",
-   "author": "alice-dev",
-   "timestamp": "2026-10-02T07:00:00.000Z",
-   "parent": "aaecbd8c",
-   "changes": [
-    {
-     "path": "src/search.ts",
-     "prior": null,
-     "content": "export function searchFlow(query) {\n  return query.trim().toLowerCase();\n}\n"
-    }
-   ]
-  },
-  {
-   "id": "23fd9c38",
-   "repo": "pw-repo-murblwulen22",
-   "branch": "main",
-   "message": "Initial commit",
-   "author": "repo-owner",
-   "timestamp": "2026-10-02T18:52:50.149Z",
-   "parent": null,
-   "changes": [
-    {
-     "path": "README.md",
-     "prior": null,
-     "content": "# pw-repo-murblwulen22\n\nRepository created by Playwright\n"
-    }
-   ]
-  },
-  {
-   "id": "ff1fb730",
-   "repo": "file-management-demo",
-   "branch": "main",
-   "message": "Add pw-file-murbm9m84ef4.md",
-   "author": "file-contributor",
-   "timestamp": "2026-10-02T18:53:05.733Z",
-   "parent": "af19c62",
-   "changes": [
-    {
-     "path": "pw-file-murbm9m84ef4.md",
-     "prior": null,
-     "content": "File content created by Playwright."
     }
    ]
   }

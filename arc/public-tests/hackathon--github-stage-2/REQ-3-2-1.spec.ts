@@ -28,6 +28,10 @@ test('REQ-3-2-1: Create a Repository with Owner, Visibility, and Initialization 
   await expect(page.getByRole('heading', { name: h.rxContains(name) }).first()).toBeVisible();
   await h.expectVisible(page, 'Private');
   await h.expectVisible(page, 'README');
+  // doc THEN: "the repository also appears in the target owner's repository
+  // list" -- the personal namespace list on the workspace home.
+  await h.openHome(page);
+  await h.expectVisible(page, name);
 });
 
 test('REQ-3-2-1: Create a Repository with Owner, Visibility, and Initialization Options - Scenario 2', async ({ page }) => {

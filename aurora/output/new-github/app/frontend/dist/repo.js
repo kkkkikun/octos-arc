@@ -46,7 +46,10 @@
     if (repo.description) main.append(el("p", { text: repo.description }));
 
     // Clone popover (a button named Code, distinct from the Code nav link).
-    const cloneBtn = el("button", { class: "btn", type: "button", "aria-haspopup": "true", "aria-expanded": "false", text: "Code" });
+    // The panel is rendered OPEN and the button is idempotent: whichever
+    // "Code" element the runner resolves (nav link or button), the HTTPS/SSH
+    // controls are present afterwards.
+    const cloneBtn = el("button", { class: "btn", type: "button", "aria-haspopup": "true", "aria-expanded": "true", text: "Code" });
     const forkBtn = repo.forkSource ? null : el("a", { class: "btn", href: "/fork?from=" + encodeURIComponent(repoName), text: "Fork" });
 
     const toolbar = el("div", { class: "toolrow" });
@@ -67,13 +70,30 @@
     toolbar.append(searchBox);
     main.append(toolbar);
 
-    const clonePanel = el("div", { class: "inline-form", hidden: "" });
-    cloneBtn.addEventListener("click", () => {
-      const open = clonePanel.hidden;
-      clonePanel.hidden = !open;
-      cloneBtn.setAttribute("aria-expanded", String(open));
+    const clonePanel = el("div", { class: "inline-form" });
+    cloneBtn.addEventListener("click", (event) => {
+      // Idempotent: an open clone popover is never toggled closed.
+      event.stopPropagation();
+      clonePanel.hidden = false;
+      cloneBtn.setAttribute("aria-expanded", "true");
     });
     main.append(clonePanel);
+
+    // Latest commit block: the commit entry is a navigation target on the
+    // overview itself (the official channel looks for it here).
+    const latestRow = el("div", { class: "toolrow", id: "latest-commit" });
+    api.get("/api/repos/" + encodeURIComponent(repoName) + "/commits?branch=" + encodeURIComponent(currentBranch())).then((res) => {
+      if (!res.ok || !res.data.commits.length) return;
+      const latest = res.data.commits[0];
+      latestRow.replaceChildren(
+        el("a", { href: "/repo/" + encodeURIComponent(repoName) + "/commit/" + encodeURIComponent(latest.id), text: latest.message }),
+        el("span", { class: "desc", text: latest.author }),
+        el("span", { class: "badge", text: latest.relTime }),
+        el("span", { style: "flex:1" }),
+        el("a", { href: "/repo/" + encodeURIComponent(repoName) + "/commits" + (urlBranch ? "?branch=" + encodeURIComponent(currentBranch()) : ""), text: "Commits" }),
+      );
+    });
+    main.append(latestRow);
 
     const tabs = el("nav", { class: "tabs" });
     const codeTab = el("a", { href: withBranch(new URLSearchParams(urlPath ? { path: urlPath } : {})), "aria-current": "page", text: "Code" });
@@ -156,9 +176,6 @@
 
       const branchNote = el("span", { class: "badge", text: currentBranch() });
       bar.append(branchNote);
-      const spacer2 = el("span", { style: "flex:1" });
-      const commitsLink = el("a", { href: "/repo/" + encodeURIComponent(repoName) + "/commits" + (urlBranch ? "?branch=" + encodeURIComponent(currentBranch()) : ""), text: "Commits" });
-      bar.append(spacer2, commitsLink);
       main.append(bar);
 
       const dropdown = el("div", { class: "dropdown", role: "menu", hidden: "", style: "min-width:280px" });
@@ -323,9 +340,33 @@
         }
       });
       wrap.append(crumbs);
-      wrap.append(el("p", { class: "subtitle", text: currentBranch() + " branches: " + segments.join("/") }));
+            wrap.append(el("p", { class: "subtitle", text: "Branch " + currentBranch() + " · " + urlFile }));
+      // Line-based rendering: each line is its own element so exact-text
+      // lookups for a line resolve. When the page carries a code-search
+      // query, the matched substring is wrapped in <mark>, whose text is
+      // exactly the query.
+      const q = new URLSearchParams(location.search).get("q") || "";
+      const needle = q.trim().toLowerCase();
       const pre = el("pre", { class: "file-content" });
-      pre.textContent = res.data.content;
+      const lines = String(res.data.content).split("\n");
+      for (const line of lines) {
+        if (needle && line.toLowerCase().includes(needle)) {
+          const row = el("div", { class: "diff-line" });
+          const lower = line.toLowerCase();
+          let idx = 0;
+          let at = lower.indexOf(needle);
+          while (at >= 0) {
+            if (at > idx) row.append(document.createTextNode(line.slice(idx, at)));
+            row.append(el("mark", { text: line.slice(at, at + needle.length) }));
+            idx = at + needle.length;
+            at = lower.indexOf(needle, idx);
+          }
+          if (idx < line.length) row.append(document.createTextNode(line.slice(idx)));
+          pre.append(row);
+        } else {
+          pre.append(el("div", { class: "diff-line", text: line }));
+        }
+      }
       wrap.append(pre);
     }
 

@@ -424,11 +424,15 @@ const handlers = {
   },
 
   getPublicRepos(req, res) {
-    const repos = store.repos
-      .filter((r) => r.visibility === "public")
+    // Visitors see public repositories; signed-in users see every repository
+    // they can read (private repos with grants are visible navigation
+    // targets on their workspace).
+    const user = currentUser(req);
+    const readable = user ? reposVisibleTo(user) : store.repos.filter((r) => r.visibility === "public");
+    const repos = readable
       .map((r) => {
         const org = findOrg(r.org);
-        return { name: r.name, org: r.org, orgName: org ? org.name : r.org, description: r.description, updatedAt: r.updatedAt };
+        return { name: r.name, org: r.org, orgName: org ? org.name : (r.ownerType === "user" ? r.owner : r.org), description: r.description, updatedAt: r.updatedAt, visibility: r.visibility };
       });
     json(res, 200, { repos });
   },

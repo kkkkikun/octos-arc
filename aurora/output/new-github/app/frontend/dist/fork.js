@@ -38,10 +38,22 @@
 
     const nameField = el("div", { class: "field" }, [
       el("label", { for: "fork-name", text: "Repository name" }),
-      el("input", { id: "fork-name", type: "text", autocomplete: "off", value: source.name }),
+      el("input", { id: "fork-name", type: "text", autocomplete: "off" }),
       el("p", { class: "field-error", hidden: "" }),
     ]);
     panel.append(nameField);
+    // Prefill a name that is free to create: keeping the suggested default
+    // must succeed ("keeps or enters a valid new repository name").
+    (async () => {
+      const candidates = [source.name, source.name + "-fork", source.name + "-" + user.username];
+      for (const candidate of candidates) {
+        const probe = await api.get("/api/repos/" + encodeURIComponent(candidate));
+        if (!probe.ok || probe.data.denied || probe.status === 404) {
+          nameField.querySelector("input").value = candidate;
+          return;
+        }
+      }
+    })();
 
     const visField = el("fieldset", { class: "field", style: "border:0;padding:0" });
     visField.append(el("legend", { text: "Visibility", style: "font-weight:600" }));
