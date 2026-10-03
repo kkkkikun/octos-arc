@@ -12,6 +12,31 @@ const path = require("path");
 const DIST_DIR = path.resolve(__dirname, "..", "frontend", "dist");
 const PORT = Number(process.env.PORT || 3000);
 
+// --- Persistence pattern (both verified reference builds converged here) --
+// State lives in store.json next to this file; the shipped initial state
+// lives in seed-default.json. Write atomically (tmp+rename) so a mid-write
+// kill never corrupts the store, and reseed on missing/corrupt store so the
+// app always boots. The implementation grows this shape: extend the store's
+// fields, never write store.json in place.
+const STORE_FILE = path.join(__dirname, "store.json");
+const SEED_FILE = path.join(__dirname, "seed-default.json");
+
+function saveStore(store) {
+  const tmp = STORE_FILE + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(store));
+  fs.renameSync(tmp, STORE_FILE);
+}
+
+function loadStore() {
+  try {
+    const data = JSON.parse(fs.readFileSync(STORE_FILE, "utf8"));
+    if (data && typeof data === "object") return data;
+  } catch (err) { /* corrupt or missing: reseed */ }
+  const seeded = JSON.parse(fs.readFileSync(SEED_FILE, "utf8"));
+  saveStore(seeded);
+  return seeded;
+}
+
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",

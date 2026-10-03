@@ -47,7 +47,14 @@ Rules:
 - The workspace ships a generic, task-agnostic component library under
   `frontend/src/lib/` (an accessible data grid with cell-text editing and
   document-level keyboard clipboard/undo, ARIA dialogs, tabsets, labeled
-  fields, JSON persistence). Use these primitives WHEN CREATING NEW UI: the
+  fields, JSON persistence) plus `lib/api.js` (a JSON fetch wrapper with one
+  automatic retry -- include it on every page and route ALL API calls
+  through it). The backend ships the persistence pattern: `store.json` holds
+  state, `backend/seed-default.json` holds the shipped initial state,
+  `saveStore`/`loadStore` write atomically and reseed on corrupt or missing
+  store -- extend that store's fields for the task's entities instead of
+  inventing a different persistence scheme. Use these primitives WHEN
+  CREATING NEW UI: the
   requirements' grids, overlays, tabs and stores map onto the library with
   the exact labels and record names each requirement names. But an existing
   implementation that already passes its checks takes precedence -- never
