@@ -47,6 +47,7 @@ function el(tag, attrs, children) {
   const node = document.createElement(tag);
   if (attrs) {
     for (const [key, value] of Object.entries(attrs)) {
+      if (value === null || value === undefined) continue;
       if (key === "class") node.className = value;
       else if (key === "text") node.textContent = value;
       else node.setAttribute(key, value);

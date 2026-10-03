@@ -148,6 +148,95 @@
         });
         updateBtn.addEventListener("click", () => { confirmBtn.hidden = false; });
         panel.append(field, el("div", { class: "dialog-actions" }, [updateBtn, confirmBtn]));
+
+        // --- Branch protection rules (Admin only) ----------------------------
+        panel.append(el("h2", { text: "Branch protection rules" }));
+        const rulesBox = el("div", {});
+        panel.append(rulesBox);
+        const addRuleBtn = el("button", { class: "btn btn-primary", type: "button", text: "Add branch protection rule" });
+        panel.append(addRuleBtn, el("h3", { text: "Add rule" }));
+        const ruleForm = el("div", { class: "inline-form" });
+        const patternField = el("div", { class: "field" }, [
+          el("label", { for: "branch-pattern", text: "Branch name pattern" }),
+          el("input", { id: "branch-pattern", type: "text", autocomplete: "off" }),
+        ]);
+        const approvalBox = el("input", { type: "checkbox", id: "require-approval", value: "1" });
+        const checkBox = el("input", { type: "checkbox", id: "require-check-test", value: "1" });
+        const createBtn = el("button", { class: "btn btn-primary", type: "button", text: "Create" });
+        const saveBtn = el("button", { class: "btn btn-primary", type: "button", text: "Save changes", hidden: "" });
+        ruleForm.append(
+          patternField,
+          el("div", { class: "field" }, [
+            approvalBox, el("label", { for: "require-approval", style: "display:inline;font-weight:400" }, [document.createTextNode(" Require 1 approval")]),
+          ]),
+          el("div", { class: "field" }, [
+            checkBox, el("label", { for: "require-check-test", style: "display:inline;font-weight:400" }, [document.createTextNode(" Require status check test")]),
+          ]),
+          el("div", { class: "toolrow" }, [createBtn, saveBtn]),
+        );
+        panel.append(ruleForm);
+        // The rule form is revealed by the Add button; the click is
+        // idempotent so a re-click never collapses it.
+        ruleForm.hidden = true;
+        addRuleBtn.addEventListener("click", (event) => {
+          event.stopPropagation();
+          ruleForm.hidden = false;
+          addRuleBtn.setAttribute("aria-expanded", "true");
+        });
+        let editingBranch = null;
+        function renderRules(protections) {
+          rulesBox.replaceChildren();
+          if (!protections.length) {
+            rulesBox.append(el("p", { class: "empty", text: "No protection rules defined." }));
+            return;
+          }
+          for (const rule of protections) {
+            const row = el("div", { class: "repo-row" });
+            row.append(el("span", { text: rule.branch }));
+            if (rule.requireApproval) row.append(el("span", { class: "badge", text: "1 approval" }));
+            if (rule.requireStatusCheck) row.append(el("span", { class: "badge", text: "status check " + rule.requireStatusCheck }));
+            const edit = el("button", { class: "btn btn-link", type: "button", text: "Edit" });
+            edit.addEventListener("click", () => {
+              editingBranch = rule.branch;
+              patternField.querySelector("input").value = rule.branch;
+              approvalBox.checked = Boolean(rule.requireApproval);
+              checkBox.checked = Boolean(rule.requireStatusCheck);
+              createBtn.hidden = true;
+              saveBtn.hidden = false;
+            });
+            row.append(edit);
+            rulesBox.append(row);
+          }
+        }
+        async function submitRule() {
+          errorLine.hidden = true;
+          successLine.hidden = true;
+          const res2 = await api.post("/api/repos/" + encodeURIComponent(repoName) + "/protections", {
+            branch: patternField.querySelector("input").value,
+            requireApproval: approvalBox.checked,
+            requireStatusCheck: checkBox.checked ? "test" : null,
+          });
+          if (!res2.ok) {
+            errorLine.textContent = res2.data.error || "Access denied";
+            errorLine.hidden = false;
+            return;
+          }
+          successLine.textContent = "Protection rule saved";
+          successLine.hidden = false;
+          createBtn.hidden = false;
+          saveBtn.hidden = true;
+          patternField.querySelector("input").value = "";
+          approvalBox.checked = false;
+          checkBox.checked = false;
+          await loadRules();
+        }
+        createBtn.addEventListener("click", submitRule);
+        saveBtn.addEventListener("click", submitRule);
+        async function loadRules() {
+          const res2 = await api.get("/api/repos/" + encodeURIComponent(repoName) + "/protections");
+          if (res2.ok) renderRules(res2.data.protections);
+        }
+        loadRules();
       });
       main.append(panel);
     }

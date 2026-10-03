@@ -22,7 +22,7 @@
     const orgs = res.ok ? res.data.orgs || [] : [];
     if (!results.length && !orgs.length) {
       main.append(el("p", { class: "denied", text: "Access denied" }));
-      main.append(el("p", { class: "subtitle", text: "No accessible repository matches this query." }));
+      main.append(el("p", { class: "subtitle", text: "No results" }));
       return;
     }
     for (const org of orgs) {

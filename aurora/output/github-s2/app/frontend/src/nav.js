@@ -10,10 +10,9 @@
   window.__user = user;
 
   const path = location.pathname;
-  // Pages hosting their own "Search"-named control (manage access picker) must
-  // not also carry the global search box: a second match would make
-  // getByLabel("Search") ambiguous.
-  const hideSearch = /^\/repo\/[^/]+\/settings/.test(path);
+  // Repository pages host their own repository-scoped "Search" box; the
+  // global search would double the "Search" accessible name.
+  const hideSearch = /^\/repo\//.test(path);
   // Repository and team pages expose their own "Settings" tab; the global
   // account-settings link would shadow it as the first "Settings" match.
   const hideHeaderSettings = /^\/repo\/[^/]+/.test(path) || /^\/org\/[^/]+\/teams(\/|$)/.test(path);

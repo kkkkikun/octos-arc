@@ -137,6 +137,78 @@
    "email": "file-contributor@example.test",
    "password": "Valid-password-123!",
    "verified": true
+  },
+  {
+   "username": "issue-author",
+   "email": "issue-author@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "issue-editor",
+   "email": "issue-editor@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "issue-commenter",
+   "email": "issue-commenter@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "issue-viewer",
+   "email": "issue-viewer@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "pr-contributor",
+   "email": "pr-contributor@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "pr-reviewer",
+   "email": "pr-reviewer@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "pr-author",
+   "email": "pr-author@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "pr-viewer",
+   "email": "pr-viewer@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "draft-author",
+   "email": "draft-author@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "pr-maintainer",
+   "email": "pr-maintainer@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "protection-admin",
+   "email": "protection-admin@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
+  },
+  {
+   "username": "protection-viewer",
+   "email": "protection-viewer@example.test",
+   "password": "Valid-password-123!",
+   "verified": true
   }
  ],
  "sessions": {},
@@ -293,6 +365,18 @@
    "defaultBranch": "main",
    "creator": "fork-user",
    "forkSource": "acme-docs"
+  },
+  {
+   "name": "branch-protection-demo",
+   "org": "acme-demo",
+   "ownerType": "org",
+   "owner": "acme-demo",
+   "visibility": "public",
+   "description": "Branch protection demo",
+   "updatedAt": "2026-09-29T14:00:00.000Z",
+   "defaultBranch": "main",
+   "creator": "protection-admin",
+   "forkSource": null
   }
  ],
  "grants": [
@@ -351,6 +435,90 @@
    "id": "file-contributor",
    "role": "Write",
    "updatedAt": "2026-10-01T13:00:00.000Z"
+  },
+  {
+   "repo": "acme-docs",
+   "subject": "user",
+   "id": "issue-author",
+   "role": "Write",
+   "updatedAt": "2026-09-30T00:00:00.000Z"
+  },
+  {
+   "repo": "acme-docs",
+   "subject": "user",
+   "id": "issue-editor",
+   "role": "Maintain",
+   "updatedAt": "2026-09-30T00:00:00.000Z"
+  },
+  {
+   "repo": "acme-docs",
+   "subject": "user",
+   "id": "issue-commenter",
+   "role": "Write",
+   "updatedAt": "2026-09-30T00:00:00.000Z"
+  },
+  {
+   "repo": "acme-docs",
+   "subject": "user",
+   "id": "issue-viewer",
+   "role": "Read",
+   "updatedAt": "2026-09-30T00:00:00.000Z"
+  },
+  {
+   "repo": "acme-docs",
+   "subject": "user",
+   "id": "pr-contributor",
+   "role": "Write",
+   "updatedAt": "2026-09-30T00:00:00.000Z"
+  },
+  {
+   "repo": "acme-docs",
+   "subject": "user",
+   "id": "pr-reviewer",
+   "role": "Write",
+   "updatedAt": "2026-09-30T00:00:00.000Z"
+  },
+  {
+   "repo": "acme-docs",
+   "subject": "user",
+   "id": "pr-author",
+   "role": "Write",
+   "updatedAt": "2026-09-30T00:00:00.000Z"
+  },
+  {
+   "repo": "acme-docs",
+   "subject": "user",
+   "id": "draft-author",
+   "role": "Write",
+   "updatedAt": "2026-09-30T00:00:00.000Z"
+  },
+  {
+   "repo": "acme-docs",
+   "subject": "user",
+   "id": "pr-maintainer",
+   "role": "Maintain",
+   "updatedAt": "2026-09-30T00:00:00.000Z"
+  },
+  {
+   "repo": "acme-docs",
+   "subject": "user",
+   "id": "bob-reviewer",
+   "role": "Write",
+   "updatedAt": "2026-09-30T00:00:00.000Z"
+  },
+  {
+   "repo": "branch-protection-demo",
+   "subject": "user",
+   "id": "protection-admin",
+   "role": "Admin",
+   "updatedAt": "2026-09-30T00:00:00.000Z"
+  },
+  {
+   "repo": "branch-protection-demo",
+   "subject": "user",
+   "id": "protection-viewer",
+   "role": "Read",
+   "updatedAt": "2026-09-30T00:00:00.000Z"
   }
  ],
  "branches": [
@@ -398,6 +566,81 @@
    "repo": "acme-docs-fork",
    "name": "main",
    "head": "b7c3d18"
+  },
+  {
+   "repo": "branch-protection-demo",
+   "name": "main",
+   "head": "aa11bp0"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "feature-search",
+   "head": "f100feat"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "pr-overview-branch",
+   "head": "f101pr-o"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "pr-public-branch",
+   "head": "f102pr-p"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "reviewable-branch",
+   "head": "f103revi"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "pending-branch",
+   "head": "f104pend"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "change-request-branch",
+   "head": "f105chan"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "reviewer-request-branch",
+   "head": "f106revi"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "mergeable-branch",
+   "head": "f107merg"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "fix-search-branch",
+   "head": "f108fix-"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "blocked-branch",
+   "head": "f109bloc"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "closable-branch",
+   "head": "f110clos"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "protected-branch",
+   "head": "f111prot"
+  },
+  {
+   "repo": "acme-docs",
+   "name": "draft-feature",
+   "head": "f100draft"
+  },
+  {
+   "repo": "branch-protection-demo",
+   "name": "protection-branch",
+   "head": "f100prot"
   }
  ],
  "commits": [
@@ -576,6 +819,904 @@
      "content": "# acme-docs\n\nDocument search flow\n\nThis repository documents the simplified GitHub search experience.\n"
     }
    ]
+  },
+  {
+   "id": "aa11bp0",
+   "repo": "branch-protection-demo",
+   "branch": "main",
+   "message": "Initial commit",
+   "author": "protection-admin",
+   "timestamp": "2026-09-29T14:00:00.000Z",
+   "parent": null,
+   "changes": [
+    {
+     "path": "README.md",
+     "prior": null,
+     "content": "# branch-protection-demo\n"
+    }
+   ]
+  },
+  {
+   "id": "f100feat",
+   "repo": "acme-docs",
+   "branch": "feature-search",
+   "message": "Update search documentation",
+   "author": "pr-author",
+   "timestamp": "2026-09-30T10:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "src/search.ts",
+     "prior": "export function searchFlow(query) {\n  return query.trim().toLowerCase();\n}\n",
+     "content": "## Search documentation\n\nSee the search flow overview.\n"
+    }
+   ]
+  },
+  {
+   "id": "f101pr-o",
+   "repo": "acme-docs",
+   "branch": "pr-overview-branch",
+   "message": "Add overview notes",
+   "author": "pr-author",
+   "timestamp": "2026-09-30T10:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "overview.md",
+     "prior": null,
+     "content": "# Overview notes\n"
+    }
+   ]
+  },
+  {
+   "id": "f102pr-p",
+   "repo": "acme-docs",
+   "branch": "pr-public-branch",
+   "message": "Refine search.ts",
+   "author": "pr-author",
+   "timestamp": "2026-09-30T10:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "src/search.ts",
+     "prior": "export function searchFlow(query) {\n  return query.trim().toLowerCase();\n}\n",
+     "content": "export function searchFlow(query) {\n  return query.trim().toLowerCase();\n}\n\nexport const searchVersion = 2;\n"
+    }
+   ]
+  },
+  {
+   "id": "f103revi",
+   "repo": "acme-docs",
+   "branch": "reviewable-branch",
+   "message": "Reviewable change",
+   "author": "pr-author",
+   "timestamp": "2026-09-30T10:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "src/search.ts",
+     "prior": "export function searchFlow(query) {\n  return query.trim().toLowerCase();\n}\n",
+     "content": "export function searchFlow(query) {\n  const q = query.trim().toLowerCase();\n  return q;\n}\n"
+    }
+   ]
+  },
+  {
+   "id": "f104pend",
+   "repo": "acme-docs",
+   "branch": "pending-branch",
+   "message": "Pending review change",
+   "author": "pr-author",
+   "timestamp": "2026-09-30T10:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "src/search.ts",
+     "prior": "export function searchFlow(query) {\n  return query.trim().toLowerCase();\n}\n",
+     "content": "export function searchFlow(query) {\n  return (query || '').trim().toLowerCase();\n}\n"
+    }
+   ]
+  },
+  {
+   "id": "f105chan",
+   "repo": "acme-docs",
+   "branch": "change-request-branch",
+   "message": "Change request change",
+   "author": "pr-author",
+   "timestamp": "2026-09-30T10:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "src/search.ts",
+     "prior": "export function searchFlow(query) {\n  return query.trim().toLowerCase();\n}\n",
+     "content": "export function searchFlow(query) {\n  return String(query).trim().toLowerCase();\n}\n"
+    }
+   ]
+  },
+  {
+   "id": "f106revi",
+   "repo": "acme-docs",
+   "branch": "reviewer-request-branch",
+   "message": "Reviewer request change",
+   "author": "pr-author",
+   "timestamp": "2026-09-30T10:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "reviewers.md",
+     "prior": null,
+     "content": "# Reviewer request\n"
+    }
+   ]
+  },
+  {
+   "id": "f107merg",
+   "repo": "acme-docs",
+   "branch": "mergeable-branch",
+   "message": "Mergeable feature",
+   "author": "pr-author",
+   "timestamp": "2026-09-30T10:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "mergeable.md",
+     "prior": null,
+     "content": "# Mergeable feature\n"
+    }
+   ]
+  },
+  {
+   "id": "f108fix-",
+   "repo": "acme-docs",
+   "branch": "fix-search-branch",
+   "message": "Fix search",
+   "author": "pr-author",
+   "timestamp": "2026-09-30T10:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "src/search.ts",
+     "prior": "export function searchFlow(query) {\n  return query.trim().toLowerCase();\n}\n",
+     "content": "export function searchFlow(query) {\n  return query.trim().toLowerCase();\n}\n"
+    }
+   ]
+  },
+  {
+   "id": "f109bloc",
+   "repo": "acme-docs",
+   "branch": "blocked-branch",
+   "message": "Blocked feature",
+   "author": "pr-author",
+   "timestamp": "2026-09-30T10:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "blocked.md",
+     "prior": null,
+     "content": "# Blocked feature\n"
+    }
+   ]
+  },
+  {
+   "id": "f110clos",
+   "repo": "acme-docs",
+   "branch": "closable-branch",
+   "message": "Closable change",
+   "author": "pr-author",
+   "timestamp": "2026-09-30T10:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "closable.md",
+     "prior": null,
+     "content": "# Closable change\n"
+    }
+   ]
+  },
+  {
+   "id": "f111prot",
+   "repo": "acme-docs",
+   "branch": "protected-branch",
+   "message": "Protected change",
+   "author": "pr-author",
+   "timestamp": "2026-09-30T10:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "protected.md",
+     "prior": null,
+     "content": "# Protected change\n"
+    }
+   ]
+  },
+  {
+   "id": "f100draft",
+   "repo": "acme-docs",
+   "branch": "draft-feature",
+   "message": "Draft work in progress",
+   "author": "draft-author",
+   "timestamp": "2026-09-30T12:00:00.000Z",
+   "parent": "b7c3d18",
+   "changes": [
+    {
+     "path": "draft-notes.md",
+     "prior": null,
+     "content": "Draft notes.\n"
+    }
+   ]
+  },
+  {
+   "id": "f100prot",
+   "repo": "branch-protection-demo",
+   "branch": "protection-branch",
+   "message": "Protection PR change",
+   "author": "protection-admin",
+   "timestamp": "2026-09-30T14:00:00.000Z",
+   "parent": "aa11bp0",
+   "changes": [
+    {
+     "path": "protection.md",
+     "prior": null,
+     "content": "Protection PR change.\n"
+    }
+   ]
+  }
+ ],
+ "labels": [
+  {
+   "repo": "acme-docs",
+   "name": "bug",
+   "color": "#cf222e"
+  }
+ ],
+ "milestones": [
+  {
+   "repo": "acme-docs",
+   "name": "v1.0",
+   "due": null
+  }
+ ],
+ "issues": [
+  {
+   "repo": "acme-docs",
+   "number": 1,
+   "title": "Improve onboarding",
+   "status": "Open",
+   "author": "issue-author",
+   "description": "Describe the onboarding improvement.",
+   "createdAt": "2026-10-01T16:00:00.000Z",
+   "labels": [],
+   "assignees": [],
+   "milestone": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this issue",
+     "author": "issue-author",
+     "at": "2026-10-01T16:00:00.000Z"
+    },
+    {
+     "type": "comment",
+     "text": "Onboarding steps are documented under src/.",
+     "author": "issue-author",
+     "at": "2026-10-01T17:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 2,
+   "title": "Legacy welcome text",
+   "status": "Closed",
+   "author": "issue-author",
+   "description": "The legacy welcome text needs replacing.",
+   "createdAt": "2026-09-30T20:00:00.000Z",
+   "labels": [],
+   "assignees": [],
+   "milestone": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this issue",
+     "author": "issue-author",
+     "at": "2026-09-30T20:00:00.000Z"
+    },
+    {
+     "type": "closed",
+     "text": "closed this issue",
+     "author": "issue-author",
+     "at": "2026-09-30T22:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 3,
+   "title": "Editable onboarding issue",
+   "status": "Open",
+   "author": "issue-author",
+   "description": "Original description for editing.",
+   "createdAt": "2026-10-01T18:00:00.000Z",
+   "labels": [],
+   "assignees": [],
+   "milestone": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this issue",
+     "author": "issue-author",
+     "at": "2026-10-01T18:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 4,
+   "title": "Original issue title",
+   "status": "Open",
+   "author": "issue-author",
+   "description": "Original body.",
+   "createdAt": "2026-10-01T19:00:00.000Z",
+   "labels": [],
+   "assignees": [],
+   "milestone": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this issue",
+     "author": "issue-author",
+     "at": "2026-10-01T19:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 5,
+   "title": "Commentable onboarding issue",
+   "status": "Open",
+   "author": "issue-author",
+   "description": "Comment away.",
+   "createdAt": "2026-10-01T20:00:00.000Z",
+   "labels": [],
+   "assignees": [],
+   "milestone": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this issue",
+     "author": "issue-author",
+     "at": "2026-10-01T20:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 6,
+   "title": "Comment validation issue",
+   "status": "Open",
+   "author": "issue-author",
+   "description": "Whitespace comments must not be created.",
+   "createdAt": "2026-10-01T21:00:00.000Z",
+   "labels": [],
+   "assignees": [],
+   "milestone": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this issue",
+     "author": "issue-author",
+     "at": "2026-10-01T21:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 7,
+   "title": "Assignable onboarding issue",
+   "status": "Open",
+   "author": "issue-author",
+   "description": "Needs an assignee.",
+   "createdAt": "2026-10-01T22:00:00.000Z",
+   "labels": [],
+   "assignees": [],
+   "milestone": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this issue",
+     "author": "issue-author",
+     "at": "2026-10-01T22:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 8,
+   "title": "Labelable onboarding issue",
+   "status": "Open",
+   "author": "issue-author",
+   "description": "Needs the bug label.",
+   "createdAt": "2026-10-01T23:00:00.000Z",
+   "labels": [],
+   "assignees": [],
+   "milestone": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this issue",
+     "author": "issue-author",
+     "at": "2026-10-01T23:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 9,
+   "title": "Milestone onboarding issue",
+   "status": "Open",
+   "author": "issue-author",
+   "description": "Needs the v1.0 milestone.",
+   "createdAt": "2026-10-02T00:00:00.000Z",
+   "labels": [],
+   "assignees": [],
+   "milestone": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this issue",
+     "author": "issue-author",
+     "at": "2026-10-02T00:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 10,
+   "title": "Closable onboarding issue",
+   "status": "Open",
+   "author": "issue-author",
+   "description": "Close and reopen me.",
+   "createdAt": "2026-10-02T01:00:00.000Z",
+   "labels": [],
+   "assignees": [],
+   "milestone": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this issue",
+     "author": "issue-author",
+     "at": "2026-10-02T01:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 11,
+   "title": "Protected onboarding issue",
+   "status": "Open",
+   "author": "issue-author",
+   "description": "Read-only viewers can see me.",
+   "createdAt": "2026-10-02T02:00:00.000Z",
+   "labels": [],
+   "assignees": [],
+   "milestone": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this issue",
+     "author": "issue-author",
+     "at": "2026-10-02T02:00:00.000Z"
+    }
+   ]
+  }
+ ],
+ "issueCounters": {
+  "acme-docs": 11
+ },
+ "pulls": [
+  {
+   "repo": "acme-docs",
+   "number": 1,
+   "title": "Improve onboarding",
+   "source": "feature-search",
+   "target": "main",
+   "author": "pr-author",
+   "status": "Open",
+   "description": "Covers Improve onboarding.",
+   "createdAt": "2026-09-30T16:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "pr-author",
+     "at": "2026-09-30T16:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 2,
+   "title": "Overview onboarding PR",
+   "source": "pr-overview-branch",
+   "target": "main",
+   "author": "pr-author",
+   "status": "Open",
+   "description": "Covers Overview onboarding PR.",
+   "createdAt": "2026-09-30T17:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "pr-author",
+     "at": "2026-09-30T17:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 3,
+   "title": "Public onboarding PR",
+   "source": "pr-public-branch",
+   "target": "main",
+   "author": "pr-author",
+   "status": "Open",
+   "description": "Covers Public onboarding PR.",
+   "createdAt": "2026-09-30T18:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "pr-author",
+     "at": "2026-09-30T18:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 4,
+   "title": "Reviewable onboarding PR",
+   "source": "reviewable-branch",
+   "target": "main",
+   "author": "pr-author",
+   "status": "Open",
+   "description": "Covers Reviewable onboarding PR.",
+   "createdAt": "2026-09-30T19:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "pr-author",
+     "at": "2026-09-30T19:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 5,
+   "title": "Pending review onboarding PR",
+   "source": "pending-branch",
+   "target": "main",
+   "author": "pr-author",
+   "status": "Open",
+   "description": "Covers Pending review onboarding PR.",
+   "createdAt": "2026-09-30T20:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "pr-author",
+     "at": "2026-09-30T20:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 6,
+   "title": "Change request onboarding PR",
+   "source": "change-request-branch",
+   "target": "main",
+   "author": "pr-author",
+   "status": "Open",
+   "description": "Covers Change request onboarding PR.",
+   "createdAt": "2026-09-30T21:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "pr-author",
+     "at": "2026-09-30T21:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 7,
+   "title": "Reviewer request onboarding PR",
+   "source": "reviewer-request-branch",
+   "target": "main",
+   "author": "pr-author",
+   "status": "Open",
+   "description": "Covers Reviewer request onboarding PR.",
+   "createdAt": "2026-09-30T22:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "pr-author",
+     "at": "2026-09-30T22:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 8,
+   "title": "Mergeable onboarding PR",
+   "source": "mergeable-branch",
+   "target": "main",
+   "author": "pr-author",
+   "status": "Open",
+   "description": "Covers Mergeable onboarding PR.",
+   "createdAt": "2026-09-30T23:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "pr-author",
+     "at": "2026-09-30T23:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 9,
+   "title": "Fix search",
+   "source": "fix-search-branch",
+   "target": "main",
+   "author": "pr-author",
+   "status": "Open",
+   "description": "Covers Fix search.",
+   "createdAt": "2026-10-01T00:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "pr-author",
+     "at": "2026-10-01T00:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 10,
+   "title": "Blocked onboarding PR",
+   "source": "blocked-branch",
+   "target": "main",
+   "author": "pr-author",
+   "status": "Open",
+   "description": "Covers Blocked onboarding PR.",
+   "createdAt": "2026-10-01T01:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "pr-author",
+     "at": "2026-10-01T01:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 11,
+   "title": "Closable onboarding PR",
+   "source": "closable-branch",
+   "target": "main",
+   "author": "pr-author",
+   "status": "Open",
+   "description": "Covers Closable onboarding PR.",
+   "createdAt": "2026-10-01T02:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "pr-author",
+     "at": "2026-10-01T02:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 12,
+   "title": "Protected onboarding PR",
+   "source": "protected-branch",
+   "target": "main",
+   "author": "pr-author",
+   "status": "Open",
+   "description": "Covers Protected onboarding PR.",
+   "createdAt": "2026-10-01T03:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "pr-author",
+     "at": "2026-10-01T03:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "acme-docs",
+   "number": 13,
+   "title": "Draft onboarding update",
+   "source": "draft-feature",
+   "target": "main",
+   "author": "draft-author",
+   "status": "Draft",
+   "description": "Draft coverage for onboarding.",
+   "createdAt": "2026-09-30T13:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "draft-author",
+     "at": "2026-09-30T13:00:00.000Z"
+    }
+   ]
+  },
+  {
+   "repo": "branch-protection-demo",
+   "number": 1,
+   "title": "Protection status onboarding PR",
+   "source": "protection-branch",
+   "target": "main",
+   "author": "protection-admin",
+   "status": "Open",
+   "description": "Checks demo.",
+   "createdAt": "2026-09-30T15:00:00.000Z",
+   "comments": [],
+   "reviews": [],
+   "lineComments": [],
+   "reviewers": [],
+   "mergeCommit": null,
+   "mergedBy": null,
+   "mergedAt": null,
+   "timeline": [
+    {
+     "type": "opened",
+     "text": "opened this pull request",
+     "author": "protection-admin",
+     "at": "2026-09-30T15:00:00.000Z"
+    }
+   ]
+  }
+ ],
+ "pullCounters": {
+  "acme-docs": 13,
+  "branch-protection-demo": 1
+ },
+ "checks": [
+  {
+   "repo": "acme-docs",
+   "pull": 8,
+   "name": "test",
+   "status": "success",
+   "setter": "pr-maintainer",
+   "at": "2026-10-01T06:00:00.000Z"
+  },
+  {
+   "repo": "branch-protection-demo",
+   "pull": 1,
+   "name": "test",
+   "status": "pending",
+   "setter": null,
+   "at": "2026-09-30T16:00:00.000Z"
+  }
+ ],
+ "reviews": [
+  {
+   "repo": "acme-docs",
+   "pull": 8,
+   "reviewer": "bob-reviewer",
+   "decision": "Approved",
+   "summary": "Looks good.",
+   "commit": "f107merg",
+   "at": "2026-10-01T05:00:00.000Z"
+  }
+ ],
+ "protections": [
+  {
+   "repo": "acme-docs",
+   "branch": "main",
+   "requireApproval": true,
+   "requireStatusCheck": "test"
   }
  ]
 }

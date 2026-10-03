@@ -507,3 +507,5 @@ mark {
 .diff-removed { color: #cf222e; font-weight: 600; }
 
 .file-content .diff-line { min-height: 1.4em; white-space: pre-wrap; }
+
+[hidden] { display: none !important; }

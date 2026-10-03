@@ -8,7 +8,9 @@
   const pathParts = location.pathname.split("/").filter(Boolean);
   // ["repo", name, "settings"] or ["repo", name, "settings", "access"]
   const repoName = decodeURIComponent(pathParts[1] || "");
-  const isAccessView = pathParts[3] === "access";
+  const settingsSub = pathParts[3] || ""; // "" (general) | access | branches
+  const isAccessView = settingsSub === "access";
+  const isBranchesView = settingsSub === "branches";
   const repoBase = "/repo/" + encodeURIComponent(repoName);
 
   let accessData = null;
@@ -38,16 +40,116 @@
 
     const tabs = el("nav", { class: "tabs" });
     const general = el("a", { href: repoBase + "/settings", text: "General" });
+    const branchesTab = el("a", { href: repoBase + "/settings/branches", text: "Branches" });
     const manageAccess = el("a", { href: repoBase + "/settings/access", text: "Manage access" });
-    tabs.append(general, manageAccess);
+    tabs.append(general, branchesTab, manageAccess);
     main.append(tabs);
 
     if (isAccessView) {
       manageAccess.setAttribute("aria-current", "page");
       await renderAccess();
+    } else if (isBranchesView) {
+      branchesTab.setAttribute("aria-current", "page");
+      await renderBranches(repo);
     } else {
       general.setAttribute("aria-current", "page");
-      main.append(el("p", { class: "empty", text: "General repository settings." }));
+      await renderGeneral(repo);
+    }
+
+    // --- General: visibility change (administrator only) ---------------------
+    function renderGeneral(repo) {
+      const panel = el("div", { class: "panel", style: "max-width:620px" });
+      panel.append(el("h2", { text: "General" }));
+      const current = el("p", {}, [
+        document.createTextNode("This repository is currently "),
+        el("span", { class: "badge", text: repo.visibility === "private" ? "Private" : "Public" }),
+      ]);
+      panel.append(current);
+
+      if (!repo.canAdmin) {
+        // A non-admin collaborator has no actionable visibility control.
+        panel.append(el("p", { class: "subtitle", text: "Only administrators may update this setting." }));
+        main.append(panel);
+        return;
+      }
+
+      const changeBtn = el("button", { class: "btn btn-danger", type: "button", text: "Change visibility" });
+      const flow = el("div", { hidden: "" });
+      const publicRadio = el("input", { type: "radio", name: "change-visibility", value: "public", id: "cv-public" });
+      const privateRadio = el("input", { type: "radio", name: "change-visibility", value: "private", id: "cv-private", ...(repo.visibility === "private" ? { checked: "" } : {}) });
+      flow.append(
+        el("div", {}, [publicRadio, el("label", { for: "cv-public", style: "display:inline;font-weight:400" }, [document.createTextNode(" Public")])]),
+        el("div", {}, [privateRadio, el("label", { for: "cv-private", style: "display:inline;font-weight:400" }, [document.createTextNode(" Private")])]),
+      );
+      const confirmBtn = el("button", { class: "btn btn-danger", type: "button", text: "Confirm visibility" });
+      const errorLine = el("p", { class: "form-error", hidden: "" });
+      flow.append(errorLine, el("div", { class: "dialog-actions" }, [confirmBtn]));
+      changeBtn.addEventListener("click", () => { flow.hidden = !flow.hidden; });
+      confirmBtn.addEventListener("click", async () => {
+        errorLine.hidden = true;
+        const visibility = publicRadio.checked ? "public" : "private";
+        const res = await api.patch("/api/repos/" + encodeURIComponent(repoName), { visibility });
+        if (!res.ok) {
+          errorLine.textContent = res.data.error || "Access denied";
+          errorLine.hidden = false;
+          return;
+        }
+        repo.visibility = res.data.visibility;
+        current.replaceChildren(
+          document.createTextNode("This repository is currently "),
+          el("span", { class: "badge", text: repo.visibility === "private" ? "Private" : "Public" }),
+        );
+        flow.hidden = true;
+      });
+      panel.append(changeBtn, flow);
+      main.append(panel);
+    }
+
+    // --- Branches: default branch (administrator only) -----------------------
+    function renderBranches(repo) {
+      const panel = el("div", { class: "panel", style: "max-width:620px" });
+      panel.append(el("h2", { text: "Branches" }));
+      const errorLine = el("p", { class: "form-error", hidden: "" });
+      const successLine = el("p", { class: "form-success", hidden: "" });
+      panel.append(errorLine, successLine);
+
+      if (!repo.canAdmin) {
+        panel.append(el("p", { class: "subtitle", text: "Only repository administrators can change the default branch." }));
+        main.append(panel);
+        return;
+      }
+
+      api.get("/api/repos/" + encodeURIComponent(repoName) + "/branches").then((res) => {
+        if (!res.ok) return;
+        const field = el("div", { class: "field" });
+        field.append(el("label", { for: "default-branch", text: "Default branch" }));
+        const select = el("select", { id: "default-branch" });
+        for (const name of res.data.branches) {
+          const opt = el("option", { value: name, text: name });
+          if (name === (repo.defaultBranch || "main")) opt.selected = true;
+          select.append(opt);
+        }
+        field.append(select);
+        const updateBtn = el("button", { class: "btn", type: "button", text: "Update" });
+        const confirmBtn = el("button", { class: "btn btn-primary", type: "button", text: "Confirm", hidden: "" });
+        confirmBtn.addEventListener("click", async () => {
+          errorLine.hidden = true;
+          successLine.hidden = true;
+          const res2 = await api.patch("/api/repos/" + encodeURIComponent(repoName), { defaultBranch: select.value });
+          if (!res2.ok) {
+            errorLine.textContent = res2.data.error || "Access denied";
+            errorLine.hidden = false;
+            return;
+          }
+          repo.defaultBranch = res2.data.defaultBranch;
+          successLine.textContent = "Default branch updated";
+          successLine.hidden = false;
+          confirmBtn.hidden = true;
+        });
+        updateBtn.addEventListener("click", () => { confirmBtn.hidden = false; });
+        panel.append(field, el("div", { class: "dialog-actions" }, [updateBtn, confirmBtn]));
+      });
+      main.append(panel);
     }
 
     async function renderAccess() {

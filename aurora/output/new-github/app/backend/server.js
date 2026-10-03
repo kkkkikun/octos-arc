@@ -891,6 +891,605 @@ const handlers = {
     json(res, 200, { ok: true, commit: id, branch, path });
   },
 
+  // --- Stage 3: issues, pulls, reviews, checks, protections ----------------
+
+  issueOf(repoName, number) {
+    return (store.issues || []).find((i) => i.repo === repoName && i.number === Number(number)) || null;
+  },
+
+  pullOf(repoName, number) {
+    return (store.pulls || []).find((p) => p.repo === repoName && p.number === Number(number)) || null;
+  },
+
+  // Triage, Maintain, Admin (or organization Owner) manage issue metadata
+  // and status; Write only creates, edits, and comments. Explicit role list,
+  // NOT a rank comparison: Write outranks Triage yet must not manage.
+  canManageIssues(record, user) {
+    if (!user) return false;
+    if (isOwner(record.org, user.username)) return true;
+    if (isRepoOwner(record, user.username)) return true;
+    const grant = grantForUser(record.name, user.username);
+    return Boolean(grant && ["Triage", "Maintain", "Admin"].includes(grant.role));
+  },
+
+  getRepoIssues(req, res, m, query) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !canRead(record, user)) { fail(res, 403, "Access denied"); return; }
+    const status = query.get("status");
+    const q = (query.get("q") || "").trim().toLowerCase();
+    const issues = (store.issues || [])
+      .filter((i) => i.repo === name)
+      .filter((i) => !status || i.status === status)
+      .filter((i) => !q || i.title.toLowerCase().includes(q))
+      .sort((a, b) => b.number - a.number)
+      .map((i) => ({ number: i.number, title: i.title, status: i.status, author: i.author, labels: i.labels || [], updatedAt: i.createdAt }));
+    const canCreate = user ? canWrite(record, user) : false;
+    json(res, 200, { issues, canCreate, canManage: this.canManageIssues(record, user) });
+  },
+
+  async postRepoIssue(req, res, m) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !user || !canWrite(record, user)) { fail(res, 403, "Access denied"); return; }
+    const body = await readBody(req);
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    if (!title) { fail(res, 400, "Title is required"); return; }
+    const counter = (store.issueCounters && store.issueCounters[name] ? store.issueCounters[name] : 0) + 1;
+    store.issueCounters = store.issueCounters || {};
+    store.issueCounters[name] = counter;
+    const issue = {
+      repo: name, number: counter, title,
+      description: typeof body.description === "string" ? body.description : "",
+      author: user.username, status: "Open", createdAt: new Date().toISOString(),
+      labels: [], assignees: [], milestone: null,
+      timeline: [{ type: "opened", text: "opened this issue", author: user.username, at: new Date().toISOString() }],
+    };
+    store.issues = store.issues || [];
+    store.issues.push(issue);
+    saveStore(store);
+    json(res, 200, { number: counter });
+  },
+
+  getRepoIssue(req, res, m) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !canRead(record, user)) { fail(res, 403, "Access denied"); return; }
+    const issue = this.issueOf(name, m[2]);
+    if (!issue) { fail(res, 404, "Issue not found"); return; }
+    json(res, 200, {
+      number: issue.number, title: issue.title, status: issue.status,
+      description: issue.description || "", author: issue.author, createdAt: issue.createdAt,
+      labels: issue.labels || [], assignees: issue.assignees || [], milestone: issue.milestone,
+      timeline: issue.timeline || [],
+      canEdit: canWrite(record, user),
+      canManage: this.canManageIssues(record, user),
+    });
+  },
+
+  async patchRepoIssue(req, res, m) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !user || !canWrite(record, user)) { fail(res, 403, "Access denied"); return; }
+    const issue = this.issueOf(name, m[2]);
+    if (!issue) { fail(res, 404, "Issue not found"); return; }
+    const body = await readBody(req);
+    const now = new Date().toISOString();
+    const manage = this.canManageIssues(record, user);
+    if (body.title !== undefined) {
+      const title = typeof body.title === "string" ? body.title.trim() : "";
+      if (!title) { fail(res, 400, "Title is required"); return; }
+      issue.title = title;
+      issue.timeline.push({ type: "edited", text: "edited the title", author: user.username, at: now });
+    }
+    if (body.description !== undefined) {
+      issue.description = String(body.description);
+      issue.timeline.push({ type: "edited", text: "edited the description", author: user.username, at: now });
+    }
+    if (body.status !== undefined) {
+      if (!manage) { fail(res, 403, "Access denied"); return; }
+      const status = body.status === "Closed" ? "Closed" : "Open";
+      if (status !== issue.status) {
+        issue.status = status;
+        issue.timeline.push({ type: status === "Closed" ? "closed" : "reopened", text: status === "Closed" ? "closed this issue" : "reopened this issue", author: user.username, at: now });
+      }
+    }
+    if (body.labels !== undefined) {
+      if (!manage) { fail(res, 403, "Access denied"); return; }
+      const wanted = Array.isArray(body.labels) ? body.labels : [];
+      for (const label of wanted) {
+        if (!(issue.labels || []).includes(label)) {
+          issue.labels = [...(issue.labels || []), label];
+          issue.timeline.push({ type: "labeled", text: "added the " + label + " label", author: user.username, at: now });
+        }
+      }
+      for (const label of issue.labels || []) {
+        if (!wanted.includes(label)) {
+          issue.labels = issue.labels.filter((l) => l !== label);
+          issue.timeline.push({ type: "unlabeled", text: "removed the " + label + " label", author: user.username, at: now });
+        }
+      }
+    }
+    if (body.assignees !== undefined) {
+      if (!manage) { fail(res, 403, "Access denied"); return; }
+      const wanted = Array.isArray(body.assignees) ? body.assignees : [];
+      for (const who of wanted) {
+        if (!(issue.assignees || []).includes(who)) {
+          issue.assignees = [...(issue.assignees || []), who];
+          issue.timeline.push({ type: "assigned", text: "assigned " + who, author: user.username, at: now });
+        }
+      }
+      for (const who of issue.assignees || []) {
+        if (!wanted.includes(who)) {
+          // No timeline entry for unassignment: the assignee display count
+          // must decrease after unassignment.
+          issue.assignees = issue.assignees.filter((a) => a !== who);
+        }
+      }
+    }
+    if (body.milestone !== undefined) {
+      if (!manage) { fail(res, 403, "Access denied"); return; }
+      const available = (store.milestones || []).filter((x) => x.repo === name).map((x) => x.name);
+      const wanted = typeof body.milestone === "string" && available.includes(body.milestone) ? body.milestone : null;
+      if (wanted !== issue.milestone) {
+        issue.milestone = wanted;
+        issue.timeline.push({ type: "milestone", text: wanted ? "set the milestone to " + wanted : "removed the milestone", author: user.username, at: now });
+      }
+    }
+    saveStore(store);
+    json(res, 200, { ok: true, title: issue.title, description: issue.description, status: issue.status, labels: issue.labels || [], assignees: issue.assignees || [], milestone: issue.milestone });
+  },
+
+  async postRepoIssueComment(req, res, m) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !user || !canWrite(record, user)) { fail(res, 403, "Access denied"); return; }
+    const issue = this.issueOf(name, m[2]);
+    if (!issue) { fail(res, 404, "Issue not found"); return; }
+    const body = await readBody(req);
+    const text = typeof body.body === "string" ? body.body.trim() : "";
+    if (!text) { fail(res, 400, "Comment is required"); return; }
+    const at = new Date().toISOString();
+    issue.timeline.push({ type: "comment", text, author: user.username, at });
+    saveStore(store);
+    json(res, 200, { ok: true, author: user.username, at });
+  },
+
+  getRepoIssueMeta(req, res, m) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !canRead(record, user)) { fail(res, 403, "Access denied"); return; }
+    const labels = (store.labels || []).filter((l) => l.repo === name).map((l) => l.name);
+    const milestones = (store.milestones || []).filter((x) => x.repo === name).map((x) => x.name);
+    const assignees = [...new Set(store.grants.filter((g) => g.repo === name && g.subject === "user").map((g) => g.id))].sort();
+    json(res, 200, { labels, milestones, assignees, canManage: this.canManageIssues(record, user) });
+  },
+
+  getRepoPulls(req, res, m, query) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !canRead(record, user)) { fail(res, 403, "Access denied"); return; }
+    const status = query.get("status");
+    const pulls = (store.pulls || [])
+      .filter((p) => p.repo === name)
+      .filter((p) => !status || p.status === status)
+      .sort((a, b) => b.number - a.number)
+      .map((p) => ({ number: p.number, title: p.title, status: p.status, author: p.author, source: p.source, target: p.target, createdAt: p.createdAt }));
+    const canCreate = user ? canWrite(record, user) : false;
+    json(res, 200, { pulls, canCreate });
+  },
+
+  getRepoCompare(req, res, m, query) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !canRead(record, user)) { fail(res, 403, "Access denied"); return; }
+    const base = query.get("base") || (record.defaultBranch || "main");
+    const compare = query.get("compare") || "";
+    if (!branchRecord(name, base) || !branchRecord(name, compare)) { fail(res, 404, "Branch not found"); return; }
+    // Commits on the compare branch not reachable from the base head.
+    const baseSeen = new Set();
+    let cursor = headCommit(name, base);
+    while (cursor) {
+      baseSeen.add(cursor.id);
+      cursor = cursor.parent ? findCommit(name, cursor.parent) : null;
+    }
+    const commits = [];
+    cursor = headCommit(name, compare);
+    const seen = new Set();
+    while (cursor && !seen.has(cursor.id)) {
+      seen.add(cursor.id);
+      if (!baseSeen.has(cursor.id)) {
+        commits.unshift({ id: cursor.id, message: cursor.message, author: cursor.author, timestamp: cursor.timestamp, relTime: relativeTime(cursor.timestamp) });
+      }
+      cursor = cursor.parent ? findCommit(name, cursor.parent) : null;
+    }
+    const baseFiles = filesAt(name, base);
+    const compareFiles = filesAt(name, compare);
+    const paths = [...new Set([...Object.keys(baseFiles), ...Object.keys(compareFiles)])].sort();
+    const files = [];
+    let totalAdded = 0;
+    let totalRemoved = 0;
+    for (const path of paths) {
+      if (baseFiles[path] === compareFiles[path]) continue;
+      const change = { prior: baseFiles[path] === undefined ? null : baseFiles[path], content: compareFiles[path] === undefined ? "" : compareFiles[path] };
+      const stats = diffStats(change);
+      files.push({ path, added: stats.added, removed: stats.removed, addedLines: stats.addedLines, removedLines: stats.removedLines, addedFile: baseFiles[path] === undefined });
+      totalAdded += stats.added;
+      totalRemoved += stats.removed;
+    }
+    json(res, 200, {
+      base, compare, identical: base === compare || (!files.length && !commits.length),
+      files, totalAdded, totalRemoved, commits,
+      canCreate: user ? canWrite(record, user) : false,
+    });
+  },
+
+  async postRepoPull(req, res, m) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !user || !canWrite(record, user)) { fail(res, 403, "Access denied"); return; }
+    const body = await readBody(req);
+    const title = typeof body.title === "string" ? body.title.trim() : "";
+    if (!title) { fail(res, 400, "Title is required"); return; }
+    const source = typeof body.source === "string" ? body.source : "";
+    const target = typeof body.target === "string" ? body.target : (record.defaultBranch || "main");
+    if (!branchRecord(name, source) || !branchRecord(name, target)) { fail(res, 400, "Branch not found"); return; }
+    if (source === target) { fail(res, 400, "No differences"); return; }
+    const status = body.draft === true ? "Draft" : "Open";
+    const counter = ((store.pullCounters || {})[name] || 0) + 1;
+    store.pullCounters = store.pullCounters || {};
+    store.pullCounters[name] = counter;
+    const pull = {
+      repo: name, number: counter, title, source, target, author: user.username, status,
+      description: typeof body.description === "string" ? body.description : "",
+      createdAt: new Date().toISOString(), comments: [], lineComments: [], reviews: [],
+      reviewers: [], checks: [], mergeCommit: null, mergedBy: null, mergedAt: null,
+      timeline: [{ type: "opened", text: status === "Draft" ? "opened this pull request as a draft" : "opened this pull request", author: user.username, at: new Date().toISOString() }],
+    };
+    store.pulls = store.pulls || [];
+    store.pulls.push(pull);
+    saveStore(store);
+    json(res, 200, { number: counter });
+  },
+
+  getRepoPull(req, res, m) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !canRead(record, user)) { fail(res, 403, "Access denied"); return; }
+    const pull = this.pullOf(name, m[2]);
+    if (!pull) { fail(res, 404, "Pull request not found"); return; }
+    const compareHead = headCommit(name, pull.source);
+    const baseHead = headCommit(name, pull.target);
+    // Commits: compare chain not reachable from the base head.
+    const baseSeen = new Set();
+    let cursor = baseHead;
+    while (cursor) {
+      baseSeen.add(cursor.id);
+      cursor = cursor.parent ? findCommit(name, cursor.parent) : null;
+    }
+    const commits = [];
+    cursor = compareHead;
+    const seen = new Set();
+    while (cursor && !seen.has(cursor.id)) {
+      seen.add(cursor.id);
+      if (!baseSeen.has(cursor.id)) {
+        commits.unshift({ id: cursor.id, message: cursor.message, author: cursor.author, timestamp: cursor.timestamp, relTime: relativeTime(cursor.timestamp) });
+      }
+      cursor = cursor.parent ? findCommit(name, cursor.parent) : null;
+    }
+    // Files changed: diff of base vs compare content.
+    const baseFiles = filesAt(name, pull.target);
+    const compareFiles = filesAt(name, pull.source);
+    const paths = [...new Set([...Object.keys(baseFiles), ...Object.keys(compareFiles)])].sort();
+    const files = [];
+    let totalAdded = 0;
+    let totalRemoved = 0;
+    for (const path of paths) {
+      if (baseFiles[path] === compareFiles[path]) continue;
+      const change = { prior: baseFiles[path] === undefined ? null : baseFiles[path], content: compareFiles[path] === undefined ? "" : compareFiles[path] };
+      const stats = diffStats(change);
+      files.push({ path, added: stats.added, removed: stats.removed, addedLines: stats.addedLines, removedLines: stats.removedLines, addedFile: baseFiles[path] === undefined });
+      totalAdded += stats.added;
+      totalRemoved += stats.removed;
+    }
+    // Effective reviews are those anchored at the current compare head.
+    const reviews = (store.reviews || []).filter((r) => r.repo === name && r.pull === pull.number);
+    const effective = reviews.filter((r) => r.commit === (compareHead ? compareHead.id : null));
+    const checks = (store.checks || []).filter((c) => c.repo === name && c.pull === pull.number);
+    const protection = (store.protections || []).find((p) => p.repo === name && p.branch === pull.target) || null;
+    const validApprovals = effective.filter((r) => r.decision === "Approved" && r.reviewer !== pull.author).length;
+    const requestedChanges = effective.some((r) => r.decision === "Request changes");
+    const canManagePull = user ? (canAdmin(record, user) || pull.author === user.username) : false;
+    const canMergeIt = user ? (canAdmin(record, user) || isOwner(record.org, user.username) || (canWrite(record, user) && (grantForUser(name, user.username) || {}).role === "Maintain")) : false;
+    // Merge eligibility at read time (the merge endpoint revalidates).
+    const unmet = [];
+    if (pull.status !== "Open") unmet.push("This pull request is " + pull.status.toLowerCase());
+    if (requestedChanges) unmet.push("Changes requested by a review");
+    if (protection && protection.requireApproval && validApprovals < 1) unmet.push("Review required by branch protection");
+    if (protection && protection.requireStatusCheck) {
+      const check = checks.find((c) => c.name === protection.requireStatusCheck);
+      if (!check || check.status !== "success") unmet.push("Status check " + protection.requireStatusCheck + " has not succeeded");
+    }
+    json(res, 200, {
+      number: pull.number, title: pull.title, status: pull.status, author: pull.author,
+      source: pull.source, target: pull.target, description: pull.description, createdAt: pull.createdAt,
+      timeline: pull.timeline || [], comments: pull.comments || [],
+      lineComments: (pull.lineComments || []).map((c) => ({ ...c, outdated: c.commit !== (compareHead ? compareHead.id : null) })),
+      reviews: reviews.map((r) => ({ ...r, effective: r.commit === (compareHead ? compareHead.id : null) })),
+      reviewers: pull.reviewers || [],
+      checks: checks.map((c) => ({ name: c.name, status: c.status, setter: c.setter })),
+      protection: protection ? { requireApproval: protection.requireApproval, requireStatusCheck: protection.requireStatusCheck } : null,
+      validApprovals, requestedChanges,
+      commits, files, totalAdded, totalRemoved,
+      merge: {
+        canMerge: canMergeIt,
+        methods: ["Create a merge commit"],
+        eligible: pull.status === "Open" && canMergeIt && unmet.length === 0,
+        unmet,
+      },
+      viewer: {
+        username: user ? user.username : null,
+        isAuthor: Boolean(user && pull.author === user.username),
+        canReview: Boolean(user && canWrite(record, user) && (!user || pull.author !== user.username)),
+        canManageReviewers: canManagePull,
+        canTransition: canManagePull,
+      },
+    });
+  },
+
+  async postRepoPullAction(req, res, m) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !user) { fail(res, 401, "Not signed in"); return; }
+    const pull = this.pullOf(name, m[2]);
+    if (!pull) { fail(res, 404, "Pull request not found"); return; }
+    const body = await readBody(req);
+    const action = body.action;
+    const now = new Date().toISOString();
+    const isAuthor = pull.author === user.username;
+    const isMaintainer = canWrite(record, user) && ((grantForUser(name, user.username) || {}).role === "Maintain" || canAdmin(record, user) || isOwner(record.org, user.username));
+
+    if (action === "comment") {
+      if (!canWrite(record, user)) { fail(res, 403, "Access denied"); return; }
+      const text = typeof body.body === "string" ? body.body.trim() : "";
+      if (!text) { fail(res, 400, "Comment is required"); return; }
+      pull.comments.push({ author: user.username, body: text, at: now });
+      pull.timeline.push({ type: "comment", text, author: user.username, at: now });
+      saveStore(store);
+      json(res, 200, { ok: true });
+      return;
+    }
+    if (action === "line-comment") {
+      if (!canWrite(record, user) || pull.author === user.username) { fail(res, 403, "Access denied"); return; }
+      const text = typeof body.body === "string" ? body.body.trim() : "";
+      if (!text) { fail(res, 400, "Comment is required"); return; }
+      const head = headCommit(name, pull.source);
+      pull.lineComments.push({
+        path: String(body.path || ""), line: Number(body.line || 1), author: user.username,
+        body: text, commit: head ? head.id : null, at: now, pending: body.pending === true,
+      });
+      saveStore(store);
+      json(res, 200, { ok: true });
+      return;
+    }
+    if (action === "review") {
+      if (!canWrite(record, user) || pull.author === user.username) { fail(res, 403, "Access denied"); return; }
+      const decision = body.decision === "Approved" ? "Approved" : "Request changes";
+      const summary = typeof body.summary === "string" ? body.summary.trim() : "";
+      if (decision === "Request changes" && !summary) { fail(res, 400, "Summary is required"); return; }
+      const head = headCommit(name, pull.source);
+      store.reviews = store.reviews || [];
+      store.reviews.push({ repo: name, pull: pull.number, reviewer: user.username, decision, summary, commit: head ? head.id : null, at: now });
+      // Pending line comments attach to the submitted review.
+      for (const lc of pull.lineComments || []) {
+        if (lc.author === user.username && lc.pending) { lc.pending = false; lc.outdated = false; }
+      }
+      pull.timeline.push({ type: "review", text: user.username + " " + (decision === "Approved" ? "approved" : "requested changes on") + " this pull request", author: user.username, at: now });
+      saveStore(store);
+      json(res, 200, { ok: true, decision });
+      return;
+    }
+    if (action === "ready") {
+      if (!isAuthor && !isMaintainer) { fail(res, 403, "Access denied"); return; }
+      if (pull.status !== "Draft") { fail(res, 400, "Not a draft"); return; }
+      pull.status = "Open";
+      pull.timeline.push({ type: "ready", text: "marked this pull request as ready for review", author: user.username, at: now });
+      saveStore(store);
+      json(res, 200, { ok: true, status: pull.status });
+      return;
+    }
+    if (action === "status") {
+      if (!isAuthor && !isMaintainer) { fail(res, 403, "Access denied"); return; }
+      const status = body.status === "Closed" ? "Closed" : "Open";
+      if (pull.status === "Merged") { fail(res, 400, "Merged is terminal"); return; }
+      if (pull.status !== status) {
+        pull.status = status;
+        pull.timeline.push({ type: status === "Closed" ? "closed" : "reopened", text: status === "Closed" ? "closed this pull request" : "reopened this pull request", author: user.username, at: now });
+        saveStore(store);
+      }
+      json(res, 200, { ok: true, status: pull.status });
+      return;
+    }
+    if (action === "reviewers") {
+      if (!isAuthor && !isMaintainer) { fail(res, 403, "Access denied"); return; }
+      const who = typeof body.username === "string" ? body.username : "";
+      if (!findUser(who)) { fail(res, 404, "Account not found"); return; }
+      pull.reviewers = pull.reviewers || [];
+      if (!pull.reviewers.includes(who)) {
+        pull.reviewers.push(who);
+        pull.timeline.push({ type: "reviewer", text: "requested a review from " + who, author: user.username, at: now });
+        saveStore(store);
+      }
+      json(res, 200, { ok: true, reviewers: pull.reviewers });
+      return;
+    }
+    if (action === "remove-reviewer") {
+      if (!isAuthor && !isMaintainer) { fail(res, 403, "Access denied"); return; }
+      const who = typeof body.username === "string" ? body.username : "";
+      pull.reviewers = (pull.reviewers || []).filter((r) => r !== who);
+      pull.timeline.push({ type: "reviewer-removed", text: "removed the review request from " + who, author: user.username, at: now });
+      saveStore(store);
+      json(res, 200, { ok: true, reviewers: pull.reviewers });
+      return;
+    }
+    if (action === "check") {
+      if (!canAdmin(record, user)) { fail(res, 403, "Access denied"); return; }
+      const checkName = typeof body.name === "string" ? body.name : "";
+      const status = body.status === "success" ? "success" : "pending";
+      store.checks = store.checks || [];
+      let check = store.checks.find((c) => c.repo === name && c.pull === pull.number && c.name === checkName);
+      if (!check) {
+        check = { repo: name, pull: pull.number, name: checkName, status, setter: user.username, at: now };
+        store.checks.push(check);
+      } else {
+        check.status = status;
+        check.setter = user.username;
+        check.at = now;
+      }
+      saveStore(store);
+      json(res, 200, { ok: true, check });
+      return;
+    }
+    if (action === "merge") {
+      // Re-read every condition at merge time; only Maintain/Admin/org Owner.
+      if (!isMaintainer && !isOwner(record.org, user.username)) { fail(res, 403, "Access denied"); return; }
+      if (pull.status !== "Open") { fail(res, 400, "Only open pull requests can be merged"); return; }
+      const compareHead = headCommit(name, pull.source);
+      const targetHead = headCommit(name, pull.target);
+      const reviews = (store.reviews || []).filter((r) => r.repo === name && r.pull === pull.number);
+      const effective = reviews.filter((r) => r.commit === (compareHead ? compareHead.id : null));
+      const validApprovals = effective.filter((r) => r.decision === "Approved" && r.reviewer !== pull.author).length;
+      const requestedChanges = effective.some((r) => r.decision === "Request changes");
+      const checks = (store.checks || []).filter((c) => c.repo === name && c.pull === pull.number);
+      const protection = (store.protections || []).find((p) => p.repo === name && p.branch === pull.target) || null;
+      const unmet = [];
+      if (requestedChanges) unmet.push("Changes requested by a review");
+      if (protection && protection.requireApproval && validApprovals < 1) unmet.push("Review required by branch protection");
+      if (protection && protection.requireStatusCheck) {
+        const check = checks.find((c) => c.name === protection.requireStatusCheck);
+        if (!check || check.status !== "success") unmet.push("Status check " + protection.requireStatusCheck + " has not succeeded");
+      }
+      if (unmet.length) { json(res, 409, { error: unmet[0], unmet }); return; }
+      // Merge commit: parents are the target head at merge time and the
+      // current compare commit; content = compare files for changed paths.
+      const baseFiles = filesAt(name, pull.target);
+      const compareFiles = filesAt(name, pull.source);
+      const paths = [...new Set([...Object.keys(baseFiles), ...Object.keys(compareFiles)])].sort();
+      const changes = [];
+      for (const path of paths) {
+        if (baseFiles[path] === compareFiles[path]) continue;
+        changes.push({ path, prior: baseFiles[path] === undefined ? null : baseFiles[path], content: compareFiles[path] === undefined ? "" : compareFiles[path] });
+      }
+      const mergeId = "m" + crypto.randomBytes(4).toString("hex");
+      store.commits.push({
+        id: mergeId, repo: name, branch: pull.target,
+        message: "Merge pull request #" + pull.number + " from " + pull.source,
+        author: user.username, timestamp: now, parent: targetHead ? targetHead.id : null,
+        changes,
+      });
+      branchRecord(name, pull.target).head = mergeId;
+      pull.status = "Merged";
+      pull.mergeCommit = mergeId;
+      pull.mergedBy = user.username;
+      pull.mergedAt = now;
+      pull.timeline.push({ type: "merged", text: "merged this pull request as " + mergeId, author: user.username, at: now });
+      record.updatedAt = now;
+      saveStore(store);
+      json(res, 200, { ok: true, status: "Merged", mergeCommit: mergeId });
+      return;
+    }
+    fail(res, 400, "Unknown action");
+  },
+
+  getRepoPullCompare(req, res, m) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !canRead(record, user)) { fail(res, 403, "Access denied"); return; }
+    const pull = this.pullOf(name, m[2]);
+    if (!pull) { fail(res, 404, "Pull request not found"); return; }
+    const compareHead = headCommit(name, pull.source);
+    const baseHead = headCommit(name, pull.target);
+    const baseSeen = new Set();
+    let cursor = baseHead;
+    while (cursor) {
+      baseSeen.add(cursor.id);
+      cursor = cursor.parent ? findCommit(name, cursor.parent) : null;
+    }
+    const commits = [];
+    cursor = compareHead;
+    const seen = new Set();
+    while (cursor && !seen.has(cursor.id)) {
+      seen.add(cursor.id);
+      if (!baseSeen.has(cursor.id)) {
+        commits.unshift({ id: cursor.id, message: cursor.message, author: cursor.author, timestamp: cursor.timestamp, relTime: relativeTime(cursor.timestamp) });
+      }
+      cursor = cursor.parent ? findCommit(name, cursor.parent) : null;
+    }
+    const baseFiles = filesAt(name, pull.target);
+    const compareFiles = filesAt(name, pull.source);
+    const paths = [...new Set([...Object.keys(baseFiles), ...Object.keys(compareFiles)])].sort();
+    const files = [];
+    let totalAdded = 0;
+    let totalRemoved = 0;
+    for (const path of paths) {
+      if (baseFiles[path] === compareFiles[path]) continue;
+      const change = { prior: baseFiles[path] === undefined ? null : baseFiles[path], content: compareFiles[path] === undefined ? "" : compareFiles[path] };
+      const stats = diffStats(change);
+      files.push({ path, added: stats.added, removed: stats.removed, addedLines: stats.addedLines, removedLines: stats.removedLines, addedFile: baseFiles[path] === undefined });
+      totalAdded += stats.added;
+      totalRemoved += stats.removed;
+    }
+    json(res, 200, {
+      source: pull.source, target: pull.target, status: pull.status, title: pull.title,
+      identical: pull.source === pull.target || (!files.length && !commits.length),
+      files, totalAdded, totalRemoved, commits,
+      canCreate: user ? canWrite(record, user) : false,
+    });
+  },
+
+  getRepoProtections(req, res, m) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !user || !canAdmin(record, user)) { fail(res, 403, "Access denied"); return; }
+    const protections = (store.protections || []).filter((p) => p.repo === name);
+    const branches = store.branches.filter((b) => b.repo === name).map((b) => b.name);
+    json(res, 200, { protections, branches });
+  },
+
+  async postRepoProtections(req, res, m) {
+    const name = decodeURIComponent(m[1]);
+    const record = repoOf(name);
+    const user = currentUser(req);
+    if (!record || !user || !canAdmin(record, user)) { fail(res, 403, "Access denied"); return; }
+    const body = await readBody(req);
+    const branch = typeof body.branch === "string" ? body.branch.trim() : "";
+    if (!branchRecord(name, branch)) { fail(res, 400, "Branch not found"); return; }
+    const rule = {
+      repo: name, branch,
+      requireApproval: body.requireApproval === true,
+      requireStatusCheck: typeof body.requireStatusCheck === "string" ? body.requireStatusCheck : null,
+    };
+    store.protections = store.protections || [];
+    const existing = store.protections.find((p) => p.repo === name && p.branch === branch);
+    if (existing) Object.assign(existing, rule);
+    else store.protections.push(rule);
+    saveStore(store);
+    json(res, 200, { ok: true, protection: rule });
+  },
+
   getRepoAccess(req, res, m) {
     const name = decodeURIComponent(m[1]);
     const record = repoOf(name);
@@ -1024,8 +1623,18 @@ function pageFor(pathname) {
   if (m) return "commit.html";
   m = pathname.match(/^\/repo\/[^/]+\/search\/?$/);
   if (m) return "repo-search.html";
-  m = pathname.match(/^\/repo\/[^/]+\/(issues|pulls)\/?$/);
-  if (m) return "repo-placeholder.html";
+  m = pathname.match(/^\/repo\/[^/]+\/issues\/?$/);
+  if (m) return "issues.html";
+  m = pathname.match(/^\/repo\/[^/]+\/issues\/new\/?$/);
+  if (m) return "new-issue.html";
+  m = pathname.match(/^\/repo\/[^/]+\/issues\/[^/]+\/?$/);
+  if (m) return "issue.html";
+  m = pathname.match(/^\/repo\/[^/]+\/pulls\/?$/);
+  if (m) return "pulls.html";
+  m = pathname.match(/^\/repo\/[^/]+\/compare\/?$/);
+  if (m) return "compare.html";
+  m = pathname.match(/^\/repo\/[^/]+\/pulls\/[^/]+\/?$/);
+  if (m) return "pull.html";
   m = pathname.match(/^\/repo\/[^/]+\/new-file\/?$/);
   if (m) return "new-file.html";
   m = pathname.match(/^\/repo\/[^/]+\/settings(\/(access|branches|general))?\/?$/);
@@ -1119,6 +1728,20 @@ const API_ROUTES = [
   [mk("POST", "^/api/repos/([^/]+)/branches$"), "postBranch"],
   [mk("PATCH", "^/api/repos/([^/]+)$"), "patchRepo"],
   [mk("POST", "^/api/repos/([^/]+)/files$"), "postRepoFile"],
+  [mk("GET", "^/api/repos/([^/]+)/issues$"), "getRepoIssues"],
+  [mk("POST", "^/api/repos/([^/]+)/issues$"), "postRepoIssue"],
+  [mk("GET", "^/api/repos/([^/]+)/issues/meta$"), "getRepoIssueMeta"],
+  [mk("GET", "^/api/repos/([^/]+)/issues/([^/]+)$"), "getRepoIssue"],
+  [mk("PATCH", "^/api/repos/([^/]+)/issues/([^/]+)$"), "patchRepoIssue"],
+  [mk("POST", "^/api/repos/([^/]+)/issues/([^/]+)/comments$"), "postRepoIssueComment"],
+  [mk("GET", "^/api/repos/([^/]+)/pulls$"), "getRepoPulls"],
+  [mk("POST", "^/api/repos/([^/]+)/pulls$"), "postRepoPull"],
+  [mk("GET", "^/api/repos/([^/]+)/compare$"), "getRepoCompare"],
+  [mk("GET", "^/api/repos/([^/]+)/pulls/([^/]+)$"), "getRepoPull"],
+  [mk("GET", "^/api/repos/([^/]+)/pulls/([^/]+)/compare$"), "getRepoPullCompare"],
+  [mk("POST", "^/api/repos/([^/]+)/pulls/([^/]+)/actions$"), "postRepoPullAction"],
+  [mk("GET", "^/api/repos/([^/]+)/protections$"), "getRepoProtections"],
+  [mk("POST", "^/api/repos/([^/]+)/protections$"), "postRepoProtections"],
   [mk("GET", "^/api/repos/([^/]+)/access$"), "getRepoAccess"],
   [mk("POST", "^/api/repos/([^/]+)/access$"), "postRepoAccess"],
   [mk("PATCH", "^/api/repos/([^/]+)/access$"), "patchRepoAccess"],
