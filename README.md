@@ -139,7 +139,7 @@ zip 里**不含二进制**：评测机运行时按 `main.py` 顶部的 `OCTOS_RE
 | **为什么输、赢在哪、下次怎么做** | [`00-赛后复盘.md`](docs/arc-journey/00-赛后复盘.md) ← **先读这篇** |
 | 平台每一次提交与分数 | [`13-平台提交记录.md`](docs/arc-journey/13-平台提交记录.md) |
 | 完整的 39 行优化台账 | [`04-优化循环与实验台账.md`](docs/arc-journey/04-优化循环与实验台账.md) |
-| 平台语义对账（本地 97 vs 平台 41） | [`arc/scratchpad/docworld-reconciliation.md`](arc/scratchpad/docworld-reconciliation.md) |
+| 平台语义对账（本地 97 vs 平台 41） | [`14-世界对账与平台语义.md`](docs/arc-journey/14-世界对账与平台语义.md) |
 | 代理测试审计（7 处硬伤） | [`08-代理测试审计与修复.md`](docs/arc-journey/08-代理测试审计与修复.md) |
 | 官方 runner 语义 19 条实证 | [`12-外聘Agent建产物提示词.md`](docs/arc-journey/12-外聘Agent建产物提示词.md) |
 | 成本机制设计 | [`07-成本机制设计.md`](docs/arc-journey/07-成本机制设计.md) |

@@ -1,0 +1,27 @@
+Capturing ARC Bench Meter baseline...
+Workspace: /home/kikun/MyProject/hackathon-local-simulation/runs/smoke-arch-0
+Container: arcbench-local-fd3e9750aeab
+Starting the same run_submission.py used by the platform...
+Waiting for ARC Bench Meter billing...
+{
+  "workspace": "/home/kikun/MyProject/hackathon-local-simulation/runs/smoke-arch-0",
+  "container_exit_code": 0,
+  "agent_duration_seconds": 751.814,
+  "evaluation_status": "completed",
+  "passed": 1,
+  "failed": 0,
+  "total": 1,
+  "score": 212.49713993755705,
+  "test_pass_rate": 100.0,
+  "token_count": 41384,
+  "token_cost": 0.063922,
+  "token_cost_usd": 0.063922,
+  "token_cost_currency": "CNY",
+  "meter_error": null,
+  "feature_implemented_count": 1,
+  "feature_total_count": 1,
+  "feature_implementation_rate": 100.0,
+  "playwright_report": "/home/kikun/MyProject/hackathon-local-simulation/runs/smoke-arch-0/template/.arc/playwright-report.json",
+  "stdout_log": "/home/kikun/MyProject/hackathon-local-simulation/runs/smoke-arch-0/template/.arc/stdout.log",
+  "debug_log": "/home/kikun/MyProject/hackathon-local-simulation/runs/smoke-arch-0/execution.debug.log"
+}
