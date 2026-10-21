@@ -440,7 +440,7 @@ class CostGauge(unittest.TestCase):
 
 class TaskOverrides(unittest.TestCase):
     def test_github_tree_tops_up_the_fuel_sheet_tree_keeps_base(self):
-        # aurora/11: symmetric caps spend the fattest margin (github p=4,
+        # docs/arc-journey/11: symmetric caps spend the fattest margin (github p=4,
         # every point net-new) and the hardest ceiling (sheet p=25) alike.
         # Two axes since T1: kernel meter units + raw input tokens.
         base = {"cost_budget": 0.05, "github_cost_budget": 0.07,

@@ -192,5 +192,6 @@ tsconfig.tsbuildinfo
 # workspace dirs the soaks `git init` — into a commit.
 /scratchpad/
 
-# Aurora-X 参赛工作文档（fork 本地新增，需白名单穿透上面的 *.md 全局忽略）
-!/aurora/*.md
+# ARC-Bench 参赛复盘档案（fork 本地新增，需白名单穿透上面的 *.md 全局忽略）
+!/docs/arc-journey/*.md
+!/docs/arc-journey/reference/*.md

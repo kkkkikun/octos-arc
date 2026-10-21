@@ -782,11 +782,11 @@ Cloud: 闸门回退与守卫都尚未评测（提交 C `bea95120a928` 跑的是�
 - 重校准（同成品重评，非重跑）：keep-baseline-0 32/32→**1/32**、bookstack-baseline-0
   34/34→**18/34**、keep-c1a-r2 12/32→1/32、keep-c1b-r2 11/32→1/32。失败收敛为
   三类缺口：input 无可访问名、卡片非 `<article>`、顶层命名词汇错位
-  （"Notes list"≠"Notes workspace" 等）。详见 `aurora/06`。
+  （"Notes list"≠"Notes workspace" 等）。详见 `docs/arc-journey/06`。
 
 ## 2026-09-21 · D3：需求可访问名契约（提示词 + ARIA lint）
 
-依据 aurora/06 重校准（keep 1/32、bookstack 18/34，失败全部收敛于 input 无名 /
+依据 docs/arc-journey/06 重校准（keep 1/32、bookstack 18/34，失败全部收敛于 input 无名 /
 非 article / 命名词汇错位三类缺口）：
 
 - **提示词侧**：`UI_CONTRACT_ARIA` 块无条件注入（`OCTOS_ARC_ARIA_PROMPT=0` 可关，

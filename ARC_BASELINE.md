@@ -4,6 +4,14 @@ Independent downstream repository for ARC coding experiments, established on 202
 The original Octos and ARC adapter repositories remain unchanged. This repository preserves
 their Git history; it is not a GitHub fork-network repository.
 
+> **The 2026 ARC-Bench campaign is over.** This repository is now an archive of that
+> entry, not a live submission target. Final platform result: Sheet 42/100,
+> GitHub 16/100, no prize. The full trail — route, 39-row experiment ledger,
+> postmortems, platform logs, artifacts, and an honest retrospective — is in
+> [`docs/arc-journey/`](docs/arc-journey/README.md). Read
+> [`00-赛后复盘.md`](docs/arc-journey/00-赛后复盘.md) first for what worked and
+> what did not.
+
 ## Fixed starting point
 
 - Octos repository: `octos-org/octos`

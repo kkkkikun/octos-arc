@@ -763,7 +763,7 @@ def apply_task_overrides(pol: dict, node_ids: list[str]) -> None:
     """Per-task policy adjustments the tree itself reveals. The github task
     (REQ-6 families) starts from p=4: every scenario is net-new score, so its
     fuel caps top up to buy the full tree; sheet (p=25 banked) pays only to
-    beat its ceiling (aurora/11 red-team: symmetric caps spend the fattest
+    beat its ceiling (docs/arc-journey/11 red-team: symmetric caps spend the fattest
     margin and the hardest ceiling identically)."""
     github = any(nid.startswith("REQ-6") for nid in node_ids)
     if not github:

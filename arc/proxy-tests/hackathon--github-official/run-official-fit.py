@@ -7,7 +7,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 GRADER = Path("/home/kikun/MyProject/octos-arc/arc/local-grader")
-ARTIFACT = Path(sys.argv[1] if len(sys.argv) > 1 else "/home/kikun/MyProject/octos-arc/aurora/output/t1-github/template")
+ARTIFACT = Path(sys.argv[1] if len(sys.argv) > 1 else "/home/kikun/MyProject/octos-arc/docs/arc-journey/artifacts/output/t1-github/template")
 PORT = int(sys.argv[2] if len(sys.argv) > 2 else 44200)
 NPX = os.path.expanduser("~/.nvm/versions/node/v22.21.1/bin/npx")
 
