@@ -23,7 +23,16 @@ GOSIM Factory26 · Agentic Software Factory Hackathon 的参赛仓库：
 的机制栈，以及 15 天的完整过程档案。
 
 **平台最终成绩：Sheet 42/100、GitHub 16/100，未获奖。**
-过程与结论全部公开在 [`docs/arc-journey/`](docs/arc-journey/)。
+
+同一届的三支头部队伍用的是同一个模型：OpenCollab（
+[仓库](https://github.com/RISE-X-Lab/OpenCollab)，决赛第 1）、
+volo-factory（[仓库](https://github.com/thunderstone-group/volo-factory-finals)，
+初赛 166/200 · ¥6.35，决赛第 2）、
+arc_pi（[仓库](https://github.com/Simonghj/arc_pi_r6)，决赛队伍）。
+我们 58/200、单题 ¥49——**每通过 1 分的成本差约 31 倍**。差距在 harness，不在模型。
+
+过程与结论全部公开在 [`docs/arc-journey/`](docs/arc-journey/)；
+逐项对照见 [`00-赛后复盘.md`](docs/arc-journey/00-赛后复盘.md)。
 
 ---
 

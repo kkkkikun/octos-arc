@@ -24,11 +24,16 @@
 sheet 41 → 42，github 4 → 16（github 一票翻了 4 倍）。但离入围线仍然很远。
 
 **最诚实的结论**：我们的机制是有效的（github 从 4 抬到 16、sheet 稳定在 41-42、
-本地自检 97/103），但**实现速度**和**单次实现的完整度**不够。赛后看头部队伍
-（[OpenCollab](https://github.com/RISE-X-Lab/OpenCollab)、
-[volo-factory](https://github.com/thunderstone-group/volo-factory-finals)、
-[arc_pi](https://github.com/Simonghj/arc_pi_r6)），差距不在"机制复杂度"，
-而在**一次实现就做对**的能力——详见 [`00-赛后复盘.md`](00-赛后复盘.md)。
+本地自检 97/103），但**实现速度**和**单次实现的完整度**不够。
+
+同一届的三支头部队伍——[OpenCollab](https://github.com/RISE-X-Lab/OpenCollab)（第 1）、
+[volo-factory-finals](https://github.com/thunderstone-group/volo-factory-finals)（第 2）、
+[arc_pi_r6](https://github.com/Simonghj/arc_pi_r6)（决赛队伍）——用的是同一个模型。
+VOLO 初赛 **166/200、两题 ¥6.35**；我们 **58/200、单题 ¥49**。
+**每通过 1 分的成本差约 31 倍。** 差距不在模型，在 harness 的架构选择：
+一次起草 vs 多轮修复、确定性检查 vs DOM 存在性、测试驱动修复 vs 测试只做事后裁判。
+
+逐项对照、七条分岔、十条可执行清单见 [`00-赛后复盘.md`](00-赛后复盘.md)。
 
 ---
 
@@ -36,7 +41,7 @@ sheet 41 → 42，github 4 → 16（github 一票翻了 4 倍）。但离入围�
 
 | 想了解 | 读这个 |
 | --- | --- |
-| **为什么输、赢在哪、下次怎么做** | [`00-赛后复盘.md`](00-赛后复盘.md) ← **先读这篇** |
+| **为什么输、赢在哪、下次怎么做** | [`00-赛后复盘.md`](00-赛后复盘.md) ← **先读这篇**（含与三支头部队伍的逐项对照） |
 | 平台每一次正式提交与分数 | [`13-平台提交记录.md`](13-平台提交记录.md) |
 | 参赛路线、提交机制、开发循环 | [`01-参赛路线与提交流程.md`](01-参赛路线与提交流程.md) |
 | 环境、依赖、踩过的坑（可复现） | [`02-环境与坑.md`](02-环境与坑.md) |
