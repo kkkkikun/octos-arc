@@ -51,11 +51,11 @@ stage-1 的 30 个场景，**stage-2 和 stage-3 一分未得**——而它们�
 
 同一届比赛的三支头部队伍，仓库公开、读数公开、模型和我们一样：
 
-| 队伍 | 仓库 | 成绩 |
-| --- | --- | --- |
-| RISE-X-Lab | [OpenCollab](https://github.com/RISE-X-Lab/OpenCollab) | 决赛 **第 1** |
-| VOLO-AI | [volo-factory-finals](https://github.com/thunderstone-group/volo-factory-finals) | 初赛 **166/200 · ¥6.35**；决赛 **58/60 · ¥2.56 · 第 2/20** |
-| Limitless | [arc_pi_r6](https://github.com/Simonghj/arc_pi_r6) | 决赛队伍 |
+| 队伍 | 仓库 | 参赛配置 | 成绩 |
+| --- | --- | --- | --- |
+| RISE-X-Lab | [OpenCollab](https://github.com/RISE-X-Lab/OpenCollab) | Weave 工作流 + **单 agent**（每单元新会话） | 决赛 **第 1** |
+| VOLO-AI | [volo-factory-finals](https://github.com/thunderstone-group/volo-factory-finals) | 单 agent 一次起草 + 有界修复 | 初赛 **166/200 · ¥6.35**；决赛 **58/60 · ¥2.56 · 第 2/20** |
+| Limitless | [arc_pi_r6](https://github.com/Simonghj/arc_pi_r6) | Python 编排 + 确定性契约检查 | 决赛队伍 |
 
 | 指标 | 我们 | VOLO | 差距 |
 | --- | ---: | ---: | ---: |
@@ -64,6 +64,12 @@ stage-1 的 30 个场景，**stage-2 和 stage-3 一分未得**——而它们�
 
 决赛前四名用的是同一个模型 `deepseek-v4-flash-vision-exp`。VOLO 把它写在展台海报上：
 **"差距在 harness。"**
+
+> **注意**：第一名 **不是**靠"多 agent 协作"赢的。OpenCollab 虽然叫多智能体框架，
+> 但比赛提交用的是 Weave 工作流（`agent_profile="single2"`、`concurrency=1`）——
+> **单 agent 串行、每个工作单元开新会话**。他们真正研究的多 agent 模式（Team）
+> 恰恰证明了多 agent 更贵：**47.2% 的运行里协作根本没发生**，lead 交代完任务
+> 自己又干了一遍。详见复盘 [2.3 节](docs/arc-journey/00-赛后复盘.md#23-opencollab--第一名靠的是上下文切分不是多-agent)。
 
 一句话总结：**我们造了一台能自我诊断的机器，却没来得及让它一次就把事情做对。**
 完整的复盘——七条分岔、逐项读数对照、十条可执行清单——在
